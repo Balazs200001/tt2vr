@@ -22,7 +22,7 @@ Source of truth for names. Read this before any analysis; add every new name her
 
 - **TT2 game classes are not exported.** `TTSpringCameraMode`, `TTGameCameraViews`, `TTCameraModeMgr`, `TTOptionsManager`, `TTHud`, `TTDashboardHUD`, `TTReplayManager` etc. have 0 export hits. Only `PlayAll::*` and global `KTU*` classes are exported. TT2 code is located by string xrefs from `__FUNCTION__` and log literals; those entries below are `FUN_` addresses with our names.
 - 27 `__FILE__` path strings carry a 1-byte `?` prefix in the string dump; their true VA is dump VA + 1 (e.g. renderloop.cpp @0x140ffef00).
-- CLAUDE.md rule 3: the mod must not hard-code these addresses. They are the analysis reference; `src/game/signatures.hpp` finds them by pattern scan.
+- CLAUDE.md rule 3: the mod must not hard-code these addresses. They are the analysis reference; `src/game/signatures.hpp` finds them by export name first, pattern scan as fallback.
 - Thread of the whole frame: main thread (see Frame loop). "Per frame / per view" classification lives in `temporal.md` / `frame-anatomy.md`; this file only names things.
 - Contradictions between notes are collected in the last section ("Conflicts and open questions") and flagged inline with **CONFLICT**.
 
@@ -408,6 +408,7 @@ Names are strings in the exe; the DX11 executor may not emit them as annotations
 | `g_bLockCullingQuery` | 0x14140bcc0 | global | freezes cull pos (+0xc) and culling frustum updates | confirmed |
 | shared per-view CB id | 0x14140bb48 | global | `RenderLayer::GetSharedCB(DAT_14140bb48)` -> ViewContext+0x458 | confirmed |
 | `Math::MatrixPerspectiveFovRH` | 0x140813390 | function | (out, hFovRad, near, far, aspectScale). RH, view-space forward -Z, REVERSED-Z, finite far, [0,1]. m[0]=1/tan(fov/2), m[5]=m[0]*aspect, m[10]=n/(f-n), m[11]=nf/(f-n), m[14]=-1. ~20 callers; choke point | confirmed (RC) |
+| `Math::MatrixPerspectiveFovLH` | 0x1408132f0 | function | near-twin of the RH variant (first byte difference at +0x33); patterns for the RH one must extend past it | confirmed |
 | `Math::MatrixOrthoRH` | 0x140813260 | function | also reversed; param order odd (near=0 passed as arg 4); use by 3D scene passes unknown | likely |
 | `Math::Matrix44_Inverse` (FUN_14046b6c0) | 0x14046b6c0 | function | general cofactor inverse (out, det|null, in) | confirmed |
 | `Math::Matrix44_Mul` (FUN_14046baa0) | 0x14046baa0 | function | out = A*B, row-major indexing | confirmed |
