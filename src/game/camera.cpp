@@ -4,6 +4,7 @@
 #include "core/hooks.hpp"
 #include "core/log.hpp"
 #include "game/engine_layout.hpp"
+#include "game/menu_state.hpp"
 #include "game/signatures.hpp"
 #include "stereo/math/projection.hpp"
 #include "stereo/math/xr_to_engine.hpp"
@@ -105,8 +106,10 @@ void BeginFrame(void* renderer)
     g_shiftX = g_settings.projEnabled ? g_settings.shiftX : 0.0f;
     g_shiftY = g_settings.projEnabled ? g_settings.shiftY : 0.0f;
     // Phase 3: left eye only. Pose and FOV come from xrLocateViews at this frame's predicted display time.
+    // Menus and the pause screen are not head-tracked: xr shows the flat frame on a world-fixed screen instead.
+    const bool menu = core::GetConfig().xr.menu_screen && ReadMenuState().Active();
     xr::FrameViews views;
-    g_head = xr::LocateViews(views);
+    g_head = !menu && xr::LocateViews(views);
     if (g_head) {
         const xr::EyeView& eye = views.eye[0];
         g_eyeLocal = stereo::EyeLocal(views.recenter, eye.pose);

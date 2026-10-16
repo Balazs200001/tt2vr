@@ -27,6 +27,9 @@ enum class Sig {
     ViewContextRebuildFrustum,
     TTCameraAfterPhysicsStep,
     ActorSetWorldMatrix,
+    GuiManagerInstance,
+    GuiManagerIsMenuOpen,
+    GuiManagerIsGamePaused,
     Count,
 };
 
@@ -65,6 +68,13 @@ inline constexpr Signature kSignatures[] = {
     {"Actor::SetWorldMatrix", "?SetWorldMatrix@Actor@GameServices@PlayAll@@QEAAXAEBVMatrix34@Math@3@@Z", nullptr, 0,
         "export; 0x1403d77f0, mov rcx,[rcx+0x70]; jmp GraphNode::SetWorldMatrix (too short for a pattern)",
         kBuild4989319},
+    {"g_pGuiManager", "?g_pGuiManager@@3PEAVKTUGuiManager@@EA", nullptr, 0,
+        "data export; 0x1414153c8, KTUGuiManager* (docs/re/frame-anatomy.md 8.4)", kBuild4989319},
+    {"KTUGuiManager::IsMenuOpen", "?IsMenuOpen@KTUGuiManager@@QEBA_NXZ", nullptr, 0,
+        "export; 0x14043db20, cmp qword [rcx+0xf0],0; setne al (current menu != null; too short for a pattern)",
+        kBuild4989319},
+    {"KTUGuiManager::IsGamePaused", "?IsGamePaused@KTUGuiManager@@QEBA_NXZ", nullptr, 0,
+        "export; 0x14043b420, movzx eax, byte [rcx+0xe8] (set by PauseGame; too short for a pattern)", kBuild4989319},
 };
 
 static_assert(std::size(kSignatures) == static_cast<std::size_t>(Sig::Count), "kSignatures must match Sig");

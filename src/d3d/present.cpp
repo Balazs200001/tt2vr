@@ -23,6 +23,7 @@
 #include "d3d/texture_dump.hpp"
 #include "d3d/vtable.hpp"
 #include "game/camera.hpp"
+#include "game/menu_state.hpp"
 #include "game/version.hpp"
 #include "ui/overlay.hpp"
 #include "xr/session.hpp"
@@ -200,7 +201,8 @@ void InstallEngineHooksOnce()
     }
     s_done = true;
     if (game::EngineHooksAllowed()) {
-        game::InstallCameraHooks();
+        game::InstallCameraHooks(); // resolves the signature table
+        game::InitMenuState();
     }
     else {
         TT2VR_LOG_WARN("engine hooks skipped: unknown game version");
