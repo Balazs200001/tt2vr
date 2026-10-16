@@ -93,6 +93,8 @@ public:
         c->RSGetState(&m_raster);
         m_viewportCount = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
         c->RSGetViewports(&m_viewportCount, m_viewports);
+        m_scissorCount = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+        c->RSGetScissorRects(&m_scissorCount, m_scissors);
         c->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, m_rtvs, &m_dsv);
         c->OMGetBlendState(&m_blend, m_blendFactor, &m_sampleMask);
         c->OMGetDepthStencilState(&m_depth, &m_stencilRef);
@@ -113,6 +115,7 @@ public:
         m_c->PSSetSamplers(0, 1, &sampler);
         m_c->RSSetState(m_raster.Get());
         m_c->RSSetViewports(m_viewportCount, m_viewports);
+        m_c->RSSetScissorRects(m_scissorCount, m_scissors);
         m_c->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, m_rtvs, m_dsv.Get());
         m_c->OMSetBlendState(m_blend.Get(), m_blendFactor, m_sampleMask);
         m_c->OMSetDepthStencilState(m_depth.Get(), m_stencilRef);
@@ -160,6 +163,8 @@ private:
     ComPtr<ID3D11RasterizerState> m_raster;
     UINT m_viewportCount = 0;
     D3D11_VIEWPORT m_viewports[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE] = {};
+    UINT m_scissorCount = 0;
+    D3D11_RECT m_scissors[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE] = {};
     ID3D11RenderTargetView* m_rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
     ComPtr<ID3D11DepthStencilView> m_dsv;
     ComPtr<ID3D11BlendState> m_blend;
@@ -217,6 +222,7 @@ bool Blitter::Init(ID3D11Device* device)
     rd.FillMode = D3D11_FILL_SOLID;
     rd.CullMode = D3D11_CULL_NONE;
     rd.DepthClipEnable = TRUE;
+    rd.ScissorEnable = TRUE; // the destination rectangle
     D3D11_BLEND_DESC bd{};
     bd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
     D3D11_DEPTH_STENCIL_DESC dd{};
@@ -277,7 +283,14 @@ bool Blitter::PrepareSource(ID3D11Texture2D* source)
 bool Blitter::Blit(ID3D11DeviceContext* context, ID3D11Texture2D* source, ID3D11RenderTargetView* target, UINT dstW,
     UINT dstH, bool decode, float u0, float uw, bool copySource)
 {
-    if (!m_ready || !context || !source || !target || uw <= 0.0f) {
+    const D3D11_VIEWPORT dst{0.0f, 0.0f, static_cast<float>(dstW), static_cast<float>(dstH), 0.0f, 1.0f};
+    return BlitRect(context, source, target, dst, decode, u0, uw, copySource);
+}
+
+bool Blitter::BlitRect(ID3D11DeviceContext* context, ID3D11Texture2D* source, ID3D11RenderTargetView* target,
+    const D3D11_VIEWPORT& dst, bool decode, float u0, float uw, bool copySource)
+{
+    if (!m_ready || !context || !source || !target || uw <= 0.0f || dst.Width <= 0.0f || dst.Height <= 0.0f) {
         return false;
     }
     InternalScope internal;
@@ -288,10 +301,12 @@ bool Blitter::Blit(ID3D11DeviceContext* context, ID3D11Texture2D* source, ID3D11
         context->CopyResource(m_copy.Get(), source);
     }
     StateBackup backup(context);
-    // A sub-range of the source = the whole source drawn into a wider viewport shifted left; the render target
-    // clips the rest (viewport origins may be negative).
-    const float width = static_cast<float>(dstW) / uw;
-    const D3D11_VIEWPORT vp{-u0 * width, 0.0f, width, static_cast<float>(dstH), 0.0f, 1.0f};
+    // A sub-range of the source = the whole source drawn into a wider viewport shifted left; the scissor keeps the
+    // draw inside the destination rectangle (viewport origins may be negative).
+    const float width = dst.Width / uw;
+    const D3D11_VIEWPORT vp{dst.TopLeftX - u0 * width, dst.TopLeftY, width, dst.Height, 0.0f, 1.0f};
+    const D3D11_RECT scissor{static_cast<LONG>(dst.TopLeftX), static_cast<LONG>(dst.TopLeftY),
+        static_cast<LONG>(dst.TopLeftX + dst.Width), static_cast<LONG>(dst.TopLeftY + dst.Height)};
     context->IASetInputLayout(nullptr);
     context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     context->VSSetShader(m_vs.Get(), nullptr, 0);
@@ -301,6 +316,7 @@ bool Blitter::Blit(ID3D11DeviceContext* context, ID3D11Texture2D* source, ID3D11
     context->DSSetShader(nullptr, nullptr, 0);
     context->RSSetState(m_raster.Get());
     context->RSSetViewports(1, &vp);
+    context->RSSetScissorRects(1, &scissor);
     context->OMSetRenderTargets(1, &target, nullptr);
     context->OMSetBlendState(m_blend.Get(), nullptr, 0xffffffff);
     context->OMSetDepthStencilState(m_depth.Get(), 0);

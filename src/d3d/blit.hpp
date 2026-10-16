@@ -33,6 +33,10 @@ public:
     // same frame).
     bool Blit(ID3D11DeviceContext* context, ID3D11Texture2D* source, ID3D11RenderTargetView* target, UINT dstW,
         UINT dstH, bool decode, float u0 = 0.0f, float uw = 1.0f, bool copySource = true);
+    // Same into the rectangle `dst` of the target (in target pixels); the rest of the target is untouched. The
+    // target may be the source itself (the source is copied first).
+    bool BlitRect(ID3D11DeviceContext* context, ID3D11Texture2D* source, ID3D11RenderTargetView* target,
+        const D3D11_VIEWPORT& dst, bool decode, float u0 = 0.0f, float uw = 1.0f, bool copySource = true);
     void Release();
 
 private:
