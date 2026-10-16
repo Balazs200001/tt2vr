@@ -1,3 +1,4 @@
+#include "core/config.hpp"
 #include <doctest/doctest.h>
 
 #include "game/version.hpp"
@@ -57,4 +58,18 @@ TEST_CASE("VersionInfo defaults to NotChecked")
     const game::VersionInfo v;
     CHECK(v.status == VersionStatus::NotChecked);
     CHECK_FALSE(v.faked);
+}
+
+TEST_CASE("Faking the hash with 64 zeros from the config gives an unknown version")
+{
+    const auto r = core::ParseConfig("[debug]\nfake_exe_sha256 = \"" + std::string(64, '0') + "\"\n");
+    CHECK(r.warnings.empty());
+    REQUIRE(r.config.debug.fake_exe_sha256 == std::string(64, '0'));
+    const auto info = game::ClassifyExe(r.config.debug.fake_exe_sha256, true);
+    CHECK(info.status == game::VersionStatus::Unknown);
+    CHECK(info.faked);
+
+    // Common mistakes are rejected with a warning (and the real hash is used).
+    CHECK_FALSE(core::ParseConfig("[debug]\nfake_exe_sha256 = \"" + std::string(63, '0') + "\"\n").warnings.empty());
+    CHECK_FALSE(core::ParseConfig("[debug]\nfake_exe_sha256 = 0\n").warnings.empty());
 }
