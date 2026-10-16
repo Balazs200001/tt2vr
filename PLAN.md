@@ -225,6 +225,15 @@ Implementation notes (2026-10-16):
 - [ ] Left-eye-only mode: camera from `P_L`, projection from `F_L`, right eye black. This validates pose, projection and conversion exactly; a mono image shown to both eyes would match neither.
 - [ ] Recenter via hotkey and overlay.
 
+Implementation notes (2026-10-16, code done, runtime test pending; all boxes above stay open until Balazs reports):
+- `src/xr/session.*`: instance (`XR_KHR_D3D11_enable`, logs `xr: instance created, runtime ...`), `xrGetSystem` retried every 2 s while no headset, LUID + feature-level check (`xr: game adapter ... -> match`; mismatch = flat), session on the game device, `LOCAL` space, state machine (READY begin, STOPPING end, LOSS_PENDING retry after 3 s, EXITING stays flat until overlay "Restart XR", instance loss retry after 10 s).
+- Frame loop on the main thread: Present post-hook (last) `xrWaitFrame` + `xrBeginFrame`; `Renderer::DoUpdate` pre `xrLocateViews` once per XR frame; Present pre-hook (before the overlay) eye copy + `xrEndFrame` with the located poses/FOVs. No head-tracked render that frame = no layers. Overlay shows the smoothed `xrWaitFrame` time and the display period.
+- `src/xr/swapchain.*`: per-eye swapchains at recommended × `[xr] resolution_scale`, format order R8G8B8A8_SRGB, B8G8R8A8_SRGB, then UNORM. Same size and family as the back buffer: raw `CopySubresourceRegion`; otherwise `d3d::Blitter` stretch blit (raw gamma bits, or sRGB decode when the image only has a typed sRGB view or the swapchain is linear). Right eye cleared to black.
+- Resolution: `tools/set-eye-resolution.ps1 -Width W -Height H` sets Windowed W×H in `UserSettings.cfg` (backup, `-Restore`). Geometry is correct even when stretched, because m00/m11 come from `XrFovf`, not the back-buffer aspect. Whether the game accepts a non-monitor windowed size is a runtime check.
+- Head tracking: `game::CameraOverride` view = world · sliders · `EyeLocal(recenter, P_L)`; projection = `F_L` tangents at the `MatrixPerspectiveFovRH` choke point (engine still adds TAA jitter). Recenter (yaw-only, eye midpoint) on session start, hotkey F7, overlay button, and after a runtime LOCAL recenter event.
+- Desktop: `[xr] desktop_vsync_off` (default on) presents with sync 0 while the session runs; `[xr] desktop_mirror = false` skips the desktop Present (the game still renders once per frame; see Decisions log).
+- Known: HUD is baked into the eye image (Phase 7); TAA smears one frame after a recenter (history reset is Phase 6).
+
 **Done when:** in the headset, a roadside sign I fixate on stays fixed while I rotate and lean my head (no swimming), and colors match the desktop.
 
 ## Phase 4 — Dual-view stereo via the engine's split-screen path (milestone)
@@ -329,6 +338,9 @@ Approach (proposed 2026-10-16, see "Phase 0 findings"): the engine renders up to
 | 2026-10-16 | Signatures resolve by TT2.exe export name first, pattern scan as fallback (CLAUDE.md rule 3 reworded) | PlayAll engine functions are exported by mangled name, which survives code changes better than byte patterns; patterns stay as a checked fallback |
 | 2026-10-16 | Camera override changes the main ViewContext after `InitFromCamera`, never the scene-graph pool; projection reshaped at the `MatrixPerspectiveFovRH` choke point inside the DoUpdate→Present window | the pool camera matrix is read by audio, physics and camera logic (rule 5); 20 render-side callers rebuild symmetric projections from the camera fields |
 | 2026-10-16 | Pure matrix code lives in a `tt2vr_math` static lib (`src/stereo/math`), linked by the DLL and the tests | testable without the game; DirectXMath is header-only, no new dependency |
+| 2026-10-16 | While the XR session runs, the desktop Present uses sync interval 0 (`[xr] desktop_vsync_off`, default on; chosen by Balazs) | `xrWaitFrame` paces the frame; desktop VSync at 50/60 Hz would fight the headset's 72/90 Hz. Only the desktop mirror's pacing changes (rule 5) |
+| 2026-10-16 | `[xr] desktop_mirror = false` skips the desktop Present while the session runs (Balazs asked for a way to not render to the PC screen) | the scene is rendered once per frame either way; the desktop costs only the present. A smaller desktop window is not offered: the engine sizes its render targets from the window resolution, so it would shrink the eye image too |
+| 2026-10-16 | XR frame loop: `xrWaitFrame`/`xrBeginFrame` at the end of the Present post-hook, `xrLocateViews` in `DoUpdate`, eye copy + `xrEndFrame` in the Present pre-hook before the overlay | the wait throttles the start of the next frame; the pose is taken after the game's camera update; the overlay stays desktop-only |
 | TBD (Phase 4) | Temporal mechanism per state (C / A / B1 / B2) | |
 
 ## Open questions (answer in Phase 0)

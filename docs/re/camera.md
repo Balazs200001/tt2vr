@@ -81,6 +81,8 @@ Why the projection choke point instead of `ViewContext::SetProjection` after `In
 
 World Shift: the override is recomputed every frame from the current pool matrix; nothing is accumulated in world space.
 
+Head tracking (Phase 3, `src/game/camera.cpp`, runtime test pending): in the `DoUpdate` pre-hook, `xr::LocateViews` gives the left eye's pose and `XrFovf` at the frame's predicted display time. The view becomes `world * sliders * EyeLocal(recenter, P_L)` (conventions 8.1 rule 1: camera-local, no basis change), the projection takes the eye's tangents at the same choke point (callers keep their near/far rows and add jitter afterwards), and the helmet uses the same local transform one physics step later.
+
 ## 7. Helmet mesh (HelmetView actor)
 
 | Item | Value | Evidence | Confidence |
