@@ -33,6 +33,11 @@ inline constexpr std::ptrdiff_t kTmView = 0x00;
 inline constexpr std::ptrdiff_t kTmWorld = 0x40; // inverse of view = camera world
 inline constexpr std::ptrdiff_t kTmProj = 0xc0; // including jitter
 
+// TT2 player camera object (FUN_1403afc80's `this`) and TTSpringCameraMode
+inline constexpr std::ptrdiff_t kTTCameraHelmetActor = 0x160; // HelmetView actor
+inline constexpr std::ptrdiff_t kModeCameraMatrix = 0x8; // Matrix34 the mode outputs
+inline constexpr std::ptrdiff_t kModeHelmetMatrix = 0x4c4; // Matrix34 from HelmetSprings (built from +0x8)
+
 // PlayAll::Game::Renderer
 inline constexpr std::ptrdiff_t kRendererSplitMode = 0xe40; // cameraDesc.splitMode (0 = one view)
 inline constexpr std::ptrdiff_t kRendererSplitCameras = 0xe48; // Camera*[2]

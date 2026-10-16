@@ -119,6 +119,14 @@ void CameraSection()
     ImGui::SliderFloat("pitch (up +)", &s.pitchDeg, -90.0f, 90.0f, "%.1f deg");
     ImGui::SliderFloat("roll (left +)", &s.rollDeg, -180.0f, 180.0f, "%.1f deg");
     ImGui::SliderFloat3("offset x/y/z (m)", s.offset, -2.0f, 2.0f, "%.2f");
+    if (game::HelmetHooksActive()) {
+        ImGui::Checkbox("Helmet follows view", &s.helmetFollows);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%u moves/frame)", info.helmetMoves);
+    }
+    else {
+        ImGui::TextDisabled("helmet hooks not active: helmet stays where the game puts it");
+    }
     if (ImGui::Button("Reset view")) {
         s.yawDeg = s.pitchDeg = s.rollDeg = 0.0f;
         s.offset[0] = s.offset[1] = s.offset[2] = 0.0f;

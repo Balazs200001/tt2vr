@@ -6,6 +6,10 @@
 //   ViewContext::InitFromCamera   post, main camera inside DoUpdate only: world' = world * local offset; rebuild
 //                                 the ViewContext's view, camera position and frustum. The scene-graph pool
 //                                 (audio listener, physics, gameplay readers) is never written (CLAUDE.md rule 5).
+//   TTCamera::AfterPhysicsStep +  physics step: while the game places the HelmetView actor at the camera mode's
+//   Actor::SetWorldMatrix         helmet matrix H (mode+0x4c4, built from the mode camera matrix M = mode+0x8),
+//                                 pass M * local * M^-1 * H instead, so the helmet turns with the view. Optional
+//                                 ([camera] helmet_follows_view); the game's "Helmet No Mesh" view never places it.
 //   Math::MatrixPerspectiveFovRH  post, any thread, render window only: when the fov argument is the main
 //                                 camera's fov or front fov, reshape the FOV terms (keeps the caller's near/far).
 //                                 This one choke point covers culling, front pass, lighting, sky, CSM and 3D HUD.
@@ -23,6 +27,7 @@ struct CameraSettings {
     bool viewEnabled = false;
     float yawDeg = 0, pitchDeg = 0, rollDeg = 0; // camera-local, see stereo::CameraLocalTransform
     float offset[3] = {0, 0, 0}; // metres, camera-local (x right, y up, z back)
+    bool helmetFollows = true; // helmet mesh follows the view override (init from [camera] helmet_follows_view)
     bool projEnabled = false;
     float shiftX = 0, shiftY = 0; // window shift as a fraction of width / height (0.2 = 20% to the right)
 };
@@ -40,6 +45,7 @@ struct CameraInfo {
     float proj[4][4] = {}; // main ViewContext projection as installed (after override and jitter)
     float jitter[2] = {};
     std::uint32_t projOverrides = 0; // MatrixPerspectiveFovRH calls reshaped in the last frame
+    std::uint32_t helmetMoves = 0; // helmet placements adjusted in the last frame (0 while physics is paused)
 };
 CameraInfo LastCameraInfo(); // main thread
 
@@ -47,6 +53,7 @@ CameraInfo LastCameraInfo(); // main thread
 // known. Returns false (and leaves the game untouched) if a required signature or hook is missing.
 bool InstallCameraHooks();
 bool CameraHooksActive();
+bool HelmetHooksActive();
 
 // Present post-hook (main thread): closes the render window and rolls the per-frame counters.
 void OnPresent();

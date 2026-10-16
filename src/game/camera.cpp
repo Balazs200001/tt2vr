@@ -1,5 +1,6 @@
 #include "game/camera.hpp"
 
+#include "core/config.hpp"
 #include "core/hooks.hpp"
 #include "core/log.hpp"
 #include "game/engine_layout.hpp"
@@ -12,6 +13,7 @@
 #include <atomic>
 #include <bit>
 #include <cmath>
+#include <mutex>
 #include <numbers>
 
 namespace game {
@@ -27,13 +29,18 @@ using InitFromCameraFn = void (*)(void* viewContext, const void* camera, const v
 using PerspectiveFn = float* (*)(float* out, float hfov, float nearZ, float farZ, float aspect);
 using SetViewProjectionFn = void (*)(void* transformMatrix, const float* view, const float* proj);
 using RebuildFrustumFn = void (*)(void* viewContext);
+using AfterPhysicsStepFn = int (*)(void* ttCamera, void* gameContext);
+using ActorSetWorldMatrixFn = void (*)(void* actor, const float* matrix34);
 
 DoUpdateFn g_doUpdate = nullptr;
 InitFromCameraFn g_initFromCamera = nullptr;
 PerspectiveFn g_perspective = nullptr;
 SetViewProjectionFn g_setViewProjection = nullptr;
 RebuildFrustumFn g_rebuildFrustum = nullptr;
+AfterPhysicsStepFn g_afterPhysicsStep = nullptr;
+ActorSetWorldMatrixFn g_actorSetWorldMatrix = nullptr;
 bool g_active = false;
+bool g_helmetActive = false;
 
 // Main thread state.
 CameraSettings g_settings;
@@ -49,6 +56,14 @@ std::atomic<std::uint32_t> g_frontFovBits{0};
 std::atomic<float> g_shiftX{0};
 std::atomic<float> g_shiftY{0};
 std::atomic<std::uint32_t> g_projCount{0};
+
+// Helmet: snapshot of the camera-local transform, published at Present (main thread) and read in the physics
+// step (main thread as far as known; the mutex keeps it safe if the physics step ever runs elsewhere).
+std::mutex g_helmetMutex;
+bool g_helmetApply = false;
+Mat34 g_helmetLocal = stereo::Identity34();
+std::atomic<std::uint32_t> g_helmetCount{0};
+thread_local const void* t_helmetActor = nullptr; // non-null only inside TTCamera::AfterPhysicsStep
 
 constexpr float kDegToRad = std::numbers::pi_v<float> / 180.0f;
 constexpr float kRadToDeg = 180.0f / std::numbers::pi_v<float>;
@@ -83,6 +98,12 @@ void BeginFrame(void* renderer)
     g_shiftX = g_settings.shiftX;
     g_shiftY = g_settings.shiftY;
     g_projActive = g_settings.projEnabled;
+}
+
+Mat34 LocalFromSettings(const CameraSettings& s)
+{
+    return stereo::CameraLocalTransform(s.yawDeg * kDegToRad, s.pitchDeg * kDegToRad, s.rollDeg * kDegToRad,
+        {s.offset[0], s.offset[1], s.offset[2]});
 }
 
 void RecordCamera(void* viewContext, const void* camera)
@@ -120,10 +141,8 @@ void RecordCamera(void* viewContext, const void* camera)
 // camera position, view (= inverse world), SetViewProjection with the projection already built, RebuildFrustum.
 void ApplyViewOverride(void* viewContext)
 {
-    const CameraSettings& s = g_settings;
     const Mat34 world = stereo::ToMat34(Read<Mat44>(viewContext, kViewTransform + kTmWorld));
-    const Mat34 local = stereo::CameraLocalTransform(s.yawDeg * kDegToRad, s.pitchDeg * kDegToRad,
-        s.rollDeg * kDegToRad, {s.offset[0], s.offset[1], s.offset[2]});
+    const Mat34 local = LocalFromSettings(g_settings);
     const Mat34 moved = stereo::ComposeCameraLocal(world, local);
     alignas(16) const Mat44 view = stereo::ViewFromWorld(moved);
     alignas(16) const Mat44 proj = Read<Mat44>(viewContext, kViewTransform + kTmProj);
@@ -170,6 +189,48 @@ void HookedInitFromCamera(void* viewContext, const void* camera, const void* vie
         std::memcpy(g_info.jitter, At(viewContext, kViewProjOffset), sizeof(g_info.jitter));
     }
     catch (...) {
+    }
+}
+
+// Thread: physics step (CameraManager AfterPhysicsStep; game main thread as far as known).
+int HookedAfterPhysicsStep(void* ttCamera, void* gameContext)
+{
+    bool apply = false;
+    {
+        std::lock_guard lock(g_helmetMutex);
+        apply = g_helmetApply;
+    }
+    t_helmetActor = apply && ttCamera ? Read<const void*>(ttCamera, kTTCameraHelmetActor) : nullptr;
+    const int result = g_afterPhysicsStep(ttCamera, gameContext);
+    t_helmetActor = nullptr;
+    return result;
+}
+
+// Thread: any caller of Actor::SetWorldMatrix. Acts only inside HookedAfterPhysicsStep for the HelmetView actor,
+// where the game passes &mode->helmetMatrix (FUN_1403afc80, docs/re/camera.md section 7).
+void HookedActorSetWorldMatrix(void* actor, const float* matrix)
+{
+    if (!t_helmetActor || actor != t_helmetActor || !matrix) {
+        g_actorSetWorldMatrix(actor, matrix);
+        return;
+    }
+    try {
+        const char* mode = reinterpret_cast<const char*>(matrix) - kModeHelmetMatrix;
+        const Mat34 helmet = Read<Mat34>(matrix, 0);
+        const Mat34 pivot = Read<Mat34>(mode, kModeCameraMatrix); // the matrix HelmetSprings built `helmet` from
+        Mat34 local;
+        {
+            std::lock_guard lock(g_helmetMutex);
+            local = g_helmetLocal;
+        }
+        const Mat34 pivotInv = stereo::ToMat34(stereo::Inverse(stereo::ToMat44(pivot)));
+        alignas(16) const Mat34 moved =
+            stereo::Mul(stereo::ComposeCameraLocal(pivot, local), stereo::Mul(pivotInv, helmet));
+        g_actorSetWorldMatrix(actor, &moved.m[0][0]);
+        g_helmetCount.fetch_add(1, std::memory_order_relaxed);
+    }
+    catch (...) {
+        g_actorSetWorldMatrix(actor, matrix);
     }
 }
 
@@ -222,9 +283,14 @@ bool InstallCameraHooks()
         return g_active;
     }
     s_done = true;
-    if (ResolveSignatures() > 0) {
-        TT2VR_LOG_ERROR("camera: signatures missing; camera override disabled, game renders unmodified");
-        return false;
+    g_settings.helmetFollows = core::GetConfig().camera.helmet_follows_view;
+    ResolveSignatures();
+    for (const Sig required : {Sig::RendererDoUpdate, Sig::ViewContextInitFromCamera, Sig::MatrixPerspectiveFovRH,
+             Sig::TransformMatrixSetViewProjection, Sig::ViewContextRebuildFrustum}) {
+        if (!SignatureAddress(required)) {
+            TT2VR_LOG_ERROR("camera: signatures missing; camera override disabled, game renders unmodified");
+            return false;
+        }
     }
     g_setViewProjection = reinterpret_cast<SetViewProjectionFn>(SignatureAddress(Sig::TransformMatrixSetViewProjection));
     g_rebuildFrustum = reinterpret_cast<RebuildFrustumFn>(SignatureAddress(Sig::ViewContextRebuildFrustum));
@@ -243,6 +309,21 @@ bool InstallCameraHooks()
     }
     else {
         TT2VR_LOG_ERROR("camera: hook install failed; camera override disabled");
+        return false;
+    }
+    // Optional: the helmet keeps the game's placement if these are missing.
+    if (SignatureAddress(Sig::TTCameraAfterPhysicsStep) && SignatureAddress(Sig::ActorSetWorldMatrix)) {
+        g_helmetActive =
+            core::hooks::Create("Actor::SetWorldMatrix", SignatureAddress(Sig::ActorSetWorldMatrix),
+                &HookedActorSetWorldMatrix, &g_actorSetWorldMatrix) == Result::Ok &&
+            core::hooks::Create("TTCamera::AfterPhysicsStep", SignatureAddress(Sig::TTCameraAfterPhysicsStep),
+                &HookedAfterPhysicsStep, &g_afterPhysicsStep) == Result::Ok;
+    }
+    if (g_helmetActive) {
+        TT2VR_LOG_INFO("camera: helmet hooks installed (helmet follows view: {})", g_settings.helmetFollows);
+    }
+    else {
+        TT2VR_LOG_WARN("camera: helmet hooks not installed; the helmet mesh keeps the game's placement");
     }
     return ok;
 }
@@ -252,10 +333,19 @@ bool CameraHooksActive()
     return g_active;
 }
 
+bool HelmetHooksActive()
+{
+    return g_helmetActive;
+}
+
 void OnPresent()
 {
     g_projActive = false;
     g_info.projOverrides = g_projCount.exchange(0);
+    g_info.helmetMoves = g_helmetCount.exchange(0);
+    std::lock_guard lock(g_helmetMutex);
+    g_helmetApply = g_helmetActive && g_settings.viewEnabled && g_settings.helmetFollows;
+    g_helmetLocal = LocalFromSettings(g_settings);
 }
 
 std::string DescribeCamera()
@@ -283,9 +373,10 @@ std::string DescribeCamera()
     out += fmt::format("  proj hfov {:.2f} deg, vfov {:.2f} deg, jitter [{:.6g} {:.6g}]\n", hfov, vfov, i.jitter[0],
         i.jitter[1]);
     out += fmt::format("  override: view {} (yaw {} pitch {} roll {} deg, offset [{} {} {}] m), proj {} (shift {} "
-                       "{}), {} projection calls reshaped last frame",
+                       "{}), {} projection calls reshaped last frame; helmet follows {} (hooks {}), {} helmet "
+                       "placements adjusted last frame",
         s.viewEnabled, s.yawDeg, s.pitchDeg, s.rollDeg, s.offset[0], s.offset[1], s.offset[2], s.projEnabled,
-        s.shiftX, s.shiftY, i.projOverrides);
+        s.shiftX, s.shiftY, i.projOverrides, s.helmetFollows, g_helmetActive, i.helmetMoves);
     return out;
 }
 

@@ -25,6 +25,8 @@ enum class Sig {
     MatrixPerspectiveFovRH,
     TransformMatrixSetViewProjection,
     ViewContextRebuildFrustum,
+    TTCameraAfterPhysicsStep,
+    ActorSetWorldMatrix,
     Count,
 };
 
@@ -55,6 +57,14 @@ inline constexpr Signature kSignatures[] = {
     {"ViewContext::RebuildFrustum", "?RebuildFrustum@ViewContext@Graphics@PlayAll@@QEAAXXZ",
         "40 53 48 83 EC 40 F3 0F 10 81 40 04 00 00 48 8B D9 F3 0F 10 89 44 04 00 00 BA 04 00 00 00", 0,
         "export; 0x14091b4e0, frustum from ViewProj (slot 0) + clip bounds", kBuild4989319},
+    {"TTCamera::AfterPhysicsStep", nullptr,
+        "40 53 48 83 EC 30 48 8B D9 FF 15 ?? ?? ?? ?? 85 C0 75 ?? 48 83 7B 38 00 74 ?? 48 8D 4C 24 20 "
+        "FF 15 ?? ?? ?? ?? 48 8D 05 ?? ?? ?? ?? 48 89 44 24 20 48 8D 4C 24 20 8B 83 38 01 00 00 89 44 24 28 E8",
+        0, "TT2 code, not exported; 0x1403afc80 (vtable slot 0x140f60b00), places the HelmetView actor at mode+0x4c4",
+        kBuild4989319},
+    {"Actor::SetWorldMatrix", "?SetWorldMatrix@Actor@GameServices@PlayAll@@QEAAXAEBVMatrix34@Math@3@@Z", nullptr, 0,
+        "export; 0x1403d77f0, mov rcx,[rcx+0x70]; jmp GraphNode::SetWorldMatrix (too short for a pattern)",
+        kBuild4989319},
 };
 
 static_assert(std::size(kSignatures) == static_cast<std::size_t>(Sig::Count), "kSignatures must match Sig");
