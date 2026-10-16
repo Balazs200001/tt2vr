@@ -50,4 +50,42 @@ Mat44 ViewFromWorld(const Mat34& world)
     return Inverse(ToMat44(world));
 }
 
+Mat34 RigidInverse(const Mat34& a)
+{
+    Mat34 out{};
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            out.m[r][c] = a.m[c][r];
+        }
+    }
+    for (int r = 0; r < 3; ++r) {
+        out.m[r][3] = -(out.m[r][0] * a.m[0][3] + out.m[r][1] * a.m[1][3] + out.m[r][2] * a.m[2][3]);
+    }
+    return out;
+}
+
+Mat34 RecenterFromHead(const Pose& head)
+{
+    const Mat34 m = PoseToMatrix(head);
+    // Ry(yaw) * (0, 0, -1) = (-sin yaw, 0, -cos yaw); forward is -column 2.
+    float x = -m.m[0][2], z = -m.m[2][2];
+    float yaw = 0.0f;
+    if (x * x + z * z > 1e-6f) {
+        yaw = std::atan2(-x, -z);
+    }
+    else {
+        // Forward is vertical. Ry(yaw) * Rx(+-90 deg) * (0, 1, 0) = +-(sin yaw, 0, cos yaw), sign = -forward.y.
+        const float s = m.m[1][2] > 0.0f ? 1.0f : -1.0f; // column 2 is back: +y when looking down
+        x = s * -m.m[0][1];
+        z = s * -m.m[2][1];
+        yaw = std::atan2(x, z);
+    }
+    return CameraLocalTransform(yaw, 0.0f, 0.0f, head.position);
+}
+
+Mat34 EyeLocal(const Mat34& recenter, const Pose& eye)
+{
+    return Mul(RigidInverse(recenter), PoseToMatrix(eye));
+}
+
 } // namespace stereo

@@ -43,4 +43,15 @@ Mat34 XrToEngineWorld(const Mat34& xrPose); // B * M
 // Engine view matrix (world -> view) for a camera/eye world matrix: the 4x4 inverse.
 Mat44 ViewFromWorld(const Mat34& world);
 
+// Inverse of a rigid transform (orthonormal rotation): (R^T, -R^T * t).
+Mat34 RigidInverse(const Mat34& a);
+
+// Head tracking (PLAN Phase 3). All in XR reference-space axes (= camera-local axes, rule 1).
+// Recenter reference from a head pose: keeps the head position and its yaw about +Y, drops pitch and roll so the
+// horizon stays level. Looking straight up or down, the yaw comes from the head's up axis instead of its forward.
+Mat34 RecenterFromHead(const Pose& head);
+// Eye transform relative to the recenter reference: inverse(recenter) * eye. This is the camera-local transform that
+// moves the engine camera to the eye (rule 1: eyeWorld = camera * EyeLocal).
+Mat34 EyeLocal(const Mat34& recenter, const Pose& eye);
+
 } // namespace stereo

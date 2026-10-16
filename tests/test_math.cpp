@@ -225,3 +225,53 @@ TEST_CASE("ViewFromWorld inverts the camera world matrix")
     CheckNear(inView.y, 0, 1e-3f);
     CheckNear(inView.z, 0, 1e-3f);
 }
+
+TEST_CASE("RigidInverse undoes a rigid transform")
+{
+    const Mat34 a = CameraLocalTransform(0.7f, -0.3f, 0.2f, {1.0f, -2.0f, 0.5f});
+    CheckMat(Mul(RigidInverse(a), a), Identity34());
+    CheckMat(Mul(a, RigidInverse(a)), Identity34());
+}
+
+TEST_CASE("RecenterFromHead keeps position and yaw, drops pitch and roll")
+{
+    // Head yawed 30 deg left, pitched 20 deg down, rolled 10 deg, at (0.1, 1.2, -0.3).
+    const Mat34 head = CameraLocalTransform(0.5236f, -0.349f, 0.1745f, {0.1f, 1.2f, -0.3f});
+    // Same rotation as a pose: q = q_yaw * q_pitch * q_roll.
+    const auto quat = [](float ax, float ay, float az, float angle) {
+        const float s = std::sin(angle / 2);
+        return Quat{ax * s, ay * s, az * s, std::cos(angle / 2)};
+    };
+    const auto mul = [](const Quat& a, const Quat& b) {
+        return Quat{a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y, a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+            a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w, a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z};
+    };
+    const Quat q = mul(quat(0, 1, 0, 0.5236f), mul(quat(1, 0, 0, -0.349f), quat(0, 0, 1, 0.1745f)));
+    const Pose pose{q, {0.1f, 1.2f, -0.3f}};
+    CheckMat(PoseToMatrix(pose), head, 1e-4f);
+    CheckMat(RecenterFromHead(pose), CameraLocalTransform(0.5236f, 0, 0, {0.1f, 1.2f, -0.3f}), 1e-4f);
+
+    SUBCASE("looking straight down or up still finds the yaw")
+    {
+        const Pose down{mul(quat(0, 1, 0, -1.0f), quat(1, 0, 0, -kPi / 2)), {}};
+        CheckMat(RecenterFromHead(down), CameraLocalTransform(-1.0f, 0, 0, {}), 1e-4f);
+        const Pose up{mul(quat(0, 1, 0, 2.0f), quat(1, 0, 0, kPi / 2)), {}};
+        CheckMat(RecenterFromHead(up), CameraLocalTransform(2.0f, 0, 0, {}), 1e-4f);
+    }
+}
+
+TEST_CASE("EyeLocal is the eye relative to the recentered head")
+{
+    // Recentered at a head 1.2 m up, yawed 90 deg left. The left eye is 32 mm to the head's left.
+    const float h = kPi / 4;
+    const Quat yawLeft{0, std::sin(h), 0, std::cos(h)};
+    const Pose head{yawLeft, {0.0f, 1.2f, 0.0f}};
+    const Mat34 recenter = RecenterFromHead(head);
+    // In the reference space the head's left (-X local) is +Z after the 90 deg left yaw.
+    const Pose leftEye{yawLeft, {0.0f, 1.2f, 0.032f}};
+    const Mat34 local = EyeLocal(recenter, leftEye);
+    CheckMat(local, CameraLocalTransform(0, 0, 0, {-0.032f, 0, 0}), 1e-5f);
+    // Leaning 10 cm forward along the recentered forward moves the eye -Z in camera-local axes.
+    const Pose leaned{yawLeft, {-0.1f, 1.2f, 0.032f}};
+    CheckVec(Translation(EyeLocal(recenter, leaned)), {-0.032f, 0.0f, -0.1f});
+}
