@@ -2,7 +2,7 @@
 
 Build 4989319 (see `README.md`). Rules come from `CLAUDE.md` (hard rule 1: never disable or bypass a temporal effect to fix a stereo artifact) and `PLAN.md` -> "Temporal design" (invariants T1 to T4, mechanisms A, B1, B2).
 
-**Status of this document: STATIC ONLY, nothing is confirmed at runtime.** Findings are from decompilation of the snapshot exe. Confidence tags (`confirmed` / `likely` / `guess`) keep what the source analysis gave: they describe how well the *static reading* is established, not whether a mechanism works in the mod. **Every mechanism status in this file is `candidate`.** PLAN's inventory needs `confirmed` for each row in Phase 6; nothing below qualifies until the listed runtime check passes. Rows that depend on a RenderDoc or debugger observation say so.
+**Status of this document: mostly static; the single-view TAA, motion-vector, exposure and last-frame resources are confirmed at runtime** by RenderDoc capture `tt2_snaefell_helmet_moving_taa_f8323.rdc` (frame 8323, helmet camera, moving, AA = FXAA_TAA, 1920x1080, dynamic resolution off, one view; details in section 9). Everything else is from decompilation of the snapshot exe. Confidence tags (`confirmed` / `likely` / `guess`) keep what the source analysis gave: they describe how well the *static reading* is established, not whether a mechanism works in the mod. **Every per-eye mechanism status in this file is `candidate`**; rows whose resource, format, binding or constant the capture observed are tagged `confirmed (runtime, single view)` on the *observation* only (the capture has one view, so per-eye behaviour is untested). PLAN's inventory needs `confirmed` for each row in Phase 6; nothing below qualifies until the listed runtime check passes. Rows that depend on a RenderDoc or debugger observation say so.
 
 Companion: `frame-anatomy.md` (pass order, split-screen path, threading). Names: `symbols.md`.
 
@@ -68,15 +68,16 @@ Columns: `Row` maps to the PLAN inventory (P1..P11 in PLAN order) or is new (N1.
 
 | Item | Value |
 |---|---|
-| Engine location | Pair of RTs per slot: A = `RenderLoop+0xce8+idx*0x10` (history, shader name `LastFrameBuffer`), B = `+0xcf0+idx*0x10` (draw target). Names 'TAA render target 0/1', size `RenderLoop+0xc60`, scale 1.0, format code 0x41424752 ('RGBA', likely R8G8B8A8, i.e. TAA runs on LDR after tonemap; **format unconfirmed**). `RenderTAA` 0x1408ddf70 (call 0x140848c03) draws into B, then `RenderCopyTexture` copies B into the PostProcessManager current RT, then **A and B pointers are swapped** (ping-pong by pointer swap, no index). `NoMotionVectorFixTAA` 0x1408dc0e0 (call 0x1408de874, likely) then overwrites history RT A (post-swap = the frame just produced) for pixels without motion vectors, stencil-gated. |
+| Engine location | Pair of RTs per slot: A = `RenderLoop+0xce8+idx*0x10` (history, shader name `LastFrameBuffer`), B = `+0xcf0+idx*0x10` (draw target). Names 'TAA render target 0/1', size `RenderLoop+0xc60`, scale 1.0, format code 0x41424752 ('RGBA'). **Runtime correction (f8323, event 36731): the textures are B8G8R8A8_SRGB, not R8G8B8A8, and three distinct textures are involved, not a pair** (section 9.1); TAA runs on LDR after tonemap and film grain (confirmed runtime, single view). `RenderTAA` 0x1408ddf70 (call 0x140848c03) draws into B, then `RenderCopyTexture` copies B into the PostProcessManager current RT, then **A and B pointers are swapped** (ping-pong by pointer swap, no index). `NoMotionVectorFixTAA` 0x1408dc0e0 (call 0x1408de874, likely) then overwrites history RT A (post-swap = the frame just produced) for pixels without motion vectors, stencil-gated. |
 | Gates | Active iff `s_eAntiAliasingMode` 0x141407dc8 (CVar `Engine.Renderer.AntiAliasing`: 0 none, 1 FXAA, 2 FXAA_TAA, 3 TAA) is 2 or 3 **and** `RenderLoop+0x20` (frame dt ms, `RenderLoop::SetTime`) != 0. Under `ViewContext::s_bMotionPause` 0x14140bb30 (dt == 0) `RenderTAA` swaps A/B on entry and uses the stored matrices at `+0x1028..`. Position in chain: after tonemap and FXAA, before dynamic-res upscale. `IsUsingTAA` 0x1404fd660. |
 | Shader inputs | `g_TAAParams` = (prevResScale.x, prevResScale.y, reset flag as float, 0) (StringId 0x141408270, @0x1408de51a); `g_viewProjLastFrame` = `lastVP[idx]` (0x141408288, @0x1408de592); last camera pos; `g_jitter` = (cur.x*0.5, cur.y*-0.5, prev.x*0.5, prev.y*-0.5) (0x141408268, @0x1408de641) with cur = `RenderContext+0x578/0x57c` (= `ViewContext+0x448/0x44c`) and prev = `RenderLoop+0xf70+idx*8`; inverse current camera-relative VP; textures `DepthBuffer`, `FrameBuffer`, `LastFrameBuffer`, `MotionVectors` (`RenderLoop+0xca8`). After the draw: reset flag cleared; copies stored at `+0x1028/+0x10a8/+0x10c0/+0x10d0`. |
 | Scope | **per-eye** |
 | Candidate mechanism | **C** (eye k -> slot k): history pair already per slot. **A**: swap the pair pointers `+0xce8/+0xcf0` (and the other fields in section 4) around each eye. **B1**: before `RenderTAA`'s draw, `CopyResource(ViewState[E].history -> texture bound as LastFrameBuffer)`, after it copy the output back; works with the engine ping-pong because it copies whatever is bound. Two full-res copies per eye. |
+| Runtime (f8323) | Event 36731: SRVs t0 `DepthBuffer`, t1 `FrameBuffer` (`3105`), t2 `LastFrameBuffer` (history, `3276`), t3 `MotionVectors` (`3399`); two RTs `3268` and `3272`, all B8G8R8A8_SRGB, 1920x1080; result `3272` copied to `3101` at 36758. Whether `3268`/`3272`/`3276` rotate across frames is **unverified** (one frame captured). Full detail in section 9.1. |
 | Hazards | Slot-1 RTs do not exist until `OnSplitChanged(true)` runs, and `InitializeTAA(true,..)` recreates slot 0 as well (reset of both). Reset flag is shared (see N6). Size `RenderLoop+0xc60` is the full-window size, not the split size: in split mode each view samples history with the resolution-scale constants (`likely`, open question what `+0xc60` is in split mode). Jitter disabled in split mode (P2). RT format must match what we copy under B1. |
-| Status | candidate |
-| Runtime check | RenderDoc: 'TAA resolve' draw: bound SRVs, format and size of 'TAA render target 0/1', A/B role alternation across frames, output copied to PP RT. Repeat in split mode to see the second slot's own RT pair. Confirm 'RGBA' = R8G8B8A8 in the resource inspector. |
-| Confidence | confirmed (layout and flow, decompile); likely (format, `NoMotionVectorFix` role); runtime-check on all |
+| Status | confirmed (runtime, single view) for the observed resource, binding and constants; per-eye behaviour and mechanism: candidate |
+| Runtime check | Done (f8323): 'TAA resolve' bound SRVs, formats (B8G8R8A8_SRGB) and size (1920x1080), output copied at 36758. Still open: role rotation across frames (multi-frame capture), the second slot's textures in split mode. The 'RGBA' = R8G8B8A8 assumption is refuted. |
+| Confidence | confirmed (layout and flow, decompile); confirmed (runtime, single view) for bindings, format and size; `NoMotionVectorFix` role likely (event 36786 is only a candidate); per-eye behaviour and rotation across frames not verified |
 
 #### P2. TAA jitter index / offset
 
@@ -88,9 +89,10 @@ Columns: `Row` maps to the PLAN inventory (P1..P11 in PLAN order) or is new (N1.
 | Scope | **per-eye** (index and previous value per eye) |
 | Candidate mechanism | **C**: if we keep the split path, the gate must be bypassed in a way that still produces jitter (see hazards). Our hook on `InitFromCamera` can add the jitter itself: it knows the counter `DAT_1413a88c4`, the viewport, and the mode. **A**: slot 0's `lastJitter` (+0xf70) is swapped with the rest, the counter is advanced once per eye render or once per frame (decision needed, T1). In both cases the offset must be written back to `ViewContext+0x448/+0x44c` so `GetProjectionNoOffset` and `g_jitter.xy` stay consistent. |
 | Hazards | (1) **Disabled in split mode (`confirmed`, `runtime-check`)**: leaving it that way = TAA without jitter = a bypass of a temporal effect, forbidden by rule 1. Debug-only toggles allowed (`[debug]`, default off). (2) Both views share one counter and get the same phase; that is fine for T1 (each eye's previous value is its own N-1 value) provided the counter advances once per frame, not once per eye. In alternate-eye mode the previous value is N-2 for that eye, and the parity then alternates the *wrong* way (an eye may always get the same phase); decide and record. (3) **Do not reuse `ViewContext+0x448` for persistent per-eye lens shift** (camera note): the OpenXR asymmetric projection's off-axis terms live in the same `[2][0]/[2][1]` elements; they must be set in the projection and the jitter added on top, and only the jitter stored at `+0x448` so `GetProjectionNoOffset` removes the jitter and keeps the lens shift. (4) Jitter is in projection units, not pixels: it depends on the viewport size per eye. (5) The engine's matrices elsewhere (front-pass `ViewContext`, CSM `SetupRenderContext` "adds +0x448") also use the offset. |
-| Status | candidate |
+| Status | confirmed (runtime, single view) for the observed resource, binding and constants; per-eye behaviour and mechanism: candidate |
+| Runtime (f8323) | Event 36731 `g_jitter` = (0, -0.00046296295, 0.00026041668, 0): cur = (0, +1/1080), prev = (+1/1920, 0), i.e. (cur.x*0.5, cur.y*-0.5, prev.x*0.5, prev.y*-0.5) as in the formula; cbCameraStd `projectionOffset` = (0, 1/1080) with proj[1][2] = +offset.y baked into viewProjection (event 36833). Only one frame was captured, so the full alternation over 4 frames is not seen. |
 | Runtime check | Breakpoint or log on `InitFromCamera` for a frame: count calls, dump the 4th argument over several frames (expect alternating (+-1/w, 0) and (0, +-1/h)). RenderDoc: `g_jitter` in the 'TAA resolve' constant buffer for 4 frames (expect (+-0.5/w, 0) / (0, +-0.5/h) with previous in zw) and `cbCameraStd` projection [2][0]/[2][1]. Watch `DAT_1413a88c4` across a pause (dt == 0) and a World Shift. |
-| Confidence | confirmed (producer and gate); likely (Ansel branch, held counter) |
+| Confidence | confirmed (producer and gate); likely (Ansel branch, held counter); formula and the two phases confirmed (runtime, single view) |
 
 #### P3. Previous view / projection / viewProj (jittered and unjittered)
 
@@ -101,7 +103,8 @@ Columns: `Row` maps to the PLAN inventory (P1..P11 in PLAN order) or is new (N1.
 | Scope | **per-eye** |
 | Candidate mechanism | **C**: the latch runs per view and reads that view's `ViewContext`, so eye k's `ViewContext` (with its own view matrix and position) fills slot k automatically. **A**: swap the whole block `+0xed8..+0x10d8` (and front-pass set). **B1**: not applicable (leaves matrices shared). |
 | Hazards | (1) **`lastCamWorldPos` comes from the ViewContext's camera position** (`InitFromCamera` stores the camera position at `ViewContext+0` from the world pool and a culling position at `+0xc`); if we replace only the view matrix and not the position fields, latched positions are wrong for the eye (`guess`: needs a check that all three agree per eye). (2) Matrices are camera-relative, so head translation between frames is carried by `lastCamWorldPos` differences; both need the per-eye value. (3) Latching happens **after** TAA and motion blur, so within a view they see the previous frame's value. (4) World Shift: only camera positions are rebased (N7). (5) Pause: `s_bMotionPause` freezes latching. (6) Under alternate-eye, eye E's previous value is N-2 (T1) and this is intended. |
-| Status | candidate |
+| Status | confirmed (runtime, single view) for the observed resource, binding and constants; per-eye behaviour and mechanism: candidate |
+| Runtime (f8323) | Event 36731: `g_viewProjLastFrame` @80 is jitter-free (row0 . R2 and row1 . R2 ~ 0); `g_cameraPosition` (-211.20682, -14.257798, 50.707253) and `g_cameraPositionLastFrame` (-210.17304, -13.224817, 50.830555) differ by (1.034, 1.033, -0.123) m per frame. `cbVSCameraLastFrameStd` itself was not read. |
 | Runtime check | RenderDoc: 'Motion Vectors' and 'Motion Vectors front pass': `cbVSCameraLastFrameStd` content against the previous frame's `cbCameraStd` unjittered VP; confirm the camera-relative convention. Debugger: watch `RenderLoop+0xed8..` across a frame in split mode to see slot 0 and slot 1 filled by distinct views. |
 | Confidence | confirmed (flow, offsets); runtime-check |
 
@@ -114,7 +117,8 @@ Columns: `Row` maps to the PLAN inventory (P1..P11 in PLAN order) or is new (N1.
 | Scope | **per-eye** (last-frame depth); nothing to do for Hi-Z |
 | Candidate mechanism | **C**: array per slot. **A**: swap `+0x10e0` pointer. **B1**: `CopyResource` into/out of the bound last-frame depth at the SSR pass. |
 | Hazards | Only filled when a consumer needs it (N2); if the conditional gate is off for slot 1 (e.g. the per-view flag `[0x61e]` is set per ViewContext), slot 1's history is never refreshed. Format R32F must match under B1. |
-| Status | candidate |
+| Status | confirmed (runtime, single view) for the observed resource, binding and constants; per-eye behaviour and mechanism: candidate |
+| Runtime (f8323) | 'Last Frame Depth' copy at event 35759: depth 339 (SRV 340) -> `3284` R32_FLOAT 1920x1080, after Colour Pass #7 (transparency) and before bloom, as static says. The copy ran in this capture, so its gate was true. No compute pass writing a Hi-Z pyramid was seen (consistent with no Hi-Z). |
 | Runtime check | RenderDoc: 'Generate last frame mips' present only when SSR or water drops are active; SRVs of 'SSR pass'. Search a capture for any compute pass writing a Hi-Z pyramid from previous depth (expected: none). |
 | Confidence | confirmed (last-frame depth); likely (no Hi-Z history; absence from decompile only) |
 
@@ -140,7 +144,8 @@ Columns: `Row` maps to the PLAN inventory (P1..P11 in PLAN order) or is new (N1.
 | Scope | **per-eye** for camera matrices (shared with P3); object motion (per-object previous transforms, P7) is shared |
 | Candidate mechanism | Same as P3. |
 | Hazards | The MV RT is shared and reused per view; with serial per-view execution it holds only the current view's vectors. Motion blur strength depends on dt: if our render path changes the apparent frame time (e.g. render at the headset rate, not the game rate), `RenderLoop::SetTime` must still see the game dt. |
-| Status | candidate |
+| Status | confirmed (runtime, single view) for the observed resource, binding and constants; per-eye behaviour and mechanism: candidate |
+| Runtime (f8323) | Event 36833: SRVs `DepthBuffer_tex`, `FrameBuffer_tex`, `MotionVectors_tex` (`3399`); cbCameraStd (resource 113) plus `g_viewProjectionLastFrame`, `g_motionBlurParam1/2`; output `3105`. Runs after TAA (36731) and the copy (36758), as static order says. |
 | Runtime check | RenderDoc: 'Render MotionBlur' constant buffer vs P3 values; check blur in both eyes during head rotation. |
 | Confidence | confirmed (inputs); runtime-check |
 
@@ -164,7 +169,8 @@ Columns: `Row` maps to the PLAN inventory (P1..P11 in PLAN order) or is new (N1.
 | Scope | **shared** (PLAN, `CLAUDE.md`): one adaptation state for the head, both eyes read the same value |
 | Candidate mechanism | **C**: the engine gives each slot its own adaptation, so left and right will drift. To share: (a) after slot 0's `HDR_LuminanceFinal` write, copy its 1x1 result into slot 1's previous-luminance RT (and pin slot 1's first-frame flag to 0), or point `tm+0x138+1*8` at the same texture as slot 0 so the ping-pong swap is common (careful: the swap exchanges `tm+0x130` with `tm+0x138+idx*8`); (b) or substitute the 1x1 binding of eye 1's `HDR_FinalCompose` with eye 0's luminance. **A**: with idx fixed at 0 there is one state; nothing extra, but then eye 1 must **not** run the adaptation step a second time (guard: skip `HDR_LuminanceInit/Downscale/Final` for the second eye, or restore the 1x1 RTs after eye 1). |
 | Hazards | **Contradiction between source notes, resolved here:** the render-loop note said exposure is a single object that would double-step; the later temporal decompile shows history IS per camera index, so no double step but **independent adaptation per eye**. Either way PLAN's rule (one adaptation state per head) is violated unless we share it. Luminance is measured on the current view's HDR (eye-specific), so even a shared value should be computed from one source (eye 0) or the average of both, decide and log. The CPU readback `tm+0x148` always holds the last view's value. Unknown: params block `tm+0x30` semantics and whether a pre-exposure is applied before the last-frame colour copy (N2). |
-| Status | candidate |
+| Status | confirmed (runtime, single view) for the observed resource, binding and constants; per-eye behaviour and mechanism: candidate |
+| Runtime (f8323) | Chain: event 36541 -> `3372` R16_FLOAT 16x16 (reads `3368` R16F); 36570 probably 4x4 (guess); 36606 -> `3385` R16_FLOAT 1x1 (reads `3376` and `3380`, both R16_FLOAT, consistent with a blend against previous luminance); tonemap `HDR_FinalCompose` (36652) reads `3385` as `LuminanceTexture_tex` (SRV t2). Ping-pong across frames and the first-frame flag were not observed (one frame). |
 | Runtime check | RenderDoc: step 'HDR_Luminance*' and the 1x1 RT ping-pong across frames; verify the slot-3 previous-luminance binding and the first-frame flag. Watch `tm+0x148`, `tm+0x130`, `tm+0x138+idx*8` across two views in a frame (split mode) to see independent adaptation. |
 | Confidence | confirmed (per-slot layout); likely (shared readback semantics); the choice of sharing mechanism is a guess |
 
@@ -226,7 +232,8 @@ Columns: `Row` maps to the PLAN inventory (P1..P11 in PLAN order) or is new (N1.
 | Scope | **per-eye** |
 | Candidate mechanism | As P4 (**C**, **A** swap `+0x10e0/+0x10f0`, **B1** copy at the SSR draw). |
 | Hazards | Conditional copy: if the gate is false for a frame, history is stale and the consumer must also be gated off; a mechanism that forces copies must also keep the consumers consistent. HUD pixels in the history (flag-8 HUD) are an engine behaviour, not a bug. Format unconfirmed. Mips: 8 per slot (cost under B1). |
-| Status | candidate |
+| Status | confirmed (runtime, single view) for the observed resource, binding and constants; per-eye behaviour and mechanism: candidate |
+| Runtime (f8323) | 'Last Frame Depth' event 35759: `3284` R32_FLOAT. 'Last Frame Buffer' events 35786, 35819, 35842, 35865, 35888, 35911, 35934, 35957 (8 draws): texture `3288` RGBA16F with 8 mips (mip0 1920x1080, mip7 15x8), source HDR scene `3591`. Both after Colour Pass #7, before bloom/tonemap. The copies ran in this capture. The SRV list of the SSR pass was not verified (SSR CS 20770 reads `SSRTempRead`). |
 | Runtime check | RenderDoc: 'Generate last frame mips' appears only with SSR or water drops; formats and mip count of 'Last Frame Buffer'; SRV list of 'SSR pass'. |
 | Confidence | confirmed (layout, flow); likely (formats) |
 
@@ -286,7 +293,8 @@ Columns: `Row` maps to the PLAN inventory (P1..P11 in PLAN order) or is new (N1.
 | Scope | **shared transient** (not history): each view rewrites and consumes it within its own chain |
 | Candidate mechanism | None needed under **C** or **A** as long as one eye's chain finishes before the next starts. |
 | Hazards | A mechanism that interleaves eyes pass-by-pass (e.g. both GBuffers first, then both TAA) would overwrite it. The front-pass ViewContext needs the same per-eye projection and view as the main one (its fov/near/far are separate camera fields): for VR the front pass projection must also take the OpenXR per-eye FOV or the bike foreground gets wrong motion vectors (`likely`, matrix details in `camera.md`). |
-| Status | candidate |
+| Status | confirmed (runtime, single view) for the observed resource, binding and constants; per-eye behaviour and mechanism: candidate |
+| Runtime (f8323) | Motion-vector draws: Colour Pass #4, events 20321..20633 (22 DrawIndexed), RT `3399` R16G16_FLOAT (RTV 3402), depth 339 bound; after the GBuffer chunk and before the linear-depth CS (20649). Read by TAA (36731, t3) and motion blur (36833). RT size not read (assumed 1920x1080). The front-pass MV draws were not distinguished. |
 | Runtime check | RenderDoc: MV RT contents per view; front-pass cb. |
 | Confidence | confirmed (placement); likely (front-pass hazard) |
 
@@ -347,26 +355,26 @@ If H1 or H2 cannot be solved, fall back to A for Phase 4/5. If A's swap proves f
 
 | PLAN row | This file | Scope | Engine location (short) | Preferred candidate | Status |
 |---|---|---|---|---|---|
-| TAA history colour (incl. ping-pong) | P1 | per-eye | `RenderLoop+0xce8/+0xcf0 + idx*0x10` | C, else A (pointer swap), else B1 | candidate |
-| TAA jitter index / offset | P2 | per-eye | `DAT_1413a88c4`, `ViewContext+0x448`, `RenderLoop+0xf70` | hook `InitFromCamera`, add jitter per eye | candidate |
-| Previous view/proj/VP | P3 | per-eye | `RenderLoop+0xed8`, `+0xf58`, `+0xf80..` | C | candidate |
-| Previous depth / Hi-Z | P4 | per-eye (no Hi-Z found) | `RenderLoop+0x10e0` | C | candidate |
+| TAA history colour (incl. ping-pong) | P1 | per-eye | `RenderLoop+0xce8/+0xcf0 + idx*0x10` | C, else A (pointer swap), else B1 | confirmed (runtime, single view); per-eye candidate |
+| TAA jitter index / offset | P2 | per-eye | `DAT_1413a88c4`, `ViewContext+0x448`, `RenderLoop+0xf70` | hook `InitFromCamera`, add jitter per eye | confirmed (runtime, single view); per-eye candidate |
+| Previous view/proj/VP | P3 | per-eye | `RenderLoop+0xed8`, `+0xf58`, `+0xf80..` | C | confirmed (runtime, single view); per-eye candidate |
+| Previous depth / Hi-Z | P4 | per-eye (no Hi-Z found) | `RenderLoop+0x10e0` | C | confirmed (runtime, single view); per-eye candidate |
 | Temporal AO / SSR / volumetric | P5 (+N1, N2) | per-eye | SSR via N2; froxel via N1; AO stateless (likely) | C | candidate |
-| Motion blur camera matrices | P6 | per-eye | `RenderLoop+0xed8`, `+0xf58` | C | candidate |
+| Motion blur camera matrices | P6 | per-eye | `RenderLoop+0xed8`, `+0xf58` | C | confirmed (runtime, single view); per-eye candidate |
 | Per-object previous transforms | P7 | shared | `Mesh+0xc4/+0xf4/+0x70`, `SkinMesh+0x158` | engine idempotent per `frameId`; verify source | candidate |
-| Auto-exposure | P8 | shared (engine: per-slot) | `tm+0x130/+0x138/+0x14e/+0x30` | sync slot 1 to slot 0 | candidate |
+| Auto-exposure | P8 | shared (engine: per-slot) | `tm+0x130/+0x138/+0x14e/+0x30` | sync slot 1 to slot 0 | confirmed (runtime, single view); per-eye candidate |
 | GPU particles / simulations | P9 | shared | `HHParticlesManager` | engine idx == 0 guards | candidate |
 | Shadow cascades | P10 | shared (engine: per-slot) | `CSM+0x25b0 + idx` | force slot 1 = slot 0; verify fit | candidate |
 | Probes | P11 | shared | `ProbeRenderer::Update`, `RenderProbe` | once per frame | candidate |
 | (new) Froxel history | N1 | per-eye | `DL+0x780`, `+0x760`, `+0x920` | C | candidate |
-| (new) Last-frame colour/depth | N2 | per-eye | `RenderLoop+0x10e0/+0x10f0` | C | candidate |
+| (new) Last-frame colour/depth | N2 | per-eye | `RenderLoop+0x10e0/+0x10f0` | C | confirmed (runtime, single view); per-eye candidate |
 | (new) Lens-flare queries | N3 | per-eye | `LensFlareInstance+0x64/+0x90` | C | candidate |
 | (new) Dynamic resolution | N4 | shared setting | 0x1413602d8, `FUN_1405b1270` | off / fixed 1.0 | candidate |
 | (new) World Shift fix-up | N5 | event | `PreUpdateLastFrameCamera` 0x1408dc6b0, `ShiftInfo` | rebase parked per-eye positions | candidate |
 | (new) TAA reset flag | N6 | mod-owned | `RenderLoop+0xd08`, `ClearTAA` | write per eye on every trigger | candidate |
-| (new) MV RT transient | N7 | shared transient | `RenderLoop+0xca8` | none | candidate |
+| (new) MV RT transient | N7 | shared transient | `RenderLoop+0xca8` | none | confirmed (runtime, single view); per-eye candidate |
 
-Nothing above is `confirmed` in the PLAN sense. Phase 6 turns each row to `confirmed` with a runtime evidence line (RenderDoc event, debugger watch, or a passing cross-eye leak test, T2).
+Rows tagged `confirmed (runtime, single view)` are observed once in capture f8323; nothing above is `confirmed` in the PLAN sense (per-eye cross-leak test T2). Phase 6 turns each row to `confirmed` with a runtime evidence line (RenderDoc event, debugger watch, or a passing cross-eye leak test, T2).
 
 ---
 
@@ -389,9 +397,56 @@ Nothing above is `confirmed` in the PLAN sense. Phase 6 turns each row to `confi
 2. Does froxel temporal reproject with a matrix? (Offline DXBC disassembly of `csLightFroxelTemporal`, or RenderDoc.)
 3. What are `RenderLoop+0xc60` (TAA/last-frame RT size) and `Renderer+0xc60/+0x640` (jitter gate) in split mode; does split mode half-size the history RTs?
 4. Why does `ClearTAA` have no callers (Lua/vtable or dead)? Camera-cut handling is then absent in the engine.
-5. Exact formats: 'RGBA' 0x41424752 = R8G8B8A8? 0x464c4834 = R16G16B16A16F? (RenderDoc resource inspector.)
+5. Exact formats: resolved by f8323 (TAA textures B8G8R8A8_SRGB, so 'RGBA' 0x41424752 is not R8G8B8A8_UNORM at runtime; 'Last Frame Buffer' RGBA16F, consistent with 0x464c4834). Remaining: does the TAA role rotation (3268 / 3272 / 3276) repeat every frame or every 3 frames? (needs a multi-frame capture.)
 6. Is `Mesh+0xf4` stale at a World Shift (MV glitch frame)?
 7. What do tonemap params `tm+0x30+idx*0x60` and `param_2+0x2c` hold; is pre-exposure applied before the last-frame colour copy?
 8. CloudShadow, probe relight cadence and PopcornFX GPU-sim internals are not decompiled and are treated as view-independent by inference.
 9. Does `ViewContext+0x464` follow the slot or the camera, i.e. can a single-view render target slot 1?
 10. Are cascades fitted per view or merged in `CascadedShadowMapRenderer::SetupRenderContext` 0x140828320, and who issues the cascade draws?
+
+---
+
+## 9. Runtime evidence (RenderDoc capture f8323)
+
+Capture: `C:\dev\tt2vr-re\rdc\tt2_snaefell_helmet_moving_taa_f8323.rdc` (outside the repo), frame 8323, helmet camera, moving, AA = FXAA_TAA, dynamic resolution off, 1920x1080, **one view**. Event ids are RenderDoc ids. Pass order and the full table: `frame-anatomy.md` section 4.1. Constants below are the main-loop values read at event 36731. Tag: `confirmed (runtime, single view)` unless noted.
+
+### 9.1 TAA resolve (event 36731, pixel shader hash acdcd43e-1d326109-4826a244-123b0dde)
+
+| Item | Value | Confidence |
+|---|---|---|
+| Textures | **Three** B8G8R8A8_SRGB textures: history SRV t2 `LastFrameBuffer` = `3276`; outputs o0 = `3268` (raw current sample, alpha = no-MV flag) and o1 = `3272` (TAA-resolved). Result `3272` is copied into `3101` at event 36758. This corrects P1 ("pair", R8G8B8A8). Whether `3268`/`3272`/`3276` rotate across frames (3-way) is **unverified** | confirmed (runtime, single view); rotation unverified |
+| Other SRVs | t0 `DepthBuffer` = depth 339 (D32_FLOAT_S8X24, SRV 340); t1 `FrameBuffer` = `3105` (film-grain output, current jittered frame); t3 `MotionVectors` = `3399` R16G16_FLOAT (written by events 20321..20633). Samplers s0 PointClamp, s3 LinearClamp. Depth test disabled | confirmed (runtime, single view) |
+| Size | 1920x1080 (cbViewportStd viewport (1920, 1080, 1, -1), resolutionScaling (1, 1, 1, 1)) | confirmed (runtime, single view) |
+| Constants | `$Globals` 208 bytes (resource `3903`, ps cb slot 7) + `cbViewportStd` (resource 108, slot 1) | confirmed (runtime, single view) |
+
+`$Globals` layout (byte offset: name): 0 `TrenchingColor` (uninitialised, ignore), 16 `g_invViewProj`, 80 `g_viewProjLastFrame`, 144 `g_cameraPosition`, 160 `g_cameraPositionLastFrame`, 176 `g_jitter`, 192 `g_TAAParams`. Confirmed (runtime, single view).
+
+| Constant | Value (event 36731) | Reading |
+|---|---|---|
+| `g_jitter` | (0, -0.00046296295, 0.00026041668, 0) | cur = (0, +1/1080), prev = (+1/1920, 0) after undoing (x*0.5, y*-0.5, x*0.5, y*-0.5). Matches the static formula (P2); this frame: current = vertical phase, previous = horizontal phase. Confirmed |
+| `g_TAAParams` | (1, 1, 0, 0) | prevResScale xy = 1, reset flag z = 0, w unused. Matches P1 |
+| `g_cameraPosition` | (-211.20682, -14.257798, 50.707253, 1) | equals cbCameraStd.viewPosition |
+| `g_cameraPositionLastFrame` | (-210.17304, -13.224817, 50.830555, 0) | per-frame delta (1.034, 1.033, -0.123) m |
+| `g_viewProjLastFrame` | rows (memory order) (-0.76377, 0.79589, 0, 0), (-0.38954, -0.37382, 1.88524, 0), (2.7783e-5, 2.6662e-5, 1.1027e-5, 1.00004), (-0.69363, -0.66564, -0.27531, 0) | **jitter-free**: row0 . R2 and row1 . R2 ~ 0 (R2 = -row3). Camera-relative. Confirmed |
+| `g_invViewProj` | un-jittered (differs from cbCameraStd.viewProjToCameraCentered, which carries the jitter) | confirmed |
+
+Shader behaviour (read from the disassembly, not reproduced here): reprojection by depth through `g_invViewProj`, add `g_cameraPosition - g_cameraPositionLastFrame`, project with `g_viewProjLastFrame`; if the motion-vector texel is non-zero the MV path is used instead; current frame sampled at uv - `g_jitter.xy`, history at the reprojected uv - `g_jitter.zw`; 3x3 min/max neighbourhood clamp and blend. The depth value is fed to `g_invViewProj` as ndc z (see `conventions.md` 3.7: stored world depth is 0.95 * ndc_z; compensation unresolved). Confidence: confirmed (runtime, single view) for the behaviour read; the resulting precision effect is open.
+
+### 9.2 Motion vectors, exposure, last-frame resources, motion blur
+
+| Resource / pass | Evidence | Confidence |
+|---|---|---|
+| Motion vectors | RT `3399` R16G16_FLOAT (RTV 3402), written by events 20321..20633 (Colour Pass #4, 22 DrawIndexed, depth 339 bound); consumed by TAA 36731 (t3) and motion blur 36833. Size not read | confirmed (runtime, single view); size unread |
+| Exposure chain | 36541 -> `3372` R16_FLOAT 16x16 (reads `3368` R16F); 36570 (likely 4x4, guess); 36606 -> `3385` R16_FLOAT 1x1 (reads `3376` and `3380`, both R16_FLOAT: blend with previous luminance); read by tonemap 36652 as `LuminanceTexture_tex` (t2). The history ping-pong across frames was not observed | confirmed (runtime, single view) for the chain and formats; ping-pong unverified |
+| Last Frame Depth | event 35759: depth 339 (SRV 340) -> `3284` R32_FLOAT 1920x1080 | confirmed (runtime, single view) |
+| Last Frame Buffer | events 35786, 35819, 35842, 35865, 35888, 35911, 35934, 35957: `3288` RGBA16F, 8 mips (mip0 1920x1080, mip7 15x8), source HDR scene `3591` | confirmed (runtime, single view) |
+| Motion blur | event 36833: `DepthBuffer_tex`, `FrameBuffer_tex`, `MotionVectors_tex` (`3399`), cbCameraStd (resource 113), `g_viewProjectionLastFrame`, `g_motionBlurParam1/2` -> `3105`; after TAA | confirmed (runtime, single view) |
+| Froxel history | event 32784 (Light Froxel CS) binds `LastFrameLightedFroxel_tex` (3D) next to `LightedFroxel` (UAV); reprojection method not examined | confirmed (runtime, single view) that the history SRV exists; method open (N1) |
+| SSR | CS 20770: `SSRTempRead` -> `SSRResult`; last-frame depth/colour bindings not verified | likely |
+
+### 9.3 Not confirmed by the capture
+
+- Per-eye behaviour of every row (the capture has one view); rows keep `candidate` for the mechanism.
+- Role rotation of `3268`/`3272`/`3276` across frames, exposure ping-pong, froxel ping-pong, jitter alternation over 4 frames.
+- `NoMotionVectorFixTAA` = event 36786 (inputless PS, dual RT `3268`/`3272`, depth 339 bound) is a **candidate** only (guess).
+- No separate FXAA pass was seen with AA = FXAA_TAA; see `frame-anatomy.md` section 4.2.

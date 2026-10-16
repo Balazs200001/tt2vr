@@ -14,7 +14,7 @@ v1 is done when all of these hold during a 30-minute offline session on the Snae
 
 ## Status
 
-- [ ] Phase 0 — Recon & setup
+- [x] Phase 0 — Recon & setup
 - [ ] Phase 1 — Skeleton mod (flat)
 - [ ] Phase 2 — Camera control (flat)
 - [ ] Phase 3 — OpenXR, left eye head-tracked
@@ -26,7 +26,7 @@ v1 is done when all of these hold during a 30-minute offline session on the Snae
 - [ ] Phase 9 — Performance
 - [ ] Phase 10 — Robustness & release
 
-**Active phase: Phase 0**
+**Active phase: Phase 1** (first slice done; Phase 0 completed 2026-10-16)
 
 ---
 
@@ -144,10 +144,10 @@ Goal: know exactly what we're dealing with before writing hooks.
 - [x] In-game graphics options (AA modes including TAA, motion blur, resolution, FOV) and the config file location. Use the TAA setting for all captures. Menu: AA Off / FXAA / TAA (menu "TAA" is stored as `FXAA_TAA` = mode 2), motion blur Off / Low / Normal, dynamic resolution On/Off, no FOV option. Config: `Documents/My Games/TT Isle of Man 2/UserSettings.cfg`, plain `Engine.X.Y = value;` lines.
 
 **Frame anatomy (RenderDoc) → `docs/re/frame-anatomy.md`**
-- [ ] Capture helmet-cam frames: daytime on the TT course, plus one in a menu. **Blocked until Phase 1's first slice:** RenderDoc cannot capture the unmodified game. `EnableVideoAdapter` passes `Flags = 0x80` (`D3D11_CREATE_DEVICE_PREVENT_ALTERING_LAYER_SETTINGS_FROM_REGISTRY`) to `D3D11CreateDeviceAndSwapChain`; RenderDoc treats that flag as "application requested not to be hooked" (its log, `d3d11_hooks.cpp(163)`), skips wrapping the device while DXGI is already wrapped, and the call returns S_OK with a null immediate context. The game then crashes at `TT2.exe+0x9592dd` (`mov r9,[rcx]`, QueryInterface on context slot 0). Confirmed 2026-10-16 from 3 CrashRpt minidumps (access violation reading 0, rcx = 0, loop index 0, returned feature level 11_1) and the RenderDoc log; NVIDIA NvCamera and the Steam overlay were ruled out. Fix: our proxy hooks `D3D11CreateDeviceAndSwapChain` and clears bit 0x80 before the call goes on (debug-layer registry behaviour only; no gameplay effect).
-- [ ] Pass table (static draft in `frame-anatomy.md`; needs a capture): event range, guessed name, RT formats and sizes, inputs, outputs, `per-frame` or `per-view`, temporal inputs.
+- [x] Capture helmet-cam frames: daytime on the TT course, plus one in a menu. Done 2026-10-16 with the Phase 1 first slice (3 captures in `tt2vr-re/rdc/`). Background: RenderDoc cannot capture the unmodified game. `EnableVideoAdapter` passes `Flags = 0x80` (`D3D11_CREATE_DEVICE_PREVENT_ALTERING_LAYER_SETTINGS_FROM_REGISTRY`) to `D3D11CreateDeviceAndSwapChain`; RenderDoc treats that flag as "application requested not to be hooked" (its log, `d3d11_hooks.cpp(163)`), skips wrapping the device while DXGI is already wrapped, and the call returns S_OK with a null immediate context. The game then crashes at `TT2.exe+0x9592dd` (`mov r9,[rcx]`, QueryInterface on context slot 0). Confirmed 2026-10-16 from 3 CrashRpt minidumps (access violation reading 0, rcx = 0, loop index 0, returned feature level 11_1) and the RenderDoc log; NVIDIA NvCamera and the Steam overlay were ruled out. Fix: our proxy hooks `D3D11CreateDeviceAndSwapChain` and clears bit 0x80 before the call goes on (debug-layer registry behaviour only; no gameplay effect).
+- [x] Pass table (runtime table from capture f8323 in `frame-anatomy.md` 4.1; open items in 4.2): event range, guessed name, RT formats and sizes, inputs, outputs, `per-frame` or `per-view`, temporal inputs.
 - [x] Threading (static: no render thread; pass execution on deferred contexts per enki worker): are deferred contexts / `ExecuteCommandList` used? Is there a separate render thread?
-- [ ] Identify (static candidates found; confirm in a capture): TAA pass (jittered projection, history SRV slot, output), motion-vector pass, exposure pass, shadow passes, HUD start event.
+- [x] Identify (TAA 36731, motion vectors 20321..20633, exposure 36541/36606, CSM atlas, 2D HUD from 37099; see `frame-anatomy.md`): TAA pass (jittered projection, history SRV slot, output), motion-vector pass, exposure pass, shadow passes, HUD start event.
 - [x] First pass at the temporal inventory table above, with real passes and resources.
 
 **Conventions → `docs/conventions.md`**
