@@ -306,6 +306,8 @@ void ReadDebug(const toml::table& t, Config::Debug& out, Warnings& w)
             } else {
                 s.Warn(key, "expected a string, keeping default", node);
             }
+        } else if (key == "input_log") {
+            s.Bool(key, node, out.input_log);
         } else {
             s.Warn(key, "unknown key, ignored", node);
         }

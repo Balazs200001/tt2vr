@@ -47,7 +47,7 @@ bool SameConfig(const Config& a, const Config& b)
            a.capture.renderdoc_dir == b.capture.renderdoc_dir && a.capture.max_textures == b.capture.max_textures &&
            a.capture.include_depth == b.capture.include_depth && a.capture.cb_floats == b.capture.cb_floats &&
            a.commands.enabled == b.commands.enabled && a.commands.poll_frames == b.commands.poll_frames &&
-           a.debug.fake_exe_sha256 == b.debug.fake_exe_sha256;
+           a.debug.fake_exe_sha256 == b.debug.fake_exe_sha256 && a.debug.input_log == b.debug.input_log;
 }
 
 // Finds config/tt2vr.toml: TT2VR_SOURCE_DIR, else walk up from the current directory and the exe directory.
@@ -257,6 +257,7 @@ poll_frames = 30
 
 [debug]
 fake_exe_sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+input_log = true
 )");
     CHECK(r.warnings.empty());
     const Config& c = r.config;
@@ -287,6 +288,7 @@ fake_exe_sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
     CHECK_FALSE(c.commands.enabled);
     CHECK(c.commands.poll_frames == 30);
     CHECK(c.debug.fake_exe_sha256 == "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+    CHECK(c.debug.input_log);
 }
 
 TEST_CASE("ParseConfig syntax error gives defaults and a warning with position")

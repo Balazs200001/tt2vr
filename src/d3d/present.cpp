@@ -26,6 +26,7 @@
 #include "game/menu_state.hpp"
 #include "game/render_size.hpp"
 #include "game/version.hpp"
+#include "ui/input_diag.hpp"
 #include "ui/overlay.hpp"
 #include "xr/session.hpp"
 
@@ -274,6 +275,7 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
             InstallEngineHooksOnce();
             UpdateStats();
             PollHotkeys();
+            ui::TickInputDiagnostics(g_window);
             RunCommands();
             renderdoc::Tick(g_frame);
             trace::Begin(g_frame, g_immediate);
