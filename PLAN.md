@@ -15,7 +15,7 @@ v1 is done when all of these hold during a 30-minute offline session on the Snae
 ## Status
 
 - [x] Phase 0 — Recon & setup
-- [ ] Phase 1 — Skeleton mod (flat)
+- [x] Phase 1 — Skeleton mod (flat)
 - [ ] Phase 2 — Camera control (flat)
 - [ ] Phase 3 — OpenXR, left eye head-tracked
 - [ ] Phase 4 — Dual-view stereo via the split-screen path (milestone)
@@ -26,7 +26,7 @@ v1 is done when all of these hold during a 30-minute offline session on the Snae
 - [ ] Phase 9 — Performance
 - [ ] Phase 10 — Robustness & release
 
-**Active phase: Phase 1** (all code done; runtime verified except the fake-hash test and remote requests; Phase 0 completed 2026-10-16)
+**Active phase: Phase 2** (Phase 1 completed 2026-10-16; Phase 0 completed 2026-10-16)
 
 ---
 
@@ -181,10 +181,10 @@ Goal: know exactly what we're dealing with before writing hooks.
   - Verified 2026-10-16: `frametrace_10866.txt`, ~36k calls, imm + 4 deferred contexts, 9 command lists spliced, CB data with matrices.
 - [x] Texture dump: on hotkey, save tracked textures (PNG for UNORM, DDS for float formats).
   - Verified 2026-10-16: `11318_dump.txt`, 61 snapshots, 0 failed; back buffer, reversed-Z depth and HDR previews look correct.
-- [ ] Remote requests: Claude writes a command file into `tt2vr/commands/`; the mod checks it once per frame and runs a frame trace, a texture dump, or — when the game was launched under RenderDoc (`renderdoc.dll` loaded) — a RenderDoc capture through the in-application API (`renderdoc_app.h`, `TriggerCapture`), written to the capture folder set in `tt2vr.toml`. Balazs only holds the game in the wanted state.
-  - Implemented 2026-10-16; build + unit tests pass; **awaiting runtime test**.
-- [ ] ImGui overlay on the desktop window: FPS, hook status, version status, toggles.
-  - Implemented 2026-10-16; build + unit tests pass; **awaiting runtime test**.
+- [x] Remote requests: Claude writes a command file into `tt2vr/commands/`; the mod checks it once per frame and runs a frame trace, a texture dump, or — when the game was launched under RenderDoc (`renderdoc.dll` loaded) — a RenderDoc capture through the in-application API (`renderdoc_app.h`, `TriggerCapture`), written to the capture folder set in `tt2vr.toml`. Balazs only holds the game in the wanted state.
+  - Verified 2026-10-16: `tools/tt2vr-request.ps1 frametrace shaders` returned `frametrace_5140.txt` and `shader_registry.txt` within one poll. RenderDoc capture by request not yet exercised.
+- [x] ImGui overlay on the desktop window: FPS, hook status, version status, toggles.
+  - Verified 2026-10-16: panel, hotkeys and the red unknown-version text seen by Balazs.
 - [x] Unit tests: pattern scanner, config parsing (also hotkeys, SHA-256, version table, command files): 30 cases, `ctest --preset x64-debug` passes.
 
 Implementation notes (2026-10-16):
@@ -195,7 +195,7 @@ Implementation notes (2026-10-16):
 - Overlay never subclasses the game window: it polls the mouse buttons, so game input is untouched (clicks also reach the game).
 
 **Done when:** 30 minutes of offline riding with the mod loaded, no crash; overlay works; shader registry and frame trace are produced; the unknown-version path is tested by faking the hash.
-- 2026-10-16: 30 min ride, trace, dump and registry done. Fake-hash test showed no notice; the log was overwritten, so the cause is unknown (most likely the value was rejected by the 64-hex check). Since then: config warnings are shown in the overlay, and the previous log is kept as `tt2vr.prev.log`. **Retest pending**, plus one remote request.
+- 2026-10-16: 30 min ride, trace, dump and registry done. Fake-hash test showed no notice; the log was overwritten, so the cause is unknown (most likely the value was rejected by the 64-hex check). Since then: config warnings are shown in the overlay, and the previous log is kept as `tt2vr.prev.log`. Retest 2026-10-16: with 64 zeros the overlay showed the red unknown-version text; `tt2vr.prev.log`: `exe sha256 0000…0000 (faked) -> UNKNOWN version: engine hooks off, D3D layer only`. **Phase 1 done.**
 
 ## Phase 2 — Camera control (flat)
 
