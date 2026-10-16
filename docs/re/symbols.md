@@ -154,7 +154,7 @@ Verdict (confirmed): no dedicated render thread. The main thread runs simulation
 | Renderer.renderDesc[0] | +0x30 | field | RenderDesc, ViewContext at desc+0 | confirmed |
 | Renderer.renderDesc[1] | +0x650 | field | stride 0x620 | confirmed |
 | Renderer.jitterGate? | +0x640 | field | must be 0 for jitter | likely (RC) |
-| Renderer.jitterGate2 (RenderDesc+0xc60?) | +0xc60 | field | jitter gate `!(splitMode!=0 && +0xc60!=0)`. **CONFLICT**: RenderDesc+0xc60 is split mode (= Renderer+0xc90); a Renderer-absolute +0xc60 is a different field | guess |
+| Renderer.view1Type | +0xc60 | field | = ViewContext[1]+0x610 (view-type int; 0 = ordinary, non-zero only on the external-scene path). Jitter gate `[+0x640]==0 && ([+0xc90]==0 \|\| [+0xc60]==0)` (disasm 0x1405adfc6); +0x640 = ViewContext[0]+0x610. Not RenderDesc+0xc60 | confirmed |
 | Renderer.splitMode | +0xc90 | field | = RenderDesc+0xc60; 0 single, 1 vertical, 2 horizontal, 3/4 other | confirmed |
 | Renderer.viewMask | +0xd18 | field | = RenderDesc+0xce8; bit i set -> ViewContext[i] active | confirmed |
 | Renderer.shiftInfo | +0xd1c..+0xd24, flag +0xd28 | field | World Shift vec3 + flag, later RenderDesc+0xcec/+0xcf8 | confirmed |
@@ -795,7 +795,7 @@ Ansel is wired but inert unless the NVIDIA driver reports availability. The engi
 
 ## 9. Split screen (the engine's native multi-view path)
 
-Split mode 1 = vertical (side by side), 2 = horizontal (top/bottom), 3 = 4 views, 4 = other 2-view. Live code; two cameras, two ViewContexts, per-view culling/CSM/TAA history, all in ONE `Render` call. Blocked in network sessions; gated by Lua `PossibleSplitMode`. How split gets enabled in a single-player race is undetermined.
+Split mode 1 = vertical (side by side), 2 = horizontal (top/bottom), 3 = 4 views, 4 = other 2-view. Live code; two cameras, two ViewContexts, per-view culling/CSM/TAA history, all in ONE `Render` call. Blocked in network sessions; gated by Lua `PossibleSplitMode`. Renderer-only activation without the gameplay side (Phase 4 deep-dive, 2026-10-16): `frame-anatomy.md` 5.1.
 
 | Our name | Address | Kind | Notes | Confidence |
 |---|---|---|---|---|
@@ -806,10 +806,21 @@ Split mode 1 = vertical (side by side), 2 = horizontal (top/bottom), 3 = 4 views
 | GUI Lua binding table | 0x14104a620 | global | name/function pairs incl. SwitchSplit, IsSplitVertical | confirmed |
 | `RenderTargetManager::SetSplitMode` | 0x1408e2090 | function | rejects any mode other than the 'possible' one; string 0x141000460 | confirmed |
 | `RenderTargetManager::SetPossibleSplitMode` | 0x1408e2080 | function | (+8 allowed, recreates split RTs) | confirmed |
-| `RenderTargetManager::ComputeSplitSize` | 0x1408e1960 | function | mode 1 halves width; open issue for a full-width-per-eye layout | confirmed |
+| `RenderTargetManager::ComputeSplitSize` | 0x1408e1960 | function | mode 1 halves width; **no callers** (data ref only), patching it does nothing | confirmed |
 | `RenderTargetManager::TransformViewport` | 0x1408e20e0 | function | mode 2 halves height, mode 1 halves width | confirmed |
 | `RenderTargetManager::CreateSplitRenderTarget` | 0x1408e1ca0 | function | 'Split' RT | confirmed |
-| `RenderLoop::CopySplitRT` | 0x1408da340 | function | vslot 10 (+0x50); stashes each view's result; 'Split border' pass afterwards | confirmed |
+| `RenderLoop::CopySplitRT` | 0x1408da340 | function | vslot 10 (+0x50), call 0x1408492db; queues `RenderCopyTexture` of the view's final RT into the back-buffer RT sub-rect (record time, not executed yet); bool arg 'view 0' clears the destination; 'Split border' pass afterwards if `DeferredRenderLoop+0x1e71 == 1` | confirmed |
+| `RenderTargetManager::s_pSingletonInstance` | 0x141408500 | global | read directly by DoUpdate; `GetInstance` 0x140450e80 | confirmed |
+| `RenderTargetManager::ChangeRenderTargetsSize` | 0x1408e1800 / 0x1408e1760 | function | window RT sizing; halves width when RTM+0xc == 1 and RT Desc+0x68 (split-resizable, default 1) | confirmed |
+| `EffectorMapManager::s_pSingletonInstance` | 0x1413ccd28 | global | vegetation bend maps, 2 slots (+8, +0x10), 256x256, render-only | confirmed |
+| `EffectorMapManager::SetSplitMode` | 0x14084e6c0 | function | slot 0 only for mode 0, both slots otherwise; called by DoUpdate on an RTM mode mismatch (0x1405adf71) | confirmed |
+| `EffectorMapManager::SetCenterWorldPos` | 0x14084e650 | function | (em, &pos, idx); slot 1's centre is set only for a second game camera (FUN_140b455a0) | confirmed |
+| `EffectorMapManager::GetConstantBufferData` | 0x14084e000 | function | (idx), per view at 0x140847867, no null check: index 1 with no slot 1 crashes | confirmed |
+| Renderer.scenes[2] | +0xd80 / +0xd88 | field | per-view `Scene*`; DoUpdate copies lighting/fog and VC+0x598 from it; after a level load only [0] is the level scene | confirmed |
+| ViewContext.viewType | +0x610 | field | int; non-zero only on the external-scene path; jitter gate reads it for views 0/1 (Renderer+0x640 / +0xc60) | confirmed |
+| ViewContext.virtualViewport | +0x5f4 | field | (x, y, w, h) fractions; mode 1: view 0 (0,0,0.5,1), view 1 (0.5,0,0.5,1), written in DoUpdate | confirmed |
+| DeferredRenderLoop.splitBorder | +0x1e71 | field | byte; 1 = draw 'Split border'; writer not found | likely |
+| `GameEngine::SetSplitModeOn` side effects | 0x1404d4760 | function | FMOD listener count (`SetNum3DListeners` 0x140715150), GUI screens, `CVarManager::ChangeSplit` -> `s_bSplitEnabled` 0x1413ac808, `+0x184` readers (cloth sim, content density, FOV). Re-applied at level-load end (0x1404d54ff, 0x140521cbe, 0x1405248a7). Not render-only: never call from the mod | confirmed |
 | RenderTargetManager fields | +8 possible mode, +0xc active mode | field | | confirmed |
 | `Renderer::DoUpdate` split branches | iVar4 (+0xc90) == 1 or 2 | const | InitFromCamera(this+0x30, cam@+0xe48) and (this+0x650, cam@+0xe50) | confirmed |
 | strings 'PossibleSplitMode' 0x140f7cd78, 'VERTICAL' 0x140f7cd90, 'HORIZONTAL' 0x140f7cda0 | | string | | confirmed |
@@ -933,15 +944,15 @@ Verdict (confirmed): `PlayAll::Game::Oculus` and the `ViewContext` stereo functi
 |---|---|---|---|---|
 | 1 | Camera+0x78 FOV type | camera note: vertical radians; projection_depth, conventions_ansel, temporal: horizontal | Horizontal. `MatrixPerspectiveFovRH` m[5]=m[0]*aspect; Ansel fovType 0 = horizontal; KTUCamera::Update applies Hor+ correction | RC: dump a live Camera and a captured projection (m[0] vs m[5]) |
 | 2 | ViewContext+0x466 readers | stereo_native: only ViewContext functions read it; renderloop/hud: DeferredRenderLoop::Render reads it | Moot (nothing writes it); treat as one unresolved read | hardware read-watch |
-| 3 | Jitter in split mode | stereo_native: same offset to both views; temporal/renderloop: disabled when second view exists | DoUpdate decompile gate: off in split mode (bVar8 needs split==0 or +0xc60==0) | RC |
+| 3 | Jitter in split mode | stereo_native: same offset to both views; temporal/renderloop: disabled when second view exists | **Resolved 2026-10-16 for stereo_native**: disasm 0x1405adfc6 gate is `[+0x640]==0 && ([+0xc90]==0 \|\| [+0xc60]==0)` with +0xc60 = view 1's view type (0), so jitter is on in split mode, same vector for both views (`frame-anatomy.md` 5.1) | confirmed (static) |
 | 4 | Auto-exposure state | renderloop: one object, no camera key, would double-step; temporal: per-idx ping-pong (tm+0x138+idx*8, first-frame flags tm+0x14e+idx, params tm+0x30+idx*0x60) | Per-idx (field-level evidence), plus a single shared CPU readback float +0x148 | RC: two views in one frame |
 | 5 | RendererWin32 vftable | 0x140f7bda8 (threading) vs 0x140f7bdb0 (renderloop) | Slot numbering identical; 8-byte difference is probably RTTI locator vs slot 0 | none |
 | 6 | RenderDesc viewport fractions | camera note +0x5f4..0x600 in slot; renderloop +0x624..0x630; stereo_native Renderer-relative floats [0xc44],[0xc4c],[0xc50] | Unresolved; use RenderDoc/debugger on split mode | RC |
 | 7 | KTUCamera +0x74/+0x78 | camera note: +0x74 mode-request int, +0xa4/+0xa8 mode array; hud note: mode stack at +0x78 count +0x74 | Unresolved; structures may differ in meaning | RC |
-| 8 | Renderer+0xc60 jitter gate | temporal cites Renderer+0xc60; renderloop says RenderDesc+0xc60 = Renderer+0xc90 | probably the same split-mode field mis-based | RC |
+| 8 | Renderer+0xc60 jitter gate | temporal cites Renderer+0xc60; renderloop says RenderDesc+0xc60 = Renderer+0xc90 | **Resolved 2026-10-16**: Renderer+0xc60 is ViewContext[1]+0x610 (view type), distinct from RenderDesc+0xc60 | confirmed (static) |
 | 9 | Render thread | wf1: "cannot be excluded"; threading: none | None. VideoDevice+0x88 is set in VideoDevice::Create from the creating (main) thread | thread census |
 | 10 | Early guesses superseded | "EnableVideoAdapter likely D3D11CreateDeviceAndSwapChain caller" (wf1 likely) | confirmed by call sites 0x140959180/0x1409591e9 | none |
 | 11 | imgui.ini mtime | 13:04 (wf1) vs 17:47 (hud) on the same day | file rewritten again; ImGui is the game's own | none |
 | 12 | Ansel Configuration fields | field order and fovType position unverified (SDK header unavailable) | values at the stated offsets are confirmed; names are not | SDK 1.5 header |
 
-Open questions kept for later (no better reading yet): which CameraType/view is the real helmet camera; where `Mesh` frameId originates and whether it is identical for two eyes of one frame; whether froxel temporal reprojects with a matrix; main depth format; whether the 'ForceNoTAA' string is a CVar; who enables `AntiCheatManager` (Desc+0x8e); how split mode 1 can be enabled in a single-player race; whether CSM cascades are fitted per view or merged; how shader-side matrices are packed (row_major vs column_major) for cbCameraStd.
+Open questions kept for later (no better reading yet): which CameraType/view is the real helmet camera; where `Mesh` frameId originates and whether it is identical for two eyes of one frame; whether froxel temporal reprojects with a matrix; main depth format; whether the 'ForceNoTAA' string is a CVar; who enables `AntiCheatManager` (Desc+0x8e); whether CSM cascades are fitted per view or merged; how shader-side matrices are packed (row_major vs column_major) for cbCameraStd.
