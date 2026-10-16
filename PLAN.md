@@ -26,7 +26,7 @@ v1 is done when all of these hold during a 30-minute offline session on the Snae
 - [ ] Phase 9 — Performance
 - [ ] Phase 10 — Robustness & release
 
-**Active phase: Phase 1** (all code done 2026-10-16; runtime "Done when" checks pending; Phase 0 completed 2026-10-16)
+**Active phase: Phase 1** (all code done; runtime verified except the fake-hash test and remote requests; Phase 0 completed 2026-10-16)
 
 ---
 
@@ -175,12 +175,12 @@ Goal: know exactly what we're dealing with before writing hooks.
 - [x] `.gitignore`: build output, `*.rdc`, dumps, `CLAUDE.local.md`, `.claude/settings.local.json`.
 - [x] Proxy DLL (per the Phase 0 decision): forwards all exports and loads `tt2vr\tt2vr.dll`. No heavy work in `DllMain` (loader lock); everything else happens on an init thread or the load notification.
 - [x] `core`: logger; TOML config including hotkeys; MinHook wrapper (install / enable / disable all); IDA-style pattern scanner with `??` wildcards; exe SHA-256 check. Unknown version → D3D layer only, engine hooks off, overlay notice.
-- [ ] `d3d`: device and swapchain creation hooks, `Present` / `ResizeBuffers`, `Create*Shader` hooks feeding a shader registry (xxh64 of bytecode → stage, size, our name from `src/d3d/shader_names.inc`).
-  - Implemented 2026-10-16; build + unit tests pass; **awaiting runtime test**.
-- [ ] Frame trace: on hotkey, log every relevant context call for one frame (shader binds with names, `OMSetRenderTargets`, SRV/UAV binds, viewports, draws/dispatches, copies, clears, constant buffer updates) to `captures/frametrace_<frame>.txt`.
-  - Implemented 2026-10-16; build + unit tests pass; **awaiting runtime test**.
-- [ ] Texture dump: on hotkey, save tracked textures (PNG for UNORM, DDS for float formats).
-  - Implemented 2026-10-16; build + unit tests pass; **awaiting runtime test**.
+- [x] `d3d`: device and swapchain creation hooks, `Present` / `ResizeBuffers`, `Create*Shader` hooks feeding a shader registry (xxh64 of bytecode → stage, size, our name from `src/d3d/shader_names.inc`).
+  - Verified 2026-10-16 (30 min Snaefell session, no crash): 53 context hooks, deferred vtable shared with the immediate one (under RenderDoc), 1953 unique shaders in `shader_registry.txt`.
+- [x] Frame trace: on hotkey, log every relevant context call for one frame (shader binds with names, `OMSetRenderTargets`, SRV/UAV binds, viewports, draws/dispatches, copies, clears, constant buffer updates) to `captures/frametrace_<frame>.txt`.
+  - Verified 2026-10-16: `frametrace_10866.txt`, ~36k calls, imm + 4 deferred contexts, 9 command lists spliced, CB data with matrices.
+- [x] Texture dump: on hotkey, save tracked textures (PNG for UNORM, DDS for float formats).
+  - Verified 2026-10-16: `11318_dump.txt`, 61 snapshots, 0 failed; back buffer, reversed-Z depth and HDR previews look correct.
 - [ ] Remote requests: Claude writes a command file into `tt2vr/commands/`; the mod checks it once per frame and runs a frame trace, a texture dump, or — when the game was launched under RenderDoc (`renderdoc.dll` loaded) — a RenderDoc capture through the in-application API (`renderdoc_app.h`, `TriggerCapture`), written to the capture folder set in `tt2vr.toml`. Balazs only holds the game in the wanted state.
   - Implemented 2026-10-16; build + unit tests pass; **awaiting runtime test**.
 - [ ] ImGui overlay on the desktop window: FPS, hook status, version status, toggles.
@@ -195,6 +195,7 @@ Implementation notes (2026-10-16):
 - Overlay never subclasses the game window: it polls the mouse buttons, so game input is untouched (clicks also reach the game).
 
 **Done when:** 30 minutes of offline riding with the mod loaded, no crash; overlay works; shader registry and frame trace are produced; the unknown-version path is tested by faking the hash.
+- 2026-10-16: 30 min ride, trace, dump and registry done. Fake-hash test showed no notice; the log was overwritten, so the cause is unknown (most likely the value was rejected by the 64-hex check). Since then: config warnings are shown in the overlay, and the previous log is kept as `tt2vr.prev.log`. **Retest pending**, plus one remote request.
 
 ## Phase 2 — Camera control (flat)
 
