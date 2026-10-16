@@ -3,6 +3,7 @@
 #include "core/config.hpp"
 #include "core/log.hpp"
 #include "game/engine_layout.hpp"
+#include "game/menu_state.hpp"
 #include "game/signatures.hpp"
 
 #include <spdlog/fmt/fmt.h>
@@ -63,7 +64,9 @@ const void* g_writtenScene1 = nullptr;
 void* g_borderLoop = nullptr; // DeferredRenderLoop whose 'Split border' byte we cleared (was 1)
 bool g_possibleSet = false;
 bool g_active = false;
-bool g_ownerSynced = false; // last SyncOwnerState result (logged on change)
+int g_ownerResult = -1; // last SyncOwnerState result code (logged on change)
+void* g_cascadeLoop = nullptr; // DeferredRenderLoop whose split cascade cap we lifted
+std::uint32_t g_savedCascadeCap = 0;
 std::uint64_t g_frames = 0; // two-view frames so far
 
 std::string Describe(const Desc& d)
@@ -131,19 +134,36 @@ void StartOrKeep(void* renderer, const void* camera)
     }
 }
 
+enum OwnerResult { kOwnerOk, kOwnerNoRider, kOwnerOtherCamera, kOwnerNoPlayer, kOwnerNotLocal, kOwnerIndex, kOwnerFault };
+const char* OwnerResultName(int r)
+{
+    static const char* const names[] = {"ok", "no rider camera", "rider camera renders another view", "no player",
+        "player not local (kind != 0)", "player camera index != 0", "access fault"};
+    return r >= 0 && r < static_cast<int>(std::size(names)) ? names[r] : "?";
+}
+
 // The game hides the rider's own suit and helmet (render flags), the shadow decal and switches first-person SSR /
 // probe factor for the player's camera index only (FUN_1403aea40, FUN_1403aec70). View 1 is a second index, so it
 // gets index 0's values every frame (the game rewrites index 0 on every view change). Index 1 is unused in one-view
-// frames, so nothing is restored. Returns false if the rider object did not check out.
-bool SyncOwnerState(void* renderer, const void* camera, const void* rider)
+// frames, so nothing is restored.
+int SyncOwnerState(void* renderer, const void* camera, const void* rider)
 {
     __try {
-        if (!rider || Read<const void*>(rider, kTTCameraGraphicsCamera) != camera) {
-            return false;
+        if (!rider) {
+            return kOwnerNoRider;
+        }
+        if (Read<const void*>(rider, kTTCameraGraphicsCamera) != camera) {
+            return kOwnerOtherCamera;
         }
         const void* player = Read<const void*>(rider, kTTCameraPlayer);
-        if (!player || Read<int>(player, kPlayerKind) != 0 || Read<std::uint16_t>(player, kPlayerCameraIndex) != 0) {
-            return false;
+        if (!player) {
+            return kOwnerNoPlayer;
+        }
+        if (Read<int>(player, kPlayerKind) != 0) {
+            return kOwnerNotLocal;
+        }
+        if (Read<std::uint16_t>(player, kPlayerCameraIndex) != 0) {
+            return kOwnerIndex;
         }
         for (int i = 0; i < 3; ++i) {
             if (void* entity = Read<void*>(rider, kTTCameraOwnMeshes + i * 8)) {
@@ -166,11 +186,33 @@ bool SyncOwnerState(void* renderer, const void* camera, const void* rider)
                 Write(lighting, kLightingProbeFactor + 4, Read<float>(lighting, kLightingProbeFactor));
             }
         }
-        return true;
+        return kOwnerOk;
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
-        return false;
+        return kOwnerFault;
     }
+}
+
+// Split screen trades quality for two players (fewer CSM cascades per view); two eyes need the one-view quality.
+void LiftSplitCaps(void* renderer)
+{
+    void* loop = RenderLoop(renderer);
+    if (!loop || loop == g_cascadeLoop) {
+        return;
+    }
+    g_cascadeLoop = loop;
+    g_savedCascadeCap = Read<std::uint32_t>(loop, kRenderLoopSplitCascadeCount);
+    Write<std::uint32_t>(loop, kRenderLoopSplitCascadeCount, 0xffffffffu);
+    TT2VR_LOG_INFO("split view: split cascade cap {} lifted (split FXAA {}, SSAO {})", g_savedCascadeCap,
+        Read<std::uint8_t>(loop, kRenderLoopSplitFxaa), Read<std::uint8_t>(loop, kRenderLoopSplitSsao));
+}
+
+void RestoreSplitCaps(void* renderer)
+{
+    if (g_cascadeLoop && g_cascadeLoop == RenderLoop(renderer)) {
+        Write<std::uint32_t>(g_cascadeLoop, kRenderLoopSplitCascadeCount, g_savedCascadeCap);
+    }
+    g_cascadeLoop = nullptr;
 }
 
 void Stop(void* renderer)
@@ -186,6 +228,7 @@ void Stop(void* renderer)
         Write<std::uint8_t>(g_borderLoop, kDeferredLoopSplitBorder, 1);
     }
     g_borderLoop = nullptr;
+    RestoreSplitCaps(renderer);
     g_writing = false;
     TT2VR_LOG_INFO("split view: two views off after {} frames; game desc {} restored", g_frames, Describe(g_game));
 }
@@ -248,15 +291,30 @@ void ApplySplitView(void* renderer, const void* camera, bool twoViews, const voi
                camera == g_game.camera[0] && EnsurePossibleSplitMode();
     if (twoViews) {
         StartOrKeep(renderer, camera);
-        const bool owner = SyncOwnerState(renderer, camera, riderCamera);
-        if (owner != g_ownerSynced) {
-            g_ownerSynced = owner;
-            if (owner) {
-                TT2VR_LOG_INFO("split view: rider camera {} index 0 state mirrored to view 1", riderCamera);
+        LiftSplitCaps(renderer);
+        // The rider object: the camera seen in its physics step, else the player-0 KTUCamera (same object if the
+        // TT2 camera class derives from KTUCamera; runtime check pending).
+        const void* playerCamera = LastPlayerCamera();
+        int owner = SyncOwnerState(renderer, camera, riderCamera);
+        const void* used = riderCamera;
+        if (owner != kOwnerOk && playerCamera && playerCamera != riderCamera) {
+            const int second = SyncOwnerState(renderer, camera, playerCamera);
+            if (second == kOwnerOk) {
+                owner = second;
+                used = playerCamera;
+            }
+        }
+        if (owner != g_ownerResult) {
+            g_ownerResult = owner;
+            if (owner == kOwnerOk) {
+                TT2VR_LOG_INFO("split view: rider state mirrored to view 1 (rider object {}; physics-step camera {}, "
+                               "player camera {})",
+                    used, riderCamera, playerCamera);
             }
             else {
-                TT2VR_LOG_WARN("split view: rider camera {} not usable; view 1 may show the rider's own helmet",
-                    riderCamera);
+                TT2VR_LOG_WARN("split view: rider state not mirrored ({}; physics-step camera {}, player camera {}, "
+                               "rendered camera {}); view 1 may show the rider's own helmet",
+                    OwnerResultName(owner), riderCamera, playerCamera, camera);
             }
         }
         ++g_frames;

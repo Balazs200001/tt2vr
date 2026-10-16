@@ -72,6 +72,11 @@ inline constexpr std::ptrdiff_t kLightingProbeFactor = 0x34; // float[2], 0.35 i
 
 // DeferredRenderLoop
 inline constexpr std::ptrdiff_t kDeferredLoopSplitBorder = 0x1e71; // byte, 1 = draw 'Split border' (0x140849344)
+// Engine.Renderer.Split (Lua, RenderLoop::Create 0x1408da8d5): with >= 2 views Render caps every view's CSM cascade
+// count (ViewContext+0x4dc) to this (unsigned min, 0x140846ab0). Then FXAA / SSAO split bytes (readers not found).
+inline constexpr std::ptrdiff_t kRenderLoopSplitCascadeCount = 0x1e88;
+inline constexpr std::ptrdiff_t kRenderLoopSplitFxaa = 0x1e8c;
+inline constexpr std::ptrdiff_t kRenderLoopSplitSsao = 0x1e8d;
 
 // RenderTargetManager
 inline constexpr std::ptrdiff_t kRtmPossibleSplitMode = 0x8;

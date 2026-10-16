@@ -32,5 +32,7 @@ void InitMenuState();
 // Reads the state and logs every change.
 MenuState ReadMenuState(const void* mainCamera);
 MenuState LastMenuState();
+// The player-0 KTUCamera seen by the last ReadMenuState, or nullptr (main thread).
+const void* LastPlayerCamera();
 
 } // namespace game

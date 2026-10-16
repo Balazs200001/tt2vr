@@ -22,6 +22,7 @@ const void* g_springManage = nullptr;
 void* const* g_context = nullptr; // &GameContext::s_pInstance
 GetTimeFactorFn g_getTimeFactor = nullptr;
 MenuState g_last;
+const void* g_playerCamera = nullptr; // player-0 KTUCamera from the last ReadMenuState (riding check)
 
 // Player-0 camera mode is TTSpringCameraMode and its Graphics::Camera is the rendered view. SEH guard: these are
 // game objects we only read.
@@ -33,6 +34,7 @@ bool SpringCameraActive(const void* mainCamera)
             return false;
         }
         const void* camera = g_getCamera(engine, 0);
+        g_playerCamera = camera;
         if (!camera || layout::Read<const void*>(camera, layout::kKTUCameraCamera) != mainCamera) {
             return false;
         }
@@ -73,6 +75,7 @@ void InitMenuState()
 MenuState ReadMenuState(const void* mainCamera)
 {
     MenuState s;
+    g_playerCamera = nullptr;
     if (g_gui) {
         s.available = true;
         if (const void* gui = *g_gui) {
@@ -96,6 +99,11 @@ MenuState ReadMenuState(const void* mainCamera)
 MenuState LastMenuState()
 {
     return g_last;
+}
+
+const void* LastPlayerCamera()
+{
+    return g_playerCamera;
 }
 
 } // namespace game
