@@ -7,8 +7,71 @@
 #include "game/version.hpp"
 
 #include <windows.h>
+#include <tlhelp32.h>
+
+#include <string>
 
 namespace {
+
+// Launch diagnostics (2026-10-16: some launches end silently ~1 ms after the mod starts, before the game creates
+// its window). At process exit the loader calls DllMain(DLL_PROCESS_DETACH) only for ExitProcess, not for
+// TerminateProcess; other threads are already gone then, so the line is written with a raw handle, not spdlog.
+wchar_t g_logPath[MAX_PATH] = {};
+LARGE_INTEGER g_startCounter{};
+
+void AppendExitLine()
+{
+    if (!g_logPath[0]) {
+        return;
+    }
+    HANDLE f = CreateFileW(g_logPath, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    LARGE_INTEGER now{}, freq{};
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&freq);
+    const double ms = freq.QuadPart ? 1000.0 * static_cast<double>(now.QuadPart - g_startCounter.QuadPart) /
+                                          static_cast<double>(freq.QuadPart)
+                                    : 0.0;
+    char line[160];
+    const int n = wsprintfA(line, "[exit] process exiting through ExitProcess, %d ms after tt2vr_start, thread %lu\r\n",
+        static_cast<int>(ms), GetCurrentThreadId());
+    DWORD written = 0;
+    WriteFile(f, line, static_cast<DWORD>(n), &written, nullptr);
+    CloseHandle(f);
+}
+
+// Who started us (steam.exe, the SteamStub relaunching, a shortcut, RenderDoc).
+std::string ParentProcess()
+{
+    const DWORD self = GetCurrentProcessId();
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE) {
+        return "?";
+    }
+    PROCESSENTRY32W e{sizeof(e)};
+    DWORD parent = 0;
+    for (BOOL ok = Process32FirstW(snap, &e); ok; ok = Process32NextW(snap, &e)) {
+        if (e.th32ProcessID == self) {
+            parent = e.th32ParentProcessID;
+            break;
+        }
+    }
+    std::string name = "?";
+    e.dwSize = sizeof(e);
+    for (BOOL ok = Process32FirstW(snap, &e); ok && parent; ok = Process32NextW(snap, &e)) {
+        if (e.th32ProcessID == parent) {
+            char buf[MAX_PATH] = {};
+            WideCharToMultiByte(CP_UTF8, 0, e.szExeFile, -1, buf, MAX_PATH, nullptr, nullptr);
+            name = buf;
+            break;
+        }
+    }
+    CloseHandle(snap);
+    return name + " (pid " + std::to_string(parent) + ")";
+}
 
 void LoadConfiguration()
 {
@@ -32,13 +95,18 @@ extern "C" __declspec(dllexport) void __cdecl tt2vr_start()
     // Order matters: config first (the device hook reads it), then the device hook as early as possible,
     // then the slow exe hash. Engine hooks (Phase 2+) are only allowed when the hash is a known build.
     try {
+        QueryPerformanceCounter(&g_startCounter);
         core::InitLog();
-        TT2VR_LOG_INFO("tt2vr 0.1.0 starting (Phase 3: OpenXR, left eye head-tracked)");
+        const auto logPath = core::ModDir() / L"logs" / L"tt2vr.log";
+        lstrcpynW(g_logPath, logPath.c_str(), MAX_PATH);
+        TT2VR_LOG_INFO("tt2vr 0.1.0 starting (Phase 4: two-view stereo); pid {}, parent {}", GetCurrentProcessId(),
+            ParentProcess());
         LoadConfiguration();
         if (!core::hooks::Init()) {
             TT2VR_LOG_ERROR("MinHook unavailable: overlay, traces and dumps disabled");
         }
         d3d::InstallDeviceHooks();
+        TT2VR_LOG_INFO("startup: hashing TT2.exe");
         game::CheckExeVersion();
     }
     catch (...) {
@@ -46,10 +114,13 @@ extern "C" __declspec(dllexport) void __cdecl tt2vr_start()
     }
 }
 
-BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
+BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved)
 {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(module);
+    }
+    else if (reason == DLL_PROCESS_DETACH && reserved) { // process exit (not FreeLibrary)
+        AppendExitLine();
     }
     return TRUE;
 }
