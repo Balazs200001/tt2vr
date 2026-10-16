@@ -15,6 +15,7 @@
 #include "d3d/shader_registry.hpp"
 #include "game/camera.hpp"
 #include "game/version.hpp"
+#include "xr/session.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
@@ -146,6 +147,42 @@ void CameraSection()
     }
 }
 
+// PLAN Phase 3: OpenXR session status, eye image size and frame pacing.
+void XrSection()
+{
+    const xr::Status st = xr::GetStatus();
+    if (!ImGui::CollapsingHeader("Headset (Phase 3)", ImGuiTreeNodeFlags_DefaultOpen)) {
+        return;
+    }
+    ImGui::Text("XR: %s%s", st.state.c_str(), st.running ? " (running)" : "");
+    if (!st.runtime.empty()) {
+        ImGui::Text("runtime %s  headset %s", st.runtime.c_str(), st.system.empty() ? "-" : st.system.c_str());
+    }
+    if (!st.error.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "last error: %s", st.error.c_str());
+    }
+    if (st.eyeW > 0) {
+        ImGui::Text("eye %ux%u (recommended %ux%u)  format %d", st.eyeW, st.eyeH, st.recommendedW, st.recommendedH,
+            st.format);
+        ImGui::Text("back buffer %ux%u -> %s", st.backBufferW, st.backBufferH, st.copyMode);
+        if (st.backBufferW != 0 && (st.backBufferW != st.eyeW || st.backBufferH != st.eyeH)) {
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
+                "image is stretched: run tools/set-eye-resolution.ps1 -Width %u -Height %u", st.eyeW, st.eyeH);
+        }
+        ImGui::Text("xrWaitFrame %.2f ms  period %.2f ms  render %s  tracked %s", st.waitMs, st.periodMs,
+            st.shouldRender ? "yes" : "no", st.tracked ? "yes" : "no");
+        ImGui::Text("frames submitted %llu  head tracked %s", static_cast<unsigned long long>(st.framesSubmitted),
+            game::LastCameraInfo().headTracked ? "yes" : "no");
+    }
+    if (ImGui::Button(fmt::format("Recenter ({})", core::FormatHotkey(core::GetConfig().hotkeys.recenter)).c_str())) {
+        xr::RequestRecenter();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Restart XR")) {
+        xr::RequestRestart();
+    }
+}
+
 void DrawPanel()
 {
     const auto stats = d3d::Stats();
@@ -154,7 +191,7 @@ void DrawPanel()
     ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowBgAlpha(0.8f);
     ImGui::Begin("tt2vr", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
-    ImGui::Text("tt2vr 0.1.0 - Phase 2 (flat)");
+    ImGui::Text("tt2vr 0.1.0 - Phase 3 (left eye head-tracked)");
     ImGui::Text("%.1f fps  %.2f ms  frame %llu  %ux%u", stats.fps, stats.ms,
         static_cast<unsigned long long>(stats.frame), stats.width, stats.height);
     VersionLine(version);
@@ -193,6 +230,7 @@ void DrawPanel()
     if (ImGui::Button("Write shader registry")) {
         d3d::WriteShaderRegistry("overlay");
     }
+    XrSection();
     CameraSection();
     ImGui::Checkbox(fmt::format("Show mouse cursor ({})", core::FormatHotkey(hk.cursor)).c_str(), &g_cursor);
     bool verbose = core::GetVerbose();

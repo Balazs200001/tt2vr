@@ -33,7 +33,7 @@ extern "C" __declspec(dllexport) void __cdecl tt2vr_start()
     // then the slow exe hash. Engine hooks (Phase 2+) are only allowed when the hash is a known build.
     try {
         core::InitLog();
-        TT2VR_LOG_INFO("tt2vr 0.1.0 starting (Phase 2: camera control, flat)");
+        TT2VR_LOG_INFO("tt2vr 0.1.0 starting (Phase 3: OpenXR, left eye head-tracked)");
         LoadConfiguration();
         if (!core::hooks::Init()) {
             TT2VR_LOG_ERROR("MinHook unavailable: overlay, traces and dumps disabled");

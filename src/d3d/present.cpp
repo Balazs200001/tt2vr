@@ -1,8 +1,12 @@
 // present.cpp - IDXGISwapChain::Present / ResizeBuffers hooks: the per-frame tick of the mod.
 //
 // Per Present on the game's swap chain (thread: game main thread, docs/re/README.md):
-//   before the real Present: end an active frame trace / texture dump, draw the overlay;
-//   after it returns: count the frame, poll hotkeys and remote commands, start requested traces/dumps.
+//   before the real Present: end an active frame trace / texture dump, hand the frame to the headset
+//   (xr::OnFrameEnd: eye copy + xrEndFrame), then draw the overlay (desktop only);
+//   after it returns: count the frame, poll hotkeys and remote commands, start requested traces/dumps, and last
+//   xr::OnFrameStart (xrWaitFrame + xrBeginFrame), which paces the start of the next frame.
+// While the XR session runs: [xr] desktop_vsync_off presents with sync interval 0, and [xr] desktop_mirror = false
+// skips the real Present (the window keeps its last image; the game still renders each frame once, for the headset).
 // Present calls on other swap chains (the engine can add windows) pass through untouched.
 #include "d3d/present.hpp"
 
@@ -21,6 +25,7 @@
 #include "game/camera.hpp"
 #include "game/version.hpp"
 #include "ui/overlay.hpp"
+#include "xr/session.hpp"
 
 #include <spdlog/fmt/fmt.h>
 #include <windows.h>
@@ -143,7 +148,8 @@ void PollHotkeys()
 {
     const bool focused = g_window && GetForegroundWindow() == g_window;
     const auto& hk = core::GetConfig().hotkeys;
-    const core::Hotkey* keys[] = {&hk.overlay, &hk.frame_trace, &hk.texture_dump, &hk.renderdoc_capture, &hk.cursor};
+    const core::Hotkey* keys[] = {
+        &hk.overlay, &hk.frame_trace, &hk.texture_dump, &hk.renderdoc_capture, &hk.cursor, &hk.recenter};
     constexpr int kCount = static_cast<int>(std::size(keys));
     const bool ctrl = KeyDown(VK_CONTROL);
     const bool shift = KeyDown(VK_SHIFT);
@@ -178,6 +184,9 @@ void PollHotkeys()
     }
     if (fired[4]) {
         ui::ToggleCursor();
+    }
+    if (fired[5]) {
+        xr::RequestRecenter();
     }
 }
 
@@ -230,6 +239,7 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
             }
             trace::End(g_frame);
             dump::End(g_frame, self);
+            xr::OnFrameEnd(self, g_immediate); // before the overlay, so the overlay stays on the desktop
             if (!renderdoc::Busy()) {
                 ui::Render(self, g_device, g_immediate);
             }
@@ -238,7 +248,21 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
             TT2VR_LOG_ERROR("exception in Present pre-hook (frame {})", g_frame);
         }
     }
-    const HRESULT hr = g_present(self, sync, flags);
+    bool skip = false;
+    if (ours && xr::SessionRunning()) {
+        const auto& xc = core::GetConfig().xr;
+        if (xc.desktop_vsync_off && sync != 0) {
+            static bool s_logged = false;
+            if (!s_logged) {
+                s_logged = true;
+                TT2VR_LOG_INFO("present: XR session running, desktop sync interval {} -> 0 ([xr] desktop_vsync_off)",
+                    sync);
+            }
+            sync = 0;
+        }
+        skip = !xc.desktop_mirror;
+    }
+    const HRESULT hr = skip ? S_OK : g_present(self, sync, flags);
     if (ours) {
         try {
             ++g_frame;
@@ -253,6 +277,7 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
             if (core::GetVerbose() && g_frame % 600 == 0) {
                 TT2VR_LOG_DEBUG("frame {}: {:.1f} fps", g_frame, Stats().fps);
             }
+            xr::OnFrameStart(); // last: may block in xrWaitFrame until the headset wants the next frame
         }
         catch (...) {
             TT2VR_LOG_ERROR("exception in Present post-hook (frame {})", g_frame);
@@ -293,6 +318,7 @@ void OnDeviceCreated(ID3D11Device* device, ID3D11DeviceContext* immediate, IDXGI
     g_commandsDir = core::CommandsDir();
     if (device) {
         shaders::InstallHooks(device);
+        xr::Init(device);
     }
     InstallContextHooks(device, immediate);
     if (!swapChain) {
