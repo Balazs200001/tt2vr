@@ -257,6 +257,9 @@ void ReadXr(const toml::table& t, Config::Xr& out, Warnings& w)
         else if (key == "resolution_scale") s.Float(key, node, out.resolution_scale, 0.25, 2.0);
         else if (key == "desktop_vsync_off") s.Bool(key, node, out.desktop_vsync_off);
         else if (key == "desktop_mirror") s.Bool(key, node, out.desktop_mirror);
+        else if (key == "menu_screen") s.Bool(key, node, out.menu_screen);
+        else if (key == "screen_distance") s.Float(key, node, out.screen_distance, 0.5, 10.0);
+        else if (key == "screen_width") s.Float(key, node, out.screen_width, 0.25, 10.0);
         else s.Warn(key, "unknown key, ignored", node);
     }
 }

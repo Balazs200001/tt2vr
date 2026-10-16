@@ -39,7 +39,9 @@ bool SameConfig(const Config& a, const Config& b)
            SameHotkey(a.hotkeys.renderdoc_capture, b.hotkeys.renderdoc_capture) &&
            SameHotkey(a.hotkeys.cursor, b.hotkeys.cursor) && SameHotkey(a.hotkeys.recenter, b.hotkeys.recenter) &&
            a.xr.enabled == b.xr.enabled && a.xr.resolution_scale == b.xr.resolution_scale &&
-           a.xr.desktop_vsync_off == b.xr.desktop_vsync_off && a.xr.desktop_mirror == b.xr.desktop_mirror && a.overlay.show_cursor == b.overlay.show_cursor &&
+           a.xr.desktop_vsync_off == b.xr.desktop_vsync_off && a.xr.desktop_mirror == b.xr.desktop_mirror &&
+           a.xr.menu_screen == b.xr.menu_screen && a.xr.screen_distance == b.xr.screen_distance &&
+           a.xr.screen_width == b.xr.screen_width && a.overlay.show_cursor == b.overlay.show_cursor &&
            a.overlay.visible == b.overlay.visible &&
            a.camera.helmet_follows_view == b.camera.helmet_follows_view && a.capture.dir == b.capture.dir &&
            a.capture.renderdoc_dir == b.capture.renderdoc_dir && a.capture.max_textures == b.capture.max_textures &&
@@ -237,6 +239,9 @@ enabled = false
 resolution_scale = 1.25
 desktop_vsync_off = false
 desktop_mirror = false
+menu_screen = false
+screen_distance = 3
+screen_width = 1.5
 
 [capture]
 dir = "C:/caps"
@@ -269,6 +274,9 @@ fake_exe_sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
     CHECK(c.xr.resolution_scale == doctest::Approx(1.25));
     CHECK_FALSE(c.xr.desktop_vsync_off);
     CHECK_FALSE(c.xr.desktop_mirror);
+    CHECK_FALSE(c.xr.menu_screen);
+    CHECK(c.xr.screen_distance == doctest::Approx(3.0));
+    CHECK(c.xr.screen_width == doctest::Approx(1.5));
     CHECK(c.capture.dir == "C:/caps");
     CHECK(c.capture.renderdoc_dir == "C:/dev/tt2vr-re/rdc");
     CHECK(c.capture.max_textures == 100);

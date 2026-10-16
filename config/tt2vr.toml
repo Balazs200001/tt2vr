@@ -48,6 +48,13 @@ desktop_vsync_off = true
 # (the window shows the same image the headset gets), so this only saves the desktop present. false = the window
 # freezes on its last image while the headset is in use; it updates again when the session stops.
 desktop_mirror = true
+# In menus, the pause screen, loading screens and movies, show the flat game on a virtual screen that stays fixed in
+# the room (no head tracking, so the menu's camera cuts only happen on the screen). false = head-track menus too.
+menu_screen = true
+# Distance of that screen in front of your recentered head (metres, 0.5..10) and its width (metres, 0.25..10).
+# The height follows the game window's aspect ratio. 2.4 m wide at 2 m is about a 62 degree wide view.
+screen_distance = 2.0
+screen_width = 2.4
 
 [capture]
 # Folder for frame traces and texture dumps; relative to <game>\tt2vr\ unless absolute.

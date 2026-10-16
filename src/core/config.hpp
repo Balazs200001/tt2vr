@@ -54,6 +54,9 @@ struct Config {
         float resolution_scale = 1.0f; // eye swapchain size = runtime recommendation * this, clamp 0.25..2.0
         bool desktop_vsync_off = true; // Present with sync interval 0 while the XR session runs (xrWaitFrame paces)
         bool desktop_mirror = true; // false: skip the desktop Present while the XR session runs (window freezes)
+        bool menu_screen = true; // menus / pause: show the flat game on a world-fixed screen instead of head tracking
+        float screen_distance = 2.0f; // metres in front of the recentered head, clamp 0.5..10
+        float screen_width = 2.4f; // metres (height follows the game window's aspect), clamp 0.25..10
     } xr;
     struct Capture {
         std::string dir = "captures"; // relative to <game>\tt2vr\ unless absolute
