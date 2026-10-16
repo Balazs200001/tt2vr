@@ -62,6 +62,9 @@ screen_width = 2.4
 # shows it stretched). Keep the game in Borderless or Windowed mode. false = render at the window size (stretched
 # into the headset).
 force_render_size = true
+# Render both eyes every frame, as the engine's two split-screen views side by side (the game then renders at twice
+# the eye width; the desktop window shows both eyes). false = left eye only, right eye black (Phase 3 mode).
+stereo = true
 
 [capture]
 # Folder for frame traces and texture dumps; relative to <game>\tt2vr\ unless absolute.

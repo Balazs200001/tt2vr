@@ -263,6 +263,7 @@ void ReadXr(const toml::table& t, Config::Xr& out, Warnings& w)
         else if (key == "screen_distance") s.Float(key, node, out.screen_distance, 0.5, 10.0);
         else if (key == "screen_width") s.Float(key, node, out.screen_width, 0.25, 10.0);
         else if (key == "force_render_size") s.Bool(key, node, out.force_render_size);
+        else if (key == "stereo") s.Bool(key, node, out.stereo);
         else s.Warn(key, "unknown key, ignored", node);
     }
 }
