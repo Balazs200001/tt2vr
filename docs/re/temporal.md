@@ -450,3 +450,18 @@ Shader behaviour (read from the disassembly, not reproduced here): reprojection 
 - Role rotation of `3268`/`3272`/`3276` across frames, exposure ping-pong, froxel ping-pong, jitter alternation over 4 frames.
 - `NoMotionVectorFixTAA` = event 36786 (inputless PS, dual RT `3268`/`3272`, depth 339 bound) is a **candidate** only (guess).
 - No separate FXAA pass was seen with AA = FXAA_TAA; see `frame-anatomy.md` section 4.2.
+
+### 9.4 Two-view frame trace (tt2vr frame trace 12770, 2026-10-16)
+
+Split mode 1 through the mod (Phase 4a: both views from eye 0's pose, 1770x1892 per view, AA = FXAA_TAA, riding). Trace indices are from `frametrace_12770.txt` (not in git); shader names are our xxh64 hashes. Status: `confirmed (runtime, two views)` for the observation.
+
+| Row | Observation | Index |
+|---|---|---|
+| P1 TAA | 'TAA resolve' (ps `fb237089f5d3dd39`) per view: view 0 history t2 `res818` -> RTs `res807`/`res809`; view 1 history `res1678` -> `res1674`/`res1676`. Six distinct textures, neither history is written earlier in the frame: **per-slot history, no cross-eye read**. Depth `res85`, current colour `res795` and MV `res407` are shared transients rewritten per view. | 023082, 046056 |
+| N7 MV | One R16G16 MV RT for both views, cleared before each view (22 dynamic-object draws each); view 1's clear comes after view 0's TAA. | 015740, 038779 |
+| P4/N2 last frame | Last Frame Depth `res481` / `res1646`, Last Frame Buffer `res483` / `res1648` per view. | |
+| N1 froxel | view 0 reads `res1362` writes `res1358`; view 1 reads `res1715` writes `res1713`. | |
+| P8 exposure | 1x1 luminance: three rotating textures; each view blends against its own previous (`res756` / `res1672`): **independent adaptation per eye** (PLAN requires shared: Phase 4c). View 1's 'HDR_FinalCompose' uses a different PS permutation (`e0d02d95bd7162df` vs `c654fff3722b5843`), cause unknown. | 022975, 045949 |
+| P10 CSM | 6144x2048 map cleared and rendered **per view**, with only 2 cascades (viewports x = 0 and 2048, none at 4096): the split `CascadeCount` cap (`frame-anatomy.md` 5.1); lifted by the mod from the next build. Cascade constants differ per view (fitted per view). | 016157, 039196 |
+| P2 jitter | Not visible in the first 16 floats of the TAA constant buffer (trace records 16 floats); open. | |
+| HUD | After view 1: 80 draws at 3540x1892 into the back buffer with view 1's camera buffer (the global HUD list across both eyes). | 046411..047417 |
