@@ -37,6 +37,7 @@ enum class Sig {
     GetVideoDevice,
     SetDeviceResetNeeded,
     VideoDeviceDX11WindowsVftable,
+    MotionPause,
     Count,
 };
 
@@ -106,6 +107,8 @@ inline constexpr Signature kSignatures[] = {
     {"VideoDeviceDX11Windows vftable", "??_7VideoDeviceDX11Windows@Graphics@PlayAll@@6B@", nullptr, 0,
         "data export; 0x1410328f0, checked against *GetVideoDevice() before calling SetDeviceResetNeeded",
         kBuild4989319},
+    {"ViewContext::s_bMotionPause", "?s_bMotionPause@ViewContext@Graphics@PlayAll@@2_NA", nullptr, 0,
+        "data export; 0x14140bb30, bool written only by RenderLoop::SetTime (game time stopped)", kBuild4989319},
 };
 
 static_assert(std::size(kSignatures) == static_cast<std::size_t>(Sig::Count), "kSignatures must match Sig");

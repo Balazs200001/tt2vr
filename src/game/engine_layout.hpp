@@ -39,6 +39,7 @@ inline constexpr std::ptrdiff_t kModeCameraMatrix = 0x8; // Matrix34 the mode ou
 inline constexpr std::ptrdiff_t kModeHelmetMatrix = 0x4c4; // Matrix34 from HelmetSprings (built from +0x8)
 
 // KTUCamera / KTUCameraMode (game side; read only, never written)
+inline constexpr std::ptrdiff_t kKTUCameraCamera = 0x10; // Graphics::Camera* it drives (SetFov/SetClips target)
 inline constexpr std::ptrdiff_t kKTUCameraMode = 0x48; // active KTUCameraMode*; KTUCamera::Update calls its Manage
 inline constexpr int kModeManageSlot = 6; // vtable slot (+0x30): Manage, called at 0x1409d9125
 

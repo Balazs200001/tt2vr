@@ -202,9 +202,9 @@ void XrSection()
         const game::MenuState menu = game::LastMenuState();
         ImGui::Text("frames submitted %llu  showing %s", static_cast<unsigned long long>(st.framesSubmitted),
             st.presentation);
-        ImGui::Text("menu state: %s (menu %d, paused %d, riding camera %d)",
+        ImGui::Text("menu state: %s (menu %d, paused %d, time stopped %d, riding camera %d)",
             !menu.available ? "unavailable" : menu.Active() ? "screen" : "riding", menu.menuOpen, menu.paused,
-            menu.springCamera);
+            menu.motionPaused, menu.springCamera);
     }
     if (ImGui::Button(fmt::format("Recenter ({})", core::FormatHotkey(core::GetConfig().hotkeys.recenter)).c_str())) {
         xr::RequestRecenter();

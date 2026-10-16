@@ -107,7 +107,7 @@ void BeginFrame(void* renderer)
     g_shiftY = g_settings.projEnabled ? g_settings.shiftY : 0.0f;
     // Phase 3: left eye only. Pose and FOV come from xrLocateViews at this frame's predicted display time.
     // Menus and the pause screen are not head-tracked: xr shows the flat frame on a world-fixed screen instead.
-    const bool menu = core::GetConfig().xr.menu_screen && ReadMenuState().Active();
+    const bool menu = core::GetConfig().xr.menu_screen && ReadMenuState(camera).Active();
     xr::FrameViews views;
     g_head = !menu && xr::LocateViews(views);
     if (g_head) {
