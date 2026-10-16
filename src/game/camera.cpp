@@ -1,0 +1,304 @@
+#include "game/camera.hpp"
+
+#include "core/hooks.hpp"
+#include "core/log.hpp"
+#include "game/engine_layout.hpp"
+#include "game/signatures.hpp"
+#include "stereo/math/projection.hpp"
+#include "stereo/math/xr_to_engine.hpp"
+
+#include <spdlog/fmt/fmt.h>
+
+#include <atomic>
+#include <bit>
+#include <cmath>
+#include <numbers>
+
+namespace game {
+namespace {
+
+using namespace layout;
+using stereo::Mat34;
+using stereo::Mat44;
+using stereo::Vec3;
+
+using DoUpdateFn = int (*)(void* renderer, void* gameContext, unsigned arg);
+using InitFromCameraFn = void (*)(void* viewContext, const void* camera, const void* viewport, const void* offset);
+using PerspectiveFn = float* (*)(float* out, float hfov, float nearZ, float farZ, float aspect);
+using SetViewProjectionFn = void (*)(void* transformMatrix, const float* view, const float* proj);
+using RebuildFrustumFn = void (*)(void* viewContext);
+
+DoUpdateFn g_doUpdate = nullptr;
+InitFromCameraFn g_initFromCamera = nullptr;
+PerspectiveFn g_perspective = nullptr;
+SetViewProjectionFn g_setViewProjection = nullptr;
+RebuildFrustumFn g_rebuildFrustum = nullptr;
+bool g_active = false;
+
+// Main thread state.
+CameraSettings g_settings;
+CameraInfo g_info;
+const void* g_mainCamera = nullptr; // this frame's main view camera, set in DoUpdate
+const void* g_loggedCamera = nullptr;
+bool g_inDoUpdate = false;
+
+// Read by MatrixPerspectiveFovRH, which may also run on render job threads.
+std::atomic<bool> g_projActive{false};
+std::atomic<std::uint32_t> g_mainFovBits{0};
+std::atomic<std::uint32_t> g_frontFovBits{0};
+std::atomic<float> g_shiftX{0};
+std::atomic<float> g_shiftY{0};
+std::atomic<std::uint32_t> g_projCount{0};
+
+constexpr float kDegToRad = std::numbers::pi_v<float> / 180.0f;
+constexpr float kRadToDeg = 180.0f / std::numbers::pi_v<float>;
+
+void* At(void* base, std::ptrdiff_t offset)
+{
+    return static_cast<char*>(base) + offset;
+}
+
+void BeginFrame(void* renderer)
+{
+    g_mainCamera = nullptr;
+    g_projActive = false;
+    if (Read<int>(renderer, kRendererSplitMode) != 0) {
+        return; // split screen: not handled (Phase 4)
+    }
+    const auto mask = Read<std::uint32_t>(renderer, kRendererCameraMask);
+    if (mask == 0) {
+        return;
+    }
+    const int index = std::countr_zero(mask);
+    if (index > 1) {
+        return;
+    }
+    const void* camera = Read<const void*>(renderer, kRendererSplitCameras + index * 8);
+    if (!camera || Read<int>(camera, kCameraProjType) != 0) {
+        return;
+    }
+    g_mainCamera = camera;
+    g_mainFovBits = std::bit_cast<std::uint32_t>(Read<float>(camera, kCameraFov));
+    g_frontFovBits = std::bit_cast<std::uint32_t>(Read<float>(camera, kCameraFrontFov));
+    g_shiftX = g_settings.shiftX;
+    g_shiftY = g_settings.shiftY;
+    g_projActive = g_settings.projEnabled;
+}
+
+void RecordCamera(void* viewContext, const void* camera)
+{
+    CameraInfo& info = g_info;
+    info.valid = true;
+    ++info.updates;
+    info.camera = camera;
+    info.fov = Read<float>(camera, kCameraFov);
+    info.nearZ = Read<float>(camera, kCameraNear);
+    info.farZ = Read<float>(camera, kCameraFar);
+    info.aspectMul = Read<float>(camera, kCameraAspectMul);
+    info.frontFov = Read<float>(camera, kCameraFrontFov);
+    info.frontNear = Read<float>(camera, kCameraFrontNear);
+    info.frontFar = Read<float>(camera, kCameraFrontFar);
+    info.frontPass = Read<std::uint8_t>(camera, kCameraFrontPass) != 0;
+    info.viewportW = Read<int>(viewContext, kViewViewportW);
+    info.viewportH = Read<int>(viewContext, kViewViewportH);
+    const Mat34 world = stereo::ToMat34(Read<Mat44>(viewContext, kViewTransform + kTmWorld));
+    std::memcpy(info.world, world.m, sizeof(info.world));
+    if (camera != g_loggedCamera) {
+        g_loggedCamera = camera;
+        TT2VR_LOG_INFO("camera: main view camera {} (hfov {:.2f} deg, near {}, far {}, front pass {} fov {:.2f} deg "
+                       "near {} far {}, aspect mul {}, viewport {}x{})",
+            camera, info.fov * kRadToDeg, info.nearZ, info.farZ, info.frontPass, info.frontFov * kRadToDeg,
+            info.frontNear, info.frontFar, info.aspectMul, info.viewportW, info.viewportH);
+        TT2VR_LOG_INFO("camera world: [{:.4f} {:.4f} {:.4f} {:.3f}] [{:.4f} {:.4f} {:.4f} {:.3f}] "
+                       "[{:.4f} {:.4f} {:.4f} {:.3f}]",
+            world.m[0][0], world.m[0][1], world.m[0][2], world.m[0][3], world.m[1][0], world.m[1][1], world.m[1][2],
+            world.m[1][3], world.m[2][0], world.m[2][1], world.m[2][2], world.m[2][3]);
+    }
+}
+
+// Rebuilds the main ViewContext from world * local (CameraSettings). Same steps as the tail of InitFromCamera:
+// camera position, view (= inverse world), SetViewProjection with the projection already built, RebuildFrustum.
+void ApplyViewOverride(void* viewContext)
+{
+    const CameraSettings& s = g_settings;
+    const Mat34 world = stereo::ToMat34(Read<Mat44>(viewContext, kViewTransform + kTmWorld));
+    const Mat34 local = stereo::CameraLocalTransform(s.yawDeg * kDegToRad, s.pitchDeg * kDegToRad,
+        s.rollDeg * kDegToRad, {s.offset[0], s.offset[1], s.offset[2]});
+    const Mat34 moved = stereo::ComposeCameraLocal(world, local);
+    alignas(16) const Mat44 view = stereo::ViewFromWorld(moved);
+    alignas(16) const Mat44 proj = Read<Mat44>(viewContext, kViewTransform + kTmProj);
+    const Vec3 oldPos = Read<Vec3>(viewContext, kViewCamPos);
+    const Vec3 cullPos = Read<Vec3>(viewContext, kViewCullPos);
+    const Vec3 newPos = stereo::Translation(moved);
+    Write(viewContext, kViewCamPos, newPos);
+    if (std::memcmp(&oldPos, &cullPos, sizeof(Vec3)) == 0) { // not frozen by g_bLockCullingQuery
+        Write(viewContext, kViewCullPos, newPos);
+    }
+    g_setViewProjection(At(viewContext, kViewTransform), &view.m[0][0], &proj.m[0][0]);
+    g_rebuildFrustum(viewContext);
+}
+
+// Thread: game main thread (GameContext::RenderOneFrame -> RendererWin32::OnUpdate -> Renderer::DoUpdate).
+int HookedDoUpdate(void* renderer, void* gameContext, unsigned arg)
+{
+    try {
+        BeginFrame(renderer);
+    }
+    catch (...) {
+        g_mainCamera = nullptr;
+        g_projActive = false;
+    }
+    g_inDoUpdate = true;
+    const int result = g_doUpdate(renderer, gameContext, arg);
+    g_inDoUpdate = false;
+    return result;
+}
+
+// Thread: game main thread (DoUpdate, UpdateShift, OnRender external scenes, probes, picking).
+void HookedInitFromCamera(void* viewContext, const void* camera, const void* viewport, const void* offset)
+{
+    g_initFromCamera(viewContext, camera, viewport, offset);
+    if (!g_inDoUpdate || !camera || camera != g_mainCamera) {
+        return;
+    }
+    try {
+        RecordCamera(viewContext, camera);
+        if (g_settings.viewEnabled) {
+            ApplyViewOverride(viewContext);
+        }
+        std::memcpy(g_info.proj, At(viewContext, kViewTransform + kTmProj), sizeof(g_info.proj));
+        std::memcpy(g_info.jitter, At(viewContext, kViewProjOffset), sizeof(g_info.jitter));
+    }
+    catch (...) {
+    }
+}
+
+// Thread: any (main thread; render jobs such as CSM setup may call it too). Only atomics are read.
+float* HookedPerspective(float* out, float hfov, float nearZ, float farZ, float aspect)
+{
+    float* result = g_perspective(out, hfov, nearZ, farZ, aspect);
+    if (!g_projActive.load(std::memory_order_relaxed) || !result) {
+        return result;
+    }
+    const auto bits = std::bit_cast<std::uint32_t>(hfov);
+    if (bits != g_mainFovBits.load(std::memory_order_relaxed) && bits != g_frontFovBits.load(std::memory_order_relaxed)) {
+        return result;
+    }
+    Mat44 m;
+    std::memcpy(&m, result, sizeof(m));
+    const stereo::FovTangents t = stereo::OffsetTangents(stereo::TangentsFromProjection(m),
+        g_shiftX.load(std::memory_order_relaxed), g_shiftY.load(std::memory_order_relaxed));
+    stereo::ApplyTangents(m, t);
+    std::memcpy(result, &m, sizeof(m));
+    g_projCount.fetch_add(1, std::memory_order_relaxed);
+    return result;
+}
+
+std::string Row(const float* r, int n)
+{
+    std::string s = "[";
+    for (int i = 0; i < n; ++i) {
+        s += fmt::format("{}{:.6g}", i ? " " : "", r[i]);
+    }
+    return s + "]";
+}
+
+} // namespace
+
+CameraSettings& Settings()
+{
+    return g_settings;
+}
+
+CameraInfo LastCameraInfo()
+{
+    return g_info;
+}
+
+bool InstallCameraHooks()
+{
+    static bool s_done = false;
+    if (s_done) {
+        return g_active;
+    }
+    s_done = true;
+    if (ResolveSignatures() > 0) {
+        TT2VR_LOG_ERROR("camera: signatures missing; camera override disabled, game renders unmodified");
+        return false;
+    }
+    g_setViewProjection = reinterpret_cast<SetViewProjectionFn>(SignatureAddress(Sig::TransformMatrixSetViewProjection));
+    g_rebuildFrustum = reinterpret_cast<RebuildFrustumFn>(SignatureAddress(Sig::ViewContextRebuildFrustum));
+    using core::hooks::Result;
+    // DoUpdate last: until it is hooked g_mainCamera stays null and the other two hooks pass through.
+    const bool ok =
+        core::hooks::Create("Math::MatrixPerspectiveFovRH", SignatureAddress(Sig::MatrixPerspectiveFovRH),
+            &HookedPerspective, &g_perspective) == Result::Ok &&
+        core::hooks::Create("ViewContext::InitFromCamera", SignatureAddress(Sig::ViewContextInitFromCamera),
+            &HookedInitFromCamera, &g_initFromCamera) == Result::Ok &&
+        core::hooks::Create("Renderer::DoUpdate", SignatureAddress(Sig::RendererDoUpdate), &HookedDoUpdate,
+            &g_doUpdate) == Result::Ok;
+    g_active = ok;
+    if (ok) {
+        TT2VR_LOG_INFO("camera: hooks installed (DoUpdate, InitFromCamera, MatrixPerspectiveFovRH)");
+    }
+    else {
+        TT2VR_LOG_ERROR("camera: hook install failed; camera override disabled");
+    }
+    return ok;
+}
+
+bool CameraHooksActive()
+{
+    return g_active;
+}
+
+void OnPresent()
+{
+    g_projActive = false;
+    g_info.projOverrides = g_projCount.exchange(0);
+}
+
+std::string DescribeCamera()
+{
+    const CameraInfo& i = g_info;
+    if (!i.valid) {
+        return g_active ? "camera: no main view seen yet (menu or loading?)" : "camera: hooks not active";
+    }
+    const CameraSettings& s = g_settings;
+    std::string out = fmt::format("camera {} after {} main-view updates\n", i.camera, i.updates);
+    out += fmt::format("  Camera: hfov {:.4f} rad ({:.2f} deg), near {}, far {}, aspectMul {}\n", i.fov,
+        i.fov * kRadToDeg, i.nearZ, i.farZ, i.aspectMul);
+    out += fmt::format("  front pass {}: fov {:.4f} rad ({:.2f} deg), near {}, far {}\n", i.frontPass, i.frontFov,
+        i.frontFov * kRadToDeg, i.frontNear, i.frontFar);
+    out += fmt::format("  viewport {}x{}\n", i.viewportW, i.viewportH);
+    for (int r = 0; r < 3; ++r) {
+        out += fmt::format("  world row {} {}\n", r, Row(i.world[r], 4));
+    }
+    out += fmt::format("  forward (-col2) [{:.4f} {:.4f} {:.4f}]\n", -i.world[0][2], -i.world[1][2], -i.world[2][2]);
+    for (int r = 0; r < 4; ++r) {
+        out += fmt::format("  proj row {} {}\n", r, Row(i.proj[r], 4));
+    }
+    const float hfov = 2.0f * std::atan(1.0f / i.proj[0][0]) * kRadToDeg;
+    const float vfov = 2.0f * std::atan(1.0f / i.proj[1][1]) * kRadToDeg;
+    out += fmt::format("  proj hfov {:.2f} deg, vfov {:.2f} deg, jitter [{:.6g} {:.6g}]\n", hfov, vfov, i.jitter[0],
+        i.jitter[1]);
+    out += fmt::format("  override: view {} (yaw {} pitch {} roll {} deg, offset [{} {} {}] m), proj {} (shift {} "
+                       "{}), {} projection calls reshaped last frame",
+        s.viewEnabled, s.yawDeg, s.pitchDeg, s.rollDeg, s.offset[0], s.offset[1], s.offset[2], s.projEnabled,
+        s.shiftX, s.shiftY, i.projOverrides);
+    return out;
+}
+
+std::string CameraSummary()
+{
+    const CameraInfo& i = g_info;
+    if (!i.valid) {
+        return g_active ? "camera: no main view yet" : "camera: hooks not active";
+    }
+    return fmt::format("camera ok hfov {:.2f} deg near {} far {} pos [{:.3f} {:.3f} {:.3f}] fwd [{:.3f} {:.3f} {:.3f}] "
+                       "proj m00 {:.5g} m02 {:.5g} m11 {:.5g} m12 {:.5g} reshaped {}",
+        i.fov * kRadToDeg, i.nearZ, i.farZ, i.world[0][3], i.world[1][3], i.world[2][3], -i.world[0][2],
+        -i.world[1][2], -i.world[2][2], i.proj[0][0], i.proj[0][2], i.proj[1][1], i.proj[1][2], i.projOverrides);
+}
+
+} // namespace game

@@ -18,6 +18,8 @@
 #include "d3d/shader_registry.hpp"
 #include "d3d/texture_dump.hpp"
 #include "d3d/vtable.hpp"
+#include "game/camera.hpp"
+#include "game/version.hpp"
 #include "ui/overlay.hpp"
 
 #include <spdlog/fmt/fmt.h>
@@ -117,6 +119,13 @@ void RunCommands()
                 done(r);
                 break;
             }
+            case core::CommandKind::Camera: {
+                TT2VR_LOG_INFO("{}", game::DescribeCamera());
+                const std::string r = game::CameraSummary();
+                AddResult(origin, r);
+                done(r);
+                break;
+            }
             case core::CommandKind::Unknown:
                 done(fmt::format("unknown command: {}", cmd.text));
                 break;
@@ -168,6 +177,23 @@ void PollHotkeys()
     }
 }
 
+// Engine hooks go in once the exe hash is known (CLAUDE.md rule 3/4: unknown build -> D3D layer only).
+// Installing here, between frames on the main thread, keeps the hooked engine functions idle during install.
+void InstallEngineHooksOnce()
+{
+    static bool s_done = false;
+    if (s_done || game::ExeVersion().status == game::VersionStatus::NotChecked) {
+        return;
+    }
+    s_done = true;
+    if (game::EngineHooksAllowed()) {
+        game::InstallCameraHooks();
+    }
+    else {
+        TT2VR_LOG_WARN("engine hooks skipped: unknown game version");
+    }
+}
+
 void UpdateStats()
 {
     const auto now = std::chrono::steady_clock::now();
@@ -212,6 +238,8 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
     if (ours) {
         try {
             ++g_frame;
+            game::OnPresent();
+            InstallEngineHooksOnce();
             UpdateStats();
             PollHotkeys();
             RunCommands();

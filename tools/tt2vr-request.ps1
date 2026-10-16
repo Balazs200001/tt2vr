@@ -12,6 +12,7 @@
     dump                texture dump of next frame  -> captures\<frame>_dump.txt + PNG/DDS files
     capture [name]      RenderDoc capture (game launched through RenderDoc) -> <renderdoc_dir>\<name>_frame<N>.rdc
     shaders             write captures\shader_registry.txt
+    camera              log the main view camera (fov, near/far, world matrix, projection) -> tt2vr.log
 
 .EXAMPLE
   powershell -File tools\tt2vr-request.ps1 frametrace dump

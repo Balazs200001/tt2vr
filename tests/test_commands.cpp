@@ -9,8 +9,8 @@ using core::CommandKind;
 
 TEST_CASE("ParseCommands: keywords, aliases, comments, blank lines")
 {
-    const auto cmds = core::ParseCommands("# request\n\nframetrace\r\nTRACE\n  dump  # with comment\nshaders\nfoo bar\n");
-    REQUIRE(cmds.size() == 5);
+    const auto cmds = core::ParseCommands("# request\n\nframetrace\r\nTRACE\n  dump  # with comment\nshaders\nfoo bar\nCamera\n");
+    REQUIRE(cmds.size() == 6);
     CHECK(cmds[0].kind == CommandKind::FrameTrace);
     CHECK(cmds[1].kind == CommandKind::FrameTrace);
     CHECK(cmds[2].kind == CommandKind::TextureDump);
@@ -18,6 +18,7 @@ TEST_CASE("ParseCommands: keywords, aliases, comments, blank lines")
     CHECK(cmds[3].kind == CommandKind::ShaderRegistry);
     CHECK(cmds[4].kind == CommandKind::Unknown);
     CHECK(cmds[4].text == "foo bar");
+    CHECK(cmds[5].kind == CommandKind::Camera);
 }
 
 TEST_CASE("ParseCommands: capture names are sanitized")

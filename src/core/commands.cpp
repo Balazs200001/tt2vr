@@ -73,6 +73,9 @@ std::vector<Command> ParseCommands(std::string_view text)
         else if (word == "shaders") {
             c.kind = CommandKind::ShaderRegistry;
         }
+        else if (word == "camera") {
+            c.kind = CommandKind::Camera;
+        }
         commands.push_back(std::move(c));
     }
     return commands;

@@ -14,6 +14,7 @@ enum class CommandKind {
     TextureDump,      // "dump"
     RenderDocCapture, // "capture [name]" / "renderdoc [name]"
     ShaderRegistry,   // "shaders"
+    Camera,           // "camera": log the main view camera (Phase 2) and return a summary line
     Unknown,
 };
 
