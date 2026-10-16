@@ -2,8 +2,17 @@
   "name": "tt2vr",
   "version-string": "0.1.0",
   "dependencies": [
+    "directxtk",
+    "doctest",
+    {
+      "name": "imgui",
+      "features": [ "dx11-binding", "win32-binding" ]
+    },
     "minhook",
-    "spdlog"
+    "openxr-loader",
+    "spdlog",
+    "tomlplusplus",
+    "xxhash"
   ],
   "builtin-baseline": "3cd21e48a75f67acfef289da52893ce79144aaa1"
 }
