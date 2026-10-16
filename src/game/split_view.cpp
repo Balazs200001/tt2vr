@@ -1,0 +1,229 @@
+#include "game/split_view.hpp"
+
+#include "core/config.hpp"
+#include "core/log.hpp"
+#include "game/engine_layout.hpp"
+#include "game/signatures.hpp"
+
+#include <spdlog/fmt/fmt.h>
+
+#include <bit>
+#include <cstdint>
+
+namespace game {
+namespace {
+
+using namespace layout;
+
+using SetPossibleSplitModeFn = void (*)(void* rtm, int mode);
+using SetCenterWorldPosFn = void (*)(void* effectorMaps, const float* position, unsigned short index);
+
+void* const* g_rtm = nullptr; // &RenderTargetManager::s_pSingletonInstance
+SetPossibleSplitModeFn g_setPossibleSplitMode = nullptr;
+void* const* g_effectorMaps = nullptr; // &EffectorMapManager::s_pSingletonInstance
+SetCenterWorldPosFn g_setCenterWorldPos = nullptr;
+const void* g_deferredVftable = nullptr;
+bool g_available = false;
+
+// Renderer CameraDesc fields (the qword halves next to mode and mask are left alone).
+struct Desc {
+    int mode = 0;
+    const void* camera[2] = {};
+    std::uint32_t mask = 0;
+    bool operator==(const Desc&) const = default;
+};
+
+Desc ReadDesc(const void* renderer)
+{
+    Desc d;
+    d.mode = Read<int>(renderer, kRendererSplitMode);
+    d.camera[0] = Read<const void*>(renderer, kRendererSplitCameras);
+    d.camera[1] = Read<const void*>(renderer, kRendererSplitCameras + 8);
+    d.mask = Read<std::uint32_t>(renderer, kRendererCameraMask);
+    return d;
+}
+
+void WriteDesc(void* renderer, const Desc& d)
+{
+    Write(renderer, kRendererSplitMode, d.mode);
+    Write(renderer, kRendererSplitCameras, d.camera[0]);
+    Write(renderer, kRendererSplitCameras + 8, d.camera[1]);
+    Write(renderer, kRendererCameraMask, d.mask);
+}
+
+// Main thread state.
+bool g_haveGame = false;
+Desc g_game; // what the game wants
+bool g_writing = false; // our two-view desc is in the Renderer
+Desc g_written;
+const void* g_savedScene1 = nullptr; // Renderer+0xd88 before we pointed it at view 0's scene
+const void* g_writtenScene1 = nullptr;
+void* g_borderLoop = nullptr; // DeferredRenderLoop whose 'Split border' byte we cleared (was 1)
+bool g_possibleSet = false;
+bool g_active = false;
+std::uint64_t g_frames = 0; // two-view frames so far
+
+std::string Describe(const Desc& d)
+{
+    return fmt::format("mode {} cameras {} / {} mask 0x{:x}", d.mode, d.camera[0], d.camera[1], d.mask);
+}
+
+void* RenderLoop(void* renderer)
+{
+    void* loop = Read<void*>(renderer, kRendererRenderLoop);
+    return loop && *static_cast<const void* const*>(loop) == g_deferredVftable ? loop : nullptr;
+}
+
+// Effector (vegetation bend) map slot 1 only gets a centre from a second game camera: give it slot 0's.
+void SyncEffectorCenter()
+{
+    void* maps = *g_effectorMaps;
+    if (!maps) {
+        return;
+    }
+    const void* slot0 = Read<const void*>(maps, kEffectorSlots);
+    if (!slot0) {
+        return;
+    }
+    float center[3];
+    std::memcpy(center, static_cast<const char*>(slot0) + kEffectorSlotCenter, sizeof(center));
+    g_setCenterWorldPos(maps, center, 1); // no-op while slot 1 does not exist yet (DoUpdate creates it)
+}
+
+bool EnsurePossibleSplitMode()
+{
+    if (g_possibleSet) {
+        return true;
+    }
+    void* rtm = *g_rtm;
+    if (!rtm) {
+        return false;
+    }
+    const int before = Read<int>(rtm, kRtmPossibleSplitMode);
+    g_setPossibleSplitMode(rtm, 1); // recreates the 'Split' RTs if it changed
+    g_possibleSet = true;
+    TT2VR_LOG_INFO("split view: RenderTargetManager possible split mode {} -> 1", before);
+    return true;
+}
+
+void StartOrKeep(void* renderer, const void* camera)
+{
+    const Desc two{1, {camera, camera}, 3u};
+    if (!g_writing) {
+        g_savedScene1 = Read<const void*>(renderer, kRendererScenes + 8);
+        TT2VR_LOG_INFO("split view: two views on (camera {}); game desc {}", camera, Describe(g_game));
+    }
+    else if (Read<const void*>(renderer, kRendererScenes + 8) != g_writtenScene1) {
+        g_savedScene1 = Read<const void*>(renderer, kRendererScenes + 8); // the game set view 1's scene itself
+    }
+    WriteDesc(renderer, two);
+    g_written = two;
+    g_writing = true;
+    g_writtenScene1 = Read<const void*>(renderer, kRendererScenes);
+    Write(renderer, kRendererScenes + 8, g_writtenScene1);
+    SyncEffectorCenter();
+    if (void* loop = RenderLoop(renderer); loop && Read<std::uint8_t>(loop, kDeferredLoopSplitBorder) == 1) {
+        Write<std::uint8_t>(loop, kDeferredLoopSplitBorder, 0);
+        g_borderLoop = loop;
+    }
+}
+
+void Stop(void* renderer)
+{
+    if (!g_writing) {
+        return;
+    }
+    WriteDesc(renderer, g_game);
+    if (Read<const void*>(renderer, kRendererScenes + 8) == g_writtenScene1) {
+        Write(renderer, kRendererScenes + 8, g_savedScene1);
+    }
+    if (g_borderLoop && g_borderLoop == RenderLoop(renderer)) {
+        Write<std::uint8_t>(g_borderLoop, kDeferredLoopSplitBorder, 1);
+    }
+    g_borderLoop = nullptr;
+    g_writing = false;
+    TT2VR_LOG_INFO("split view: two views off after {} frames; game desc {} restored", g_frames, Describe(g_game));
+}
+
+} // namespace
+
+void InitSplitView()
+{
+    g_rtm = static_cast<void* const*>(SignatureAddress(Sig::RenderTargetManagerInstance));
+    g_setPossibleSplitMode =
+        reinterpret_cast<SetPossibleSplitModeFn>(SignatureAddress(Sig::RenderTargetManagerSetPossibleSplitMode));
+    g_effectorMaps = static_cast<void* const*>(SignatureAddress(Sig::EffectorMapManagerInstance));
+    g_setCenterWorldPos = reinterpret_cast<SetCenterWorldPosFn>(SignatureAddress(Sig::EffectorMapManagerSetCenterWorldPos));
+    g_deferredVftable = SignatureAddress(Sig::DeferredRenderLoopVftable);
+    if (!g_rtm || !g_setPossibleSplitMode || !g_effectorMaps || !g_setCenterWorldPos || !g_deferredVftable) {
+        TT2VR_LOG_ERROR("split view: signatures missing; left eye only (Phase 3 mode)");
+        return;
+    }
+    g_available = core::GetConfig().xr.stereo;
+    TT2VR_LOG_INFO("split view: {}", g_available ? "ready (both eyes as split-screen views 0 and 1)"
+                                                 : "off ([xr] stereo = false); left eye only");
+}
+
+bool SplitViewAvailable()
+{
+    return g_available;
+}
+
+const void* GameMainCamera(void* renderer)
+{
+    const Desc cur = ReadDesc(renderer);
+    if (!g_haveGame) {
+        g_haveGame = true;
+        g_game = cur;
+        TT2VR_LOG_INFO("split view: game camera desc {}", Describe(g_game));
+    }
+    else if (g_writing ? cur != g_written : cur != g_game) {
+        // The game wrote a new desc. Under our override CameraManager::SetActiveCamera starts from the Renderer's
+        // current (our) desc and swaps camera 0, keeping our mode and mask: take only the camera then.
+        Desc next = cur;
+        if (g_writing && cur.mode == g_written.mode && cur.mask == g_written.mask) {
+            next = g_game;
+            next.camera[0] = cur.camera[0];
+        }
+        if (next != g_game) { // a game that re-sends the same desc every frame logs nothing
+            TT2VR_LOG_INFO("split view: game camera desc changed to {}", Describe(next));
+        }
+        g_game = next;
+    }
+    if (g_game.mode != 0 || g_game.mask == 0) {
+        return nullptr; // the game's own split screen (not used offline) or no view
+    }
+    const int index = std::countr_zero(g_game.mask);
+    return index <= 1 ? g_game.camera[index] : nullptr;
+}
+
+void ApplySplitView(void* renderer, const void* camera, bool twoViews)
+{
+    twoViews = twoViews && g_available && camera && g_game.mode == 0 && g_game.mask == 1u &&
+               camera == g_game.camera[0] && EnsurePossibleSplitMode();
+    if (twoViews) {
+        StartOrKeep(renderer, camera);
+        ++g_frames;
+    }
+    else {
+        Stop(renderer);
+    }
+    g_active = twoViews;
+}
+
+bool SplitViewActive()
+{
+    return g_active;
+}
+
+std::string SplitViewSummary()
+{
+    if (!g_available) {
+        return "split view: off";
+    }
+    void* rtm = g_rtm ? *g_rtm : nullptr;
+    return fmt::format("split view: {} ({} two-view frames), RTM possible {} active {}", g_active ? "two views" : "one view",
+        g_frames, rtm ? Read<int>(rtm, kRtmPossibleSplitMode) : -1, rtm ? Read<int>(rtm, kRtmSplitMode) : -1);
+}
+
+} // namespace game

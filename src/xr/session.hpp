@@ -5,9 +5,11 @@
 //                       xrBeginFrame. The wait throttles the start of the next frame, never the middle of a render.
 //   Renderer::DoUpdate  LocateViews: xrLocateViews at the frame's predictedDisplayTime, once per XR frame, after the
 //                       game's camera update and before the views are built (late as possible, PLAN frame model).
-//   InitFromCamera      MarkRendered: the main view of this frame was rendered from LocateViews' eye 0.
-//   Present pre-hook    OnFrameEnd: copy the back buffer into the left eye, clear the right eye, xrEndFrame with the
-//                       exact poses and FOVs that were located. No head-tracked render this frame (menu, pause,
+//   DoUpdate            SetSideBySide: the engine renders two views this frame (game::SplitView), so back-buffer
+//                       half k is view k.
+//   InitFromCamera      MarkRendered: view k of this frame was rendered from LocateViews' eye e.
+//   Present pre-hook    OnFrameEnd: side by side, eye k <- half k; otherwise the back buffer into the left eye and
+//                       the right eye cleared. xrEndFrame with the exact pose and FOV each image was rendered from. No head-tracked render this frame (menu, pause,
 //                       loading, movie) -> the flat frame on a quad layer fixed in LOCAL space ([xr] menu_screen).
 // Fail safe (CLAUDE.md rule 4): no runtime, no headset, an adapter mismatch or any XR error leaves the game flat.
 // Nothing here blocks the game except xrWaitFrame while the session is running.
@@ -38,7 +40,8 @@ void Init(ID3D11Device* device);
 
 void OnFrameStart(); // Present post-hook
 bool LocateViews(FrameViews& out); // Renderer::DoUpdate; false = no head pose this frame (render flat)
-void MarkRendered(); // ViewContext::InitFromCamera, after the main view used LocateViews' eye 0
+void MarkRendered(int view, int eye); // ViewContext::InitFromCamera: view 0/1 was rendered from LocateViews' eye
+void SetSideBySide(bool sideBySide); // Renderer::DoUpdate: this frame's back buffer holds view 0 | view 1
 void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context); // Present pre-hook
 
 bool SessionRunning(); // between xrBeginSession and xrEndSession
@@ -57,7 +60,8 @@ struct Status {
     bool running = false;
     bool shouldRender = false;
     bool tracked = false; // last located views had a valid orientation
-    const char* presentation = "-"; // "head-tracked" (projection layer), "screen" (menu quad), "-" (no layer)
+    const char* presentation = "-"; // "stereo" / "head-tracked" (projection layer), "screen" (menu quad), "-"
+    bool sideBySide = false; // last DoUpdate set up two views
     const char* copyMode = "-"; // "copy" (raw CopySubresourceRegion), "blit" (stretch), "-" (nothing submitted)
     std::uint32_t backBufferW = 0, backBufferH = 0;
     double waitMs = 0; // xrWaitFrame, smoothed

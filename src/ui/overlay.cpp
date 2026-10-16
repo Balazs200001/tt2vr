@@ -16,6 +16,7 @@
 #include "game/camera.hpp"
 #include "game/menu_state.hpp"
 #include "game/render_size.hpp"
+#include "game/split_view.hpp"
 #include "game/version.hpp"
 #include "xr/session.hpp"
 
@@ -191,7 +192,8 @@ void XrSection()
         ImGui::Text("eye %ux%u (recommended %ux%u)  format %d", st.eyeW, st.eyeH, st.recommendedW, st.recommendedH,
             st.format);
         ImGui::Text("back buffer %ux%u -> %s", st.backBufferW, st.backBufferH, st.copyMode);
-        if (st.backBufferW != 0 && (st.backBufferW != st.eyeW || st.backBufferH != st.eyeH)) {
+        const std::uint32_t expectedW = st.eyeW * (game::SplitViewAvailable() ? 2u : 1u); // eyes side by side
+        if (st.backBufferW != 0 && (st.backBufferW != expectedW || st.backBufferH != st.eyeH)) {
             ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "image is stretched (render size forcing %s)",
                 !core::GetConfig().xr.force_render_size ? "off in config"
                 : game::RenderSizeHookActive()          ? "pending or not applied, see log"
@@ -205,6 +207,7 @@ void XrSection()
         ImGui::Text("menu state: %s (menu %d, paused %d, time stopped %d, riding camera %d)",
             !menu.available ? "unavailable" : menu.Active() ? "screen" : "riding", menu.menuOpen, menu.paused,
             menu.timeStopped, menu.springCamera);
+        ImGui::TextUnformatted(game::SplitViewSummary().c_str());
     }
     if (ImGui::Button(fmt::format("Recenter ({})", core::FormatHotkey(core::GetConfig().hotkeys.recenter)).c_str())) {
         xr::RequestRecenter();

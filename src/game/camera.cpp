@@ -6,12 +6,14 @@
 #include "game/engine_layout.hpp"
 #include "game/menu_state.hpp"
 #include "game/signatures.hpp"
+#include "game/split_view.hpp"
 #include "stereo/math/projection.hpp"
 #include "stereo/math/xr_to_engine.hpp"
 #include "xr/session.hpp"
 
 #include <spdlog/fmt/fmt.h>
 
+#include <algorithm>
 #include <atomic>
 #include <bit>
 #include <cmath>
@@ -48,6 +50,7 @@ bool g_helmetActive = false;
 CameraSettings g_settings;
 CameraInfo g_info;
 const void* g_mainCamera = nullptr; // this frame's main view camera, set in DoUpdate
+void* g_renderer = nullptr; // DoUpdate's Renderer (views 0 and 1 are its ViewContexts)
 const void* g_loggedCamera = nullptr;
 bool g_inDoUpdate = false;
 // Head tracking (Phase 3): this frame's eye 0 transform in camera-local axes, valid while g_head.
@@ -80,26 +83,9 @@ void* At(void* base, std::ptrdiff_t offset)
     return static_cast<char*>(base) + offset;
 }
 
-void BeginFrame(void* renderer)
+// Sets up this frame's main view from `camera`. Returns true when it should be rendered as two views (Phase 4).
+bool BeginMainView(const void* camera)
 {
-    g_mainCamera = nullptr;
-    g_projActive = false;
-    g_head = false;
-    if (Read<int>(renderer, kRendererSplitMode) != 0) {
-        return; // split screen: not handled (Phase 4)
-    }
-    const auto mask = Read<std::uint32_t>(renderer, kRendererCameraMask);
-    if (mask == 0) {
-        return;
-    }
-    const int index = std::countr_zero(mask);
-    if (index > 1) {
-        return;
-    }
-    const void* camera = Read<const void*>(renderer, kRendererSplitCameras + index * 8);
-    if (!camera || Read<int>(camera, kCameraProjType) != 0) {
-        return;
-    }
     g_mainCamera = camera;
     g_mainFovBits = std::bit_cast<std::uint32_t>(Read<float>(camera, kCameraFov));
     g_frontFovBits = std::bit_cast<std::uint32_t>(Read<float>(camera, kCameraFrontFov));
@@ -121,6 +107,38 @@ void BeginFrame(void* renderer)
     }
     g_headProj = g_head;
     g_projActive.store(g_settings.projEnabled || g_head, std::memory_order_release);
+    return !menu && xr::SessionRunning();
+}
+
+void BeginFrame(void* renderer)
+{
+    g_mainCamera = nullptr;
+    g_projActive = false;
+    g_head = false;
+    g_renderer = renderer;
+    // The game's own CameraDesc, not the Renderer fields: while two views run those hold our desc.
+    const void* camera = GameMainCamera(renderer);
+    bool twoViews = false;
+    if (camera && Read<int>(camera, kCameraProjType) == 0) {
+        twoViews = BeginMainView(camera);
+    }
+    ApplySplitView(renderer, camera, twoViews);
+    xr::SetSideBySide(SplitViewActive());
+}
+
+// View index of a DoUpdate ViewContext: 0 (Renderer+0x30), 1 (Renderer+0x650), or -1.
+int ViewIndex(const void* viewContext)
+{
+    if (!g_renderer) {
+        return -1;
+    }
+    const auto* base = static_cast<const char*>(g_renderer) + kRendererViewContexts;
+    for (int i = 0; i < 2; ++i) {
+        if (viewContext == base + i * kViewContextSize) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 Mat34 LocalFromSettings(const CameraSettings& s)
@@ -215,7 +233,9 @@ void HookedInitFromCamera(void* viewContext, const void* camera, const void* vie
             ApplyViewOverride(viewContext);
         }
         if (g_head) {
-            xr::MarkRendered(); // the headset gets this frame's image with the pose it was rendered from
+            // The headset gets this view's image with the pose it was rendered from: eye 0 for both views until
+            // per-eye poses (Phase 4b).
+            xr::MarkRendered(std::max(ViewIndex(viewContext), 0), 0);
         }
         g_info.headTracked = g_head;
         std::memcpy(g_info.proj, At(viewContext, kViewTransform + kTmProj), sizeof(g_info.proj));

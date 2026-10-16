@@ -61,6 +61,8 @@ struct State {
     bool shouldRender = false;
     bool located = false;
     bool rendered = false;
+    bool sideBySide = false; // the back buffer holds view 0 | view 1 (game::SplitView, Phase 4)
+    int viewEye[2] = {0, 1}; // eye whose located pose and FOV each rendered view used
     XrView views[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}};
     FrameViews frameViews{};
 
@@ -432,20 +434,27 @@ void EndFrame(const XrCompositionLayerBaseHeader* layer)
 
 // Back buffer -> the target's current image: raw copy when size and family match, else a stretch blit.
 // Returns "copy", "blit" or nullptr on failure. The caller has acquired the image.
+// Columns [srcX, srcX + srcW) of the back buffer -> the whole target. copySource = false reuses the blitter's
+// source copy from the previous call this frame (the second eye half).
 const char* CopyBackBuffer(EyeSwapchain& target, ID3D11Texture2D* back, const D3D11_TEXTURE2D_DESC& bd,
-    ID3D11DeviceContext* context)
+    ID3D11DeviceContext* context, UINT srcX, UINT srcW, bool copySource = true)
 {
-    const bool copy = bd.Width == target.Width() && bd.Height == target.Height() && bd.SampleDesc.Count == 1 &&
+    const bool copy = srcW == target.Width() && bd.Height == target.Height() && bd.SampleDesc.Count == 1 &&
                       d3d::IsSrgb(target.Format()) && d3d::SameFamily(bd.Format, target.TextureFormat());
     if (copy) {
-        context->CopySubresourceRegion(target.Texture(), 0, 0, 0, 0, back, 0, nullptr);
+        const D3D11_BOX box{srcX, 0, 0, srcX + srcW, bd.Height, 1};
+        context->CopySubresourceRegion(target.Texture(), 0, 0, 0, 0, back, 0, &box);
         return "copy";
     }
     if (!g.blitter.Ready() && !g.blitter.Init(g.device)) {
         return nullptr;
     }
-    return g.blitter.Blit(context, back, target.Rtv(), target.Width(), target.Height(), target.Decode()) ? "blit"
-                                                                                                          : nullptr;
+    const float u0 = static_cast<float>(srcX) / static_cast<float>(bd.Width);
+    const float uw = static_cast<float>(srcW) / static_cast<float>(bd.Width);
+    return g.blitter.Blit(context, back, target.Rtv(), target.Width(), target.Height(), target.Decode(), u0, uw,
+               copySource)
+               ? "blit"
+               : nullptr;
 }
 
 ComPtr<ID3D11Texture2D> BackBuffer(IDXGISwapChain* swapChain, D3D11_TEXTURE2D_DESC& desc)
@@ -460,7 +469,8 @@ ComPtr<ID3D11Texture2D> BackBuffer(IDXGISwapChain* swapChain, D3D11_TEXTURE2D_DE
     return back;
 }
 
-// Eye 0 <- back buffer; eye 1 <- black (Phase 3: left eye only).
+// Side by side (two views): eye k <- back-buffer half k. Otherwise eye 0 <- back buffer, eye 1 <- black (left eye
+// only, Phase 3 mode).
 bool WriteEyes(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
 {
     D3D11_TEXTURE2D_DESC bd{};
@@ -469,11 +479,12 @@ bool WriteEyes(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
         return false;
     }
     d3d::InternalScope internal; // keep our copies out of frame traces and dumps
+    const UINT halfW = bd.Width / 2;
     EyeSwapchain& left = g.eyes[0];
     if (!left.Acquire(g.instance)) {
         return false;
     }
-    const char* mode = CopyBackBuffer(left, back.Get(), bd, context);
+    const char* mode = CopyBackBuffer(left, back.Get(), bd, context, 0, g.sideBySide ? halfW : bd.Width);
     left.Release(g.instance);
     g.status.copyMode = mode ? mode : "-";
 
@@ -481,10 +492,16 @@ bool WriteEyes(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
     if (!right.Acquire(g.instance)) {
         return false;
     }
-    constexpr float kBlack[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-    context->ClearRenderTargetView(right.Rtv(), kBlack);
+    const char* rightMode = "black";
+    if (g.sideBySide) {
+        rightMode = CopyBackBuffer(right, back.Get(), bd, context, halfW, halfW, false);
+    }
+    else {
+        constexpr float kBlack[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+        context->ClearRenderTargetView(right.Rtv(), kBlack);
+    }
     right.Release(g.instance);
-    return mode != nullptr;
+    return mode != nullptr && rightMode != nullptr;
 }
 
 // Menu screen (Phase 3 interim): the whole flat frame on a quad fixed in LOCAL space in front of the recentered head.
@@ -496,8 +513,9 @@ bool WriteScreen(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, XrComp
     if (!back || bd.Width == 0 || bd.Height == 0) {
         return false;
     }
-    if (!g.screen.Valid() || g.screen.Width() != bd.Width || g.screen.Height() != bd.Height) {
-        if (!g.screen.Create(g.instance, g.session, g.device, g.format, bd.Width, bd.Height, "screen")) {
+    const UINT w = g.sideBySide ? bd.Width / 2 : bd.Width; // two-view frame: show view 0 only
+    if (!g.screen.Valid() || g.screen.Width() != w || g.screen.Height() != bd.Height) {
+        if (!g.screen.Create(g.instance, g.session, g.device, g.format, w, bd.Height, "screen")) {
             return false;
         }
     }
@@ -505,7 +523,7 @@ bool WriteScreen(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, XrComp
     if (!g.screen.Acquire(g.instance)) {
         return false;
     }
-    const char* mode = CopyBackBuffer(g.screen, back.Get(), bd, context);
+    const char* mode = CopyBackBuffer(g.screen, back.Get(), bd, context, 0, w);
     g.screen.Release(g.instance);
     if (!mode) {
         return false;
@@ -517,10 +535,10 @@ bool WriteScreen(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, XrComp
     quad.space = g.local;
     quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
     quad.subImage.swapchain = g.screen.Handle();
-    quad.subImage.imageRect.extent = {static_cast<std::int32_t>(bd.Width), static_cast<std::int32_t>(bd.Height)};
+    quad.subImage.imageRect.extent = {static_cast<std::int32_t>(w), static_cast<std::int32_t>(bd.Height)};
     quad.pose.orientation = {pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w};
     quad.pose.position = {pose.position.x, pose.position.y, pose.position.z};
-    quad.size = {xc.screen_width, xc.screen_width * static_cast<float>(bd.Height) / static_cast<float>(bd.Width)};
+    quad.size = {xc.screen_width, xc.screen_width * static_cast<float>(bd.Height) / static_cast<float>(w)};
     return true;
 }
 
@@ -580,6 +598,8 @@ void OnFrameStart()
         g.shouldRender = frame.shouldRender == XR_TRUE;
         g.status.shouldRender = g.shouldRender;
         g.located = g.rendered = false;
+        g.viewEye[0] = 0;
+        g.viewEye[1] = 1;
     }
     catch (...) {
         TT2VR_LOG_ERROR("xr: exception in OnFrameStart");
@@ -654,11 +674,18 @@ bool LocateViews(FrameViews& out)
     return true;
 }
 
-void MarkRendered()
+void MarkRendered(int view, int eye)
 {
-    if (g.located) {
+    if (g.located && view >= 0 && view < 2 && eye >= 0 && eye < 2) {
         g.rendered = true;
+        g.viewEye[view] = eye;
     }
+}
+
+void SetSideBySide(bool sideBySide)
+{
+    g.sideBySide = sideBySide;
+    g.status.sideBySide = sideBySide;
 }
 
 void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
@@ -689,12 +716,15 @@ void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
             EndFrame(nullptr);
             return;
         }
-        g.status.presentation = "head-tracked";
+        g.status.presentation = g.sideBySide ? "stereo" : "head-tracked";
         XrCompositionLayerProjectionView projViews[2] = {
             {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}, {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
         for (int i = 0; i < 2; ++i) {
-            projViews[i].pose = g.views[i].pose;
-            projViews[i].fov = g.views[i].fov;
+            // Each eye image is submitted with the pose and FOV it was rendered from (CLAUDE.md); in left-eye-only
+            // mode eye 1 is black and keeps its own located view.
+            const XrView& rendered = g.views[g.sideBySide ? g.viewEye[i] : i];
+            projViews[i].pose = rendered.pose;
+            projViews[i].fov = rendered.fov;
             projViews[i].subImage.swapchain = g.eyes[i].Handle();
             projViews[i].subImage.imageRect.extent = {static_cast<std::int32_t>(g.eyes[i].Width()),
                 static_cast<std::int32_t>(g.eyes[i].Height())};

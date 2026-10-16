@@ -25,6 +25,7 @@
 #include "game/camera.hpp"
 #include "game/menu_state.hpp"
 #include "game/render_size.hpp"
+#include "game/split_view.hpp"
 #include "game/version.hpp"
 #include "ui/input_diag.hpp"
 #include "ui/overlay.hpp"
@@ -211,6 +212,7 @@ void InstallEngineHooksOnce()
         game::InstallCameraHooks(); // resolves the signature table
         game::InitMenuState();
         game::InstallRenderSizeHook();
+        game::InitSplitView();
     }
     else {
         TT2VR_LOG_WARN("engine hooks skipped: unknown game version");
@@ -319,8 +321,11 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
             }
             xr::OnFrameStart(); // last: may block in xrWaitFrame until the headset wants the next frame
             if (core::GetConfig().xr.force_render_size) {
+                // One device reset when the eye size is known. Two split views side by side need twice the eye
+                // width (each split view is half the window); the width stays doubled in menus so riding <-> menu
+                // switches never resize the swap chain.
                 const xr::Status xs = xr::GetStatus();
-                game::RequestRenderSize(g_window, xs.eyeW, xs.eyeH); // one device reset when the eye size is known
+                game::RequestRenderSize(g_window, xs.eyeW * (game::SplitViewAvailable() ? 2u : 1u), xs.eyeH);
             }
         }
         catch (...) {

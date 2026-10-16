@@ -47,6 +47,23 @@ inline constexpr int kModeManageSlot = 6; // vtable slot (+0x30): Manage, called
 inline constexpr std::ptrdiff_t kRendererSplitMode = 0xe40; // cameraDesc.splitMode (0 = one view)
 inline constexpr std::ptrdiff_t kRendererSplitCameras = 0xe48; // Camera*[2]
 inline constexpr std::ptrdiff_t kRendererCameraMask = 0xe58; // single-camera index = ctz(mask)
+// CameraDesc {split mode, Camera*[2], mask} at +0xe40..+0xe58 (Renderer::SetCameraDesc copies it; DoUpdate derives
+// +0xc90 / +0xd18 from it every frame). docs/re/frame-anatomy.md 5.1.
+inline constexpr std::ptrdiff_t kRendererViewContexts = 0x30; // ViewContext[2], stride kViewContextSize
+inline constexpr std::ptrdiff_t kViewContextSize = 0x620;
+inline constexpr std::ptrdiff_t kRendererRenderLoop = 0xd30; // active RenderLoop*
+inline constexpr std::ptrdiff_t kRendererScenes = 0xd80; // Scene*[2], per view (lighting, fog)
+
+// DeferredRenderLoop
+inline constexpr std::ptrdiff_t kDeferredLoopSplitBorder = 0x1e71; // byte, 1 = draw 'Split border' (0x140849344)
+
+// RenderTargetManager
+inline constexpr std::ptrdiff_t kRtmPossibleSplitMode = 0x8;
+inline constexpr std::ptrdiff_t kRtmSplitMode = 0xc;
+
+// EffectorMapManager
+inline constexpr std::ptrdiff_t kEffectorSlots = 0x8; // per-view effector texture objects [2]
+inline constexpr std::ptrdiff_t kEffectorSlotCenter = 0x80; // Vector3 world centre (SetCenterWorldPos)
 
 template <typename T>
 T Read(const void* base, std::ptrdiff_t offset)

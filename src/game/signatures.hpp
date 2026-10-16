@@ -39,6 +39,11 @@ enum class Sig {
     VideoDeviceDX11WindowsVftable,
     GameContextInstance,
     GameContextGetTimeFactor,
+    RenderTargetManagerInstance,
+    RenderTargetManagerSetPossibleSplitMode,
+    EffectorMapManagerInstance,
+    EffectorMapManagerSetCenterWorldPos,
+    DeferredRenderLoopVftable,
     Count,
 };
 
@@ -113,6 +118,23 @@ inline constexpr Signature kSignatures[] = {
     {"GameContext::GetTimeFactor", "?GetTimeFactor@GameContext@Game@PlayAll@@QEBAMXZ", nullptr, 0,
         "export; 0x14012dbc0 (ICF-shared), movss xmm0,[rcx+0x48]: the factor PushTimeFactor sets; "
         "TTMenuManager::PauseGame 0x140246b70 pushes 0.0 offline",
+        kBuild4989319},
+    {"RenderTargetManager::s_pSingletonInstance", "?s_pSingletonInstance@RenderTargetManager@Graphics@PlayAll@@1PEAV123@EA",
+        nullptr, 0, "data export; 0x141408500, read directly by Renderer::DoUpdate 0x1405adf53 (frame-anatomy.md 5.1)",
+        kBuild4989319},
+    {"RenderTargetManager::SetPossibleSplitMode",
+        "?SetPossibleSplitMode@RenderTargetManager@Graphics@PlayAll@@QEAAXW4SplitMode@23@@Z", nullptr, 0,
+        "export; 0x1408e2080, +8 = mode and RecreateSplitRenderTargetForAllWindows if it changed (13 bytes + jmp)",
+        kBuild4989319},
+    {"EffectorMapManager::s_pSingletonInstance", "?s_pSingletonInstance@EffectorMapManager@Graphics@PlayAll@@1PEAV123@EA",
+        nullptr, 0, "data export; 0x1413ccd28, vegetation bend maps, slot textures at +8 / +0x10", kBuild4989319},
+    {"EffectorMapManager::SetCenterWorldPos",
+        "?SetCenterWorldPos@EffectorMapManager@Graphics@PlayAll@@QEAAXAEBVVector3@Math@3@G@Z", nullptr, 0,
+        "export; 0x14084e650, slot = [this+8+idx*8]; if non-null writes the Vector3 to slot+0x80 (too short for a "
+        "pattern)",
+        kBuild4989319},
+    {"DeferredRenderLoop vftable", "??_7DeferredRenderLoop@Graphics@PlayAll@@6B@", nullptr, 0,
+        "data export; 0x140f7bfc8, checked against Renderer+0xd30 before touching DeferredRenderLoop fields",
         kBuild4989319},
 };
 
