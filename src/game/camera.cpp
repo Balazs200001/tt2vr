@@ -7,6 +7,7 @@
 #include "game/signatures.hpp"
 #include "stereo/math/projection.hpp"
 #include "stereo/math/xr_to_engine.hpp"
+#include "xr/session.hpp"
 
 #include <spdlog/fmt/fmt.h>
 
@@ -48,6 +49,9 @@ CameraInfo g_info;
 const void* g_mainCamera = nullptr; // this frame's main view camera, set in DoUpdate
 const void* g_loggedCamera = nullptr;
 bool g_inDoUpdate = false;
+// Head tracking (Phase 3): this frame's eye 0 transform in camera-local axes, valid while g_head.
+bool g_head = false;
+Mat34 g_eyeLocal = stereo::Identity34();
 
 // Read by MatrixPerspectiveFovRH, which may also run on render job threads.
 std::atomic<bool> g_projActive{false};
@@ -55,6 +59,8 @@ std::atomic<std::uint32_t> g_mainFovBits{0};
 std::atomic<std::uint32_t> g_frontFovBits{0};
 std::atomic<float> g_shiftX{0};
 std::atomic<float> g_shiftY{0};
+std::atomic<bool> g_headProj{false}; // reshape to the eye's XrFovf tangents instead of shifting the engine's
+std::atomic<float> g_tanL{0}, g_tanR{0}, g_tanU{0}, g_tanD{0};
 std::atomic<std::uint32_t> g_projCount{0};
 
 // Helmet: snapshot of the camera-local transform, published at Present (main thread) and read in the physics
@@ -77,6 +83,7 @@ void BeginFrame(void* renderer)
 {
     g_mainCamera = nullptr;
     g_projActive = false;
+    g_head = false;
     if (Read<int>(renderer, kRendererSplitMode) != 0) {
         return; // split screen: not handled (Phase 4)
     }
@@ -95,15 +102,35 @@ void BeginFrame(void* renderer)
     g_mainCamera = camera;
     g_mainFovBits = std::bit_cast<std::uint32_t>(Read<float>(camera, kCameraFov));
     g_frontFovBits = std::bit_cast<std::uint32_t>(Read<float>(camera, kCameraFrontFov));
-    g_shiftX = g_settings.shiftX;
-    g_shiftY = g_settings.shiftY;
-    g_projActive = g_settings.projEnabled;
+    g_shiftX = g_settings.projEnabled ? g_settings.shiftX : 0.0f;
+    g_shiftY = g_settings.projEnabled ? g_settings.shiftY : 0.0f;
+    // Phase 3: left eye only. Pose and FOV come from xrLocateViews at this frame's predicted display time.
+    xr::FrameViews views;
+    g_head = xr::LocateViews(views);
+    if (g_head) {
+        const xr::EyeView& eye = views.eye[0];
+        g_eyeLocal = stereo::EyeLocal(views.recenter, eye.pose);
+        const stereo::FovTangents t = stereo::TangentsFromXrFov(eye.angleLeft, eye.angleRight, eye.angleUp, eye.angleDown);
+        g_tanL = t.left;
+        g_tanR = t.right;
+        g_tanU = t.up;
+        g_tanD = t.down;
+    }
+    g_headProj = g_head;
+    g_projActive.store(g_settings.projEnabled || g_head, std::memory_order_release);
 }
 
 Mat34 LocalFromSettings(const CameraSettings& s)
 {
     return stereo::CameraLocalTransform(s.yawDeg * kDegToRad, s.pitchDeg * kDegToRad, s.rollDeg * kDegToRad,
         {s.offset[0], s.offset[1], s.offset[2]});
+}
+
+// Camera-local transform of the rendered view: overlay sliders (if on), then the eye (if head-tracked).
+Mat34 ViewLocal()
+{
+    const Mat34 sliders = g_settings.viewEnabled ? LocalFromSettings(g_settings) : stereo::Identity34();
+    return g_head ? stereo::Mul(sliders, g_eyeLocal) : sliders;
 }
 
 void RecordCamera(void* viewContext, const void* camera)
@@ -142,8 +169,7 @@ void RecordCamera(void* viewContext, const void* camera)
 void ApplyViewOverride(void* viewContext)
 {
     const Mat34 world = stereo::ToMat34(Read<Mat44>(viewContext, kViewTransform + kTmWorld));
-    const Mat34 local = LocalFromSettings(g_settings);
-    const Mat34 moved = stereo::ComposeCameraLocal(world, local);
+    const Mat34 moved = stereo::ComposeCameraLocal(world, ViewLocal());
     alignas(16) const Mat44 view = stereo::ViewFromWorld(moved);
     alignas(16) const Mat44 proj = Read<Mat44>(viewContext, kViewTransform + kTmProj);
     const Vec3 oldPos = Read<Vec3>(viewContext, kViewCamPos);
@@ -182,9 +208,13 @@ void HookedInitFromCamera(void* viewContext, const void* camera, const void* vie
     }
     try {
         RecordCamera(viewContext, camera);
-        if (g_settings.viewEnabled) {
+        if (g_settings.viewEnabled || g_head) {
             ApplyViewOverride(viewContext);
         }
+        if (g_head) {
+            xr::MarkRendered(); // the headset gets this frame's image with the pose it was rendered from
+        }
+        g_info.headTracked = g_head;
         std::memcpy(g_info.proj, At(viewContext, kViewTransform + kTmProj), sizeof(g_info.proj));
         std::memcpy(g_info.jitter, At(viewContext, kViewProjOffset), sizeof(g_info.jitter));
     }
@@ -238,7 +268,7 @@ void HookedActorSetWorldMatrix(void* actor, const float* matrix)
 float* HookedPerspective(float* out, float hfov, float nearZ, float farZ, float aspect)
 {
     float* result = g_perspective(out, hfov, nearZ, farZ, aspect);
-    if (!g_projActive.load(std::memory_order_relaxed) || !result) {
+    if (!g_projActive.load(std::memory_order_acquire) || !result) {
         return result;
     }
     const auto bits = std::bit_cast<std::uint32_t>(hfov);
@@ -247,8 +277,13 @@ float* HookedPerspective(float* out, float hfov, float nearZ, float farZ, float 
     }
     Mat44 m;
     std::memcpy(&m, result, sizeof(m));
-    const stereo::FovTangents t = stereo::OffsetTangents(stereo::TangentsFromProjection(m),
-        g_shiftX.load(std::memory_order_relaxed), g_shiftY.load(std::memory_order_relaxed));
+    const stereo::FovTangents base = g_headProj.load(std::memory_order_relaxed)
+                                         ? stereo::FovTangents{g_tanL.load(std::memory_order_relaxed),
+                                               g_tanR.load(std::memory_order_relaxed), g_tanU.load(std::memory_order_relaxed),
+                                               g_tanD.load(std::memory_order_relaxed)}
+                                         : stereo::TangentsFromProjection(m);
+    const stereo::FovTangents t = stereo::OffsetTangents(base, g_shiftX.load(std::memory_order_relaxed),
+        g_shiftY.load(std::memory_order_relaxed));
     stereo::ApplyTangents(m, t);
     std::memcpy(result, &m, sizeof(m));
     g_projCount.fetch_add(1, std::memory_order_relaxed);
@@ -344,8 +379,9 @@ void OnPresent()
     g_info.projOverrides = g_projCount.exchange(0);
     g_info.helmetMoves = g_helmetCount.exchange(0);
     std::lock_guard lock(g_helmetMutex);
-    g_helmetApply = g_helmetActive && g_settings.viewEnabled && g_settings.helmetFollows;
-    g_helmetLocal = LocalFromSettings(g_settings);
+    g_helmetApply = g_helmetActive && (g_settings.viewEnabled || g_head) && g_settings.helmetFollows;
+    g_helmetLocal = ViewLocal(); // this frame's view, applied at the next physics step
+    g_head = false;
 }
 
 std::string DescribeCamera()
@@ -372,6 +408,7 @@ std::string DescribeCamera()
     const float vfov = 2.0f * std::atan(1.0f / i.proj[1][1]) * kRadToDeg;
     out += fmt::format("  proj hfov {:.2f} deg, vfov {:.2f} deg, jitter [{:.6g} {:.6g}]\n", hfov, vfov, i.jitter[0],
         i.jitter[1]);
+    out += fmt::format("  head tracked {} (left eye, Phase 3)\n", i.headTracked);
     out += fmt::format("  override: view {} (yaw {} pitch {} roll {} deg, offset [{} {} {}] m), proj {} (shift {} "
                        "{}), {} projection calls reshaped last frame; helmet follows {} (hooks {}), {} helmet "
                        "placements adjusted last frame",

@@ -13,6 +13,9 @@
 //   Math::MatrixPerspectiveFovRH  post, any thread, render window only: when the fov argument is the main
 //                                 camera's fov or front fov, reshape the FOV terms (keeps the caller's near/far).
 //                                 This one choke point covers culling, front pass, lighting, sky, CSM and 3D HUD.
+// Head tracking (Phase 3): DoUpdate pre also asks xr::LocateViews for the left eye. When a pose is available the view
+// becomes world * sliders * EyeLocal and the projection takes the eye's XrFovf tangents (TAA jitter is still added
+// by the engine afterwards); the right eye is not rendered yet.
 // The render window closes at Present, so game-logic callers of MatrixPerspectiveFovRH (KTUCameraFixed::Manage
 // etc., which run before DoUpdate) are never affected.
 #pragma once
@@ -46,6 +49,7 @@ struct CameraInfo {
     float jitter[2] = {};
     std::uint32_t projOverrides = 0; // MatrixPerspectiveFovRH calls reshaped in the last frame
     std::uint32_t helmetMoves = 0; // helmet placements adjusted in the last frame (0 while physics is paused)
+    bool headTracked = false; // the last main view was rendered from the headset's left eye (Phase 3)
 };
 CameraInfo LastCameraInfo(); // main thread
 
