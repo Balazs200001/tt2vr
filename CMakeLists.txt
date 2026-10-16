@@ -13,6 +13,7 @@ find_package(imgui CONFIG REQUIRED)
 find_package(directxtk CONFIG REQUIRED)
 find_package(xxHash CONFIG REQUIRED)
 find_package(doctest CONFIG REQUIRED)
+find_package(OpenXR CONFIG REQUIRED)
 
 # Warnings as errors for our targets only (CLAUDE.md: /W4 /WX).
 function(tt2vr_warnings target)
@@ -38,7 +39,8 @@ file(GLOB TT2VR_SOURCES CONFIGURE_DEPENDS
     src/main.cpp src/d3d/*.cpp src/game/*.cpp src/stereo/*.cpp src/ui/*.cpp src/xr/*.cpp)
 add_library(tt2vr SHARED ${TT2VR_SOURCES})
 target_include_directories(tt2vr PRIVATE src third_party)
-target_link_libraries(tt2vr PRIVATE tt2vr_core tt2vr_math imgui::imgui Microsoft::DirectXTK xxHash::xxhash d3d11 dxgi dxguid windowscodecs ole32)
+target_link_libraries(tt2vr PRIVATE tt2vr_core tt2vr_math imgui::imgui Microsoft::DirectXTK xxHash::xxhash
+    OpenXR::openxr_loader d3d11 dxgi dxguid d3dcompiler windowscodecs ole32)
 tt2vr_warnings(tt2vr)
 
 # ---- dinput8.dll: tiny forwarding proxy dropped into the game root ----
