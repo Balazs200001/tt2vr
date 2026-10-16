@@ -138,6 +138,31 @@ public:
         out = static_cast<int>(clamped);
     }
 
+    void Float(std::string_view key, const toml::node& node, float& out, double lo, double hi) const
+    {
+        double value = 0.0;
+        if (const auto* f = node.as_floating_point()) {
+            value = f->get();
+        } else if (const auto* i = node.as_integer()) {
+            value = static_cast<double>(i->get());
+        } else {
+            Warn(key, "expected a number, keeping default", node);
+            return;
+        }
+        if (!(value == value)) { // NaN
+            Warn(key, "expected a number, keeping default", node);
+            return;
+        }
+        const double clamped = std::clamp(value, lo, hi);
+        if (clamped != value) {
+            Warn(key,
+                 "value " + std::to_string(value) + " out of range " + std::to_string(lo) + ".." + std::to_string(hi) +
+                     ", clamped to " + std::to_string(clamped),
+                 node);
+        }
+        out = static_cast<float>(clamped);
+    }
+
     void Key(std::string_view key, const toml::node& node, Hotkey& out) const
     {
         const auto* v = node.as_string();
@@ -197,6 +222,7 @@ void ReadHotkeys(const toml::table& t, Config::Hotkeys& out, Warnings& w)
         else if (key == "texture_dump") s.Key(key, node, out.texture_dump);
         else if (key == "renderdoc_capture") s.Key(key, node, out.renderdoc_capture);
         else if (key == "cursor") s.Key(key, node, out.cursor);
+        else if (key == "recenter") s.Key(key, node, out.recenter);
         else s.Warn(key, "unknown key, ignored", node);
     }
 }
@@ -218,6 +244,19 @@ void ReadCamera(const toml::table& t, Config::Camera& out, Warnings& w)
     for (const auto& [k, node] : t) {
         const std::string_view key = k.str();
         if (key == "helmet_follows_view") s.Bool(key, node, out.helmet_follows_view);
+        else s.Warn(key, "unknown key, ignored", node);
+    }
+}
+
+void ReadXr(const toml::table& t, Config::Xr& out, Warnings& w)
+{
+    const Section s("xr", w);
+    for (const auto& [k, node] : t) {
+        const std::string_view key = k.str();
+        if (key == "enabled") s.Bool(key, node, out.enabled);
+        else if (key == "resolution_scale") s.Float(key, node, out.resolution_scale, 0.25, 2.0);
+        else if (key == "desktop_vsync_off") s.Bool(key, node, out.desktop_vsync_off);
+        else if (key == "desktop_mirror") s.Bool(key, node, out.desktop_mirror);
         else s.Warn(key, "unknown key, ignored", node);
     }
 }
@@ -282,6 +321,7 @@ void ReadTables(const toml::table& root, Config& cfg, Warnings& w)
         else if (name == "hotkeys") ReadHotkeys(*t, cfg.hotkeys, w);
         else if (name == "overlay") ReadOverlay(*t, cfg.overlay, w);
         else if (name == "camera") ReadCamera(*t, cfg.camera, w);
+        else if (name == "xr") ReadXr(*t, cfg.xr, w);
         else if (name == "capture") ReadCapture(*t, cfg.capture, w);
         else if (name == "commands") ReadCommands(*t, cfg.commands, w);
         else if (name == "debug") ReadDebug(*t, cfg.debug, w);

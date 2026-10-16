@@ -37,7 +37,9 @@ bool SameConfig(const Config& a, const Config& b)
            SameHotkey(a.hotkeys.overlay, b.hotkeys.overlay) && SameHotkey(a.hotkeys.frame_trace, b.hotkeys.frame_trace) &&
            SameHotkey(a.hotkeys.texture_dump, b.hotkeys.texture_dump) &&
            SameHotkey(a.hotkeys.renderdoc_capture, b.hotkeys.renderdoc_capture) &&
-           SameHotkey(a.hotkeys.cursor, b.hotkeys.cursor) && a.overlay.show_cursor == b.overlay.show_cursor &&
+           SameHotkey(a.hotkeys.cursor, b.hotkeys.cursor) && SameHotkey(a.hotkeys.recenter, b.hotkeys.recenter) &&
+           a.xr.enabled == b.xr.enabled && a.xr.resolution_scale == b.xr.resolution_scale &&
+           a.xr.desktop_vsync_off == b.xr.desktop_vsync_off && a.xr.desktop_mirror == b.xr.desktop_mirror && a.overlay.show_cursor == b.overlay.show_cursor &&
            a.overlay.visible == b.overlay.visible &&
            a.camera.helmet_follows_view == b.camera.helmet_follows_view && a.capture.dir == b.capture.dir &&
            a.capture.renderdoc_dir == b.capture.renderdoc_dir && a.capture.max_textures == b.capture.max_textures &&
@@ -221,6 +223,7 @@ frame_trace = "none"
 texture_dump = "alt + Num3"
 renderdoc_capture = "Pause"
 cursor = "Ctrl+M"
+recenter = "Home"
 
 [overlay]
 visible = false
@@ -228,6 +231,12 @@ show_cursor = true
 
 [camera]
 helmet_follows_view = false
+
+[xr]
+enabled = false
+resolution_scale = 1.25
+desktop_vsync_off = false
+desktop_mirror = false
 
 [capture]
 dir = "C:/caps"
@@ -255,6 +264,11 @@ fake_exe_sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
     CHECK(c.overlay.show_cursor);
     CHECK_FALSE(c.overlay.visible);
     CHECK_FALSE(c.camera.helmet_follows_view);
+    CHECK(SameHotkey(c.hotkeys.recenter, Hotkey{0x24}));
+    CHECK_FALSE(c.xr.enabled);
+    CHECK(c.xr.resolution_scale == doctest::Approx(1.25));
+    CHECK_FALSE(c.xr.desktop_vsync_off);
+    CHECK_FALSE(c.xr.desktop_mirror);
     CHECK(c.capture.dir == "C:/caps");
     CHECK(c.capture.renderdoc_dir == "C:/dev/tt2vr-re/rdc");
     CHECK(c.capture.max_textures == 100);
@@ -358,6 +372,34 @@ TEST_CASE("ParseConfig clamps out-of-range numbers")
         const auto r = ParseConfig("[capture]\nmax_textures = 9223372036854775807\n");
         CHECK(r.warnings.size() == 1);
         CHECK(r.config.capture.max_textures == 1024);
+    }
+}
+
+TEST_CASE("ParseConfig [xr] resolution_scale")
+{
+    SUBCASE("integer accepted")
+    {
+        const auto r = ParseConfig("[xr]\nresolution_scale = 1\n");
+        CHECK(r.warnings.empty());
+        CHECK(r.config.xr.resolution_scale == doctest::Approx(1.0));
+    }
+    SUBCASE("clamped")
+    {
+        const auto hi = ParseConfig("[xr]\nresolution_scale = 3.5\n");
+        CHECK(hi.warnings.size() == 1);
+        CHECK(hi.config.xr.resolution_scale == doctest::Approx(2.0));
+        const auto lo = ParseConfig("[xr]\nresolution_scale = 0.1\n");
+        CHECK(lo.warnings.size() == 1);
+        CHECK(lo.config.xr.resolution_scale == doctest::Approx(0.25));
+    }
+    SUBCASE("wrong type and NaN keep the default")
+    {
+        const auto t = ParseConfig("[xr]\nresolution_scale = \"big\"\n");
+        CHECK(t.warnings.size() == 1);
+        CHECK(t.config.xr.resolution_scale == doctest::Approx(1.0));
+        const auto n = ParseConfig("[xr]\nresolution_scale = nan\n");
+        CHECK(n.warnings.size() == 1);
+        CHECK(n.config.xr.resolution_scale == doctest::Approx(1.0));
     }
 }
 

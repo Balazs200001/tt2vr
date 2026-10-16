@@ -40,6 +40,7 @@ struct Config {
         Hotkey texture_dump{0x7A, false, true}; // Shift+F11
         Hotkey renderdoc_capture{0x78}; // F9
         Hotkey cursor{0x77}; // F8: show/hide the overlay's own mouse cursor
+        Hotkey recenter{0x76}; // F7: recenter the headset view (Phase 3)
     } hotkeys;
     struct Overlay {
         bool visible = true;
@@ -48,6 +49,12 @@ struct Config {
     struct Camera {
         bool helmet_follows_view = true; // move the helmet mesh with the view/head override (Phase 2)
     } camera;
+    struct Xr {
+        bool enabled = true; // start OpenXR when a runtime and headset are available (Phase 3)
+        float resolution_scale = 1.0f; // eye swapchain size = runtime recommendation * this, clamp 0.25..2.0
+        bool desktop_vsync_off = true; // Present with sync interval 0 while the XR session runs (xrWaitFrame paces)
+        bool desktop_mirror = true; // false: skip the desktop Present while the XR session runs (window freezes)
+    } xr;
     struct Capture {
         std::string dir = "captures"; // relative to <game>\tt2vr\ unless absolute
         std::string renderdoc_dir; // empty = same as dir

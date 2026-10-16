@@ -22,6 +22,8 @@ texture_dump = "Shift+F11"
 renderdoc_capture = "F9"
 # Show or hide a mouse cursor drawn by the overlay (the game hides the Windows cursor while riding).
 cursor = "F8"
+# Recenter the headset view: your current head position and heading become the rider's eye point.
+recenter = "F7"
 
 [overlay]
 # Show the debug overlay at startup.
@@ -33,6 +35,19 @@ show_cursor = false
 # Move the helmet mesh with the camera override (overlay sliders now, head tracking later). Off = the helmet stays
 # where the game puts it. Also switchable in the overlay. The game's "Helmet No Mesh" view has no helmet either way.
 helmet_follows_view = true
+
+[xr]
+# Start OpenXR (headset) when a runtime and a connected headset are available. Off = the game stays flat.
+enabled = true
+# Eye image size = the runtime's recommended size times this (0.25..2.0). The log and overlay show the result; run
+# tools/set-eye-resolution.ps1 with it so the game renders at that size (otherwise the image is stretched).
+resolution_scale = 1.0
+# While the headset session runs, present the desktop window without VSync; the headset paces the frames instead.
+desktop_vsync_off = true
+# Show the game on the desktop window while the headset session runs. The game renders each frame once either way
+# (the window shows the same image the headset gets), so this only saves the desktop present. false = the window
+# freezes on its last image while the headset is in use; it updates again when the session stops.
+desktop_mirror = true
 
 [capture]
 # Folder for frame traces and texture dumps; relative to <game>\tt2vr\ unless absolute.
