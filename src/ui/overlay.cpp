@@ -15,6 +15,7 @@
 #include "d3d/shader_registry.hpp"
 #include "game/camera.hpp"
 #include "game/menu_state.hpp"
+#include "game/render_size.hpp"
 #include "game/version.hpp"
 #include "xr/session.hpp"
 
@@ -48,6 +49,30 @@ void PollMouseButtons()
             io.AddMouseButtonEvent(i, down);
             g_mouseDown[i] = down;
         }
+    }
+}
+
+// The game may render at a size other than its window (game::RenderSize): draw in back-buffer pixels and map the
+// mouse from window client coordinates onto them, so the panel stays readable and clickable on the stretched window.
+void MatchBackBuffer(IDXGISwapChain* swapChain)
+{
+    DXGI_SWAP_CHAIN_DESC desc{};
+    RECT client{};
+    if (FAILED(swapChain->GetDesc(&desc)) || !GetClientRect(g_window, &client)) {
+        return;
+    }
+    const float cw = static_cast<float>(client.right - client.left);
+    const float ch = static_cast<float>(client.bottom - client.top);
+    const float bw = static_cast<float>(desc.BufferDesc.Width);
+    const float bh = static_cast<float>(desc.BufferDesc.Height);
+    if (cw <= 0 || ch <= 0 || (cw == bw && ch == bh)) {
+        return;
+    }
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(bw, bh);
+    POINT p{};
+    if (GetCursorPos(&p) && ScreenToClient(g_window, &p)) {
+        io.AddMousePosEvent(static_cast<float>(p.x) * bw / cw, static_cast<float>(p.y) * bh / ch);
     }
 }
 
@@ -167,8 +192,10 @@ void XrSection()
             st.format);
         ImGui::Text("back buffer %ux%u -> %s", st.backBufferW, st.backBufferH, st.copyMode);
         if (st.backBufferW != 0 && (st.backBufferW != st.eyeW || st.backBufferH != st.eyeH)) {
-            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
-                "image is stretched: run tools/set-eye-resolution.ps1 -Width %u -Height %u", st.eyeW, st.eyeH);
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "image is stretched (render size forcing %s)",
+                !core::GetConfig().xr.force_render_size ? "off in config"
+                : game::RenderSizeHookActive()          ? "pending or not applied, see log"
+                                                        : "unavailable");
         }
         ImGui::Text("xrWaitFrame %.2f ms  period %.2f ms  render %s  tracked %s", st.waitMs, st.periodMs,
             st.shouldRender ? "yes" : "no", st.tracked ? "yes" : "no");
@@ -304,6 +331,7 @@ void Render(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext
     }
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
+    MatchBackBuffer(swapChain);
     PollMouseButtons();
     // NoMouseCursorChange keeps imgui_impl_win32 from calling SetCursor, so this only adds ImGui's own drawing.
     ImGui::GetIO().MouseDrawCursor = g_cursor;

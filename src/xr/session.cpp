@@ -327,10 +327,9 @@ bool CreateSession()
     g.status.eyeH = h;
     g.status.format = static_cast<int>(format);
     g.format = format;
-    TT2VR_LOG_INFO("xr: session created; recommended eye size {}x{} (max {}x{}), scale {} -> swapchains {}x{} format {}; "
-                   "run tools/set-eye-resolution.ps1 -Width {} -Height {} so the game renders at this size",
+    TT2VR_LOG_INFO("xr: session created; recommended eye size {}x{} (max {}x{}), scale {} -> swapchains {}x{} format {}",
         configViews[0].recommendedImageRectWidth, configViews[0].recommendedImageRectHeight,
-        configViews[0].maxImageRectWidth, configViews[0].maxImageRectHeight, scale, w, h, static_cast<int>(format), w, h);
+        configViews[0].maxImageRectWidth, configViews[0].maxImageRectHeight, scale, w, h, static_cast<int>(format));
     g.status.state = "session created";
     return true;
 }
