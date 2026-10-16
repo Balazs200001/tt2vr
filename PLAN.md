@@ -17,7 +17,7 @@ v1 is done when all of these hold during a 30-minute offline session on the Snae
 - [x] Phase 0 — Recon & setup
 - [x] Phase 1 — Skeleton mod (flat)
 - [x] Phase 2 — Camera control (flat)
-- [ ] Phase 3 — OpenXR, left eye head-tracked
+- [x] Phase 3 — OpenXR, left eye head-tracked
 - [ ] Phase 4 — Dual-view stereo via the split-screen path (milestone)
 - [ ] Phase 5 — Synchronous stereo: shared per-frame work
 - [ ] Phase 6 — Temporal completeness
@@ -26,7 +26,7 @@ v1 is done when all of these hold during a 30-minute offline session on the Snae
 - [ ] Phase 9 — Performance
 - [ ] Phase 10 — Robustness & release
 
-**Active phase: Phase 3** (Phase 2 completed 2026-10-16; Phase 1 completed 2026-10-16; Phase 0 completed 2026-10-16)
+**Active phase: Phase 4** (Phase 3 completed 2026-10-16; Phase 2 completed 2026-10-16; Phase 1 completed 2026-10-16; Phase 0 completed 2026-10-16)
 
 ---
 
@@ -221,7 +221,7 @@ Implementation notes (2026-10-16):
 - [x] `xrGetD3D11GraphicsRequirementsKHR`: if the adapter LUID differs from the game device's adapter, log it and stay flat.
 - [x] Session on the game's device; `LOCAL` reference space; per-eye swapchains (format per the sRGB rule); a session state machine (idle, focus loss, stopping) that never blocks the game.
 - [x] Frame loop: `xrWaitFrame` / `xrBeginFrame` / `xrEndFrame` integrated with `Present`. Place `xrWaitFrame` so it throttles the start of the frame rather than stalling mid-render; measure.
-- [ ] Force the game to render at the recommended per-eye resolution × config scale (cleanest route: game config file, window size, or `ResizeBuffers`).
+- [x] Force the game to render at the recommended per-eye resolution × config scale (cleanest route: game config file, window size, or `ResizeBuffers`).
 - [x] Left-eye-only mode: camera from `P_L`, projection from `F_L`, right eye black. This validates pose, projection and conversion exactly; a mono image shown to both eyes would match neither.
 - [x] Recenter via hotkey and overlay.
 
@@ -233,7 +233,7 @@ Implementation notes (2026-10-16, code done, runtime test pending; all boxes abo
 - Head tracking: `game::CameraOverride` view = world · sliders · `EyeLocal(recenter, P_L)`; projection = `F_L` tangents at the `MatrixPerspectiveFovRH` choke point (engine still adds TAA jitter). Recenter (yaw-only, eye midpoint) on session start, hotkey F7, overlay button, and after a runtime LOCAL recenter event.
 - Desktop: `[xr] desktop_vsync_off` (default on) presents with sync 0 while the session runs; `[xr] desktop_mirror = false` skips the desktop Present (the game still renders once per frame; see Decisions log).
 - Known: HUD is baked into the eye image (Phase 7); TAA smears one frame after a recenter (history reset is Phase 6).
-- Runtime 2026-10-16 (Balazs, SteamVR "in Meta compatibility mode 2.17.10", Quest 3 over Link): head-tracking test good; session focused, 72 Hz (period 13.89 ms), `xrWaitFrame` 3.72 ms, 10036 frames submitted, recommended eye 2528x2704; back buffer 1920x1080 -> blit (stretched). Recenter (F7) and colour match confirmed by Balazs 2026-10-16. Resolution: render size hook, runtime check pending (log `render size: forcing 2528x2704`, then `ResizeBuffers 2528x2704`, overlay `copy`).
+- Runtime 2026-10-16 (Balazs, SteamVR "in Meta compatibility mode 2.17.10", Quest 3 over Link): head-tracking test good; session focused, 72 Hz (period 13.89 ms), `xrWaitFrame` 3.72 ms, 10036 frames submitted, recommended eye 2528x2704; back buffer 1920x1080 -> blit (stretched). Recenter (F7) and colour match confirmed by Balazs 2026-10-16. Resolution: render size hook verified 2026-10-16 (log `render size: forcing 2528x2704` then `ResizeBuffers 2528x2704`; Balazs: image fine, more resolution would be nice but GPU-bound, RTX 3060). **Phase 3 done** (done-when: sign fixed under head motion, colours match). Still pending from the interim menu work: latest riding/pause signal test, lost-steering diagnosis (`[debug] input_log`).
 - Interim menu screen (2026-10-16, Balazs chose "interim screen now"; code done, runtime test pending): while `KTUGuiManager::IsMenuOpen` or `IsGamePaused` is true (exports, read via `g_pGuiManager`; `src/game/menu_state.*`), the camera is not head-tracked, and any frame without a head-tracked render (menu, pause, loading, movie, unknown exe) goes to a quad layer fixed in LOCAL space, `[xr] screen_distance` ahead of the recentered head (`screen_width`, aspect from the back buffer). Runtime 2026-10-16: the flags alone missed the main menu (`IsMenuOpen` false there; `paused` only during intros), so riding is now "player camera in `TTSpringCameraMode`" (`docs/re/frame-anatomy.md` 8.4); runtime check pending. The full frozen-3D-world menu stays in Phase 7.
 
 **Done when:** in the headset, a roadside sign I fixate on stays fixed while I rotate and lean my head (no swimming), and colors match the desktop.
