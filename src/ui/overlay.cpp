@@ -14,6 +14,7 @@
 #include "d3d/renderdoc.hpp"
 #include "d3d/shader_registry.hpp"
 #include "game/camera.hpp"
+#include "game/menu_state.hpp"
 #include "game/version.hpp"
 #include "xr/session.hpp"
 
@@ -171,8 +172,13 @@ void XrSection()
         }
         ImGui::Text("xrWaitFrame %.2f ms  period %.2f ms  render %s  tracked %s", st.waitMs, st.periodMs,
             st.shouldRender ? "yes" : "no", st.tracked ? "yes" : "no");
-        ImGui::Text("frames submitted %llu  head tracked %s", static_cast<unsigned long long>(st.framesSubmitted),
-            game::LastCameraInfo().headTracked ? "yes" : "no");
+        const game::MenuState menu = game::LastMenuState();
+        ImGui::Text("frames submitted %llu  showing %s", static_cast<unsigned long long>(st.framesSubmitted),
+            st.presentation);
+        ImGui::Text("menu state: %s", !menu.available ? "unavailable"
+                                      : menu.paused   ? (menu.menuOpen ? "menu open, paused" : "paused")
+                                      : menu.menuOpen ? "menu open"
+                                                      : "riding");
     }
     if (ImGui::Button(fmt::format("Recenter ({})", core::FormatHotkey(core::GetConfig().hotkeys.recenter)).c_str())) {
         xr::RequestRecenter();
