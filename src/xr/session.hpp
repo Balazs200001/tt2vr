@@ -7,7 +7,8 @@
 //                       game's camera update and before the views are built (late as possible, PLAN frame model).
 //   InitFromCamera      MarkRendered: the main view of this frame was rendered from LocateViews' eye 0.
 //   Present pre-hook    OnFrameEnd: copy the back buffer into the left eye, clear the right eye, xrEndFrame with the
-//                       exact poses and FOVs that were located. No head-tracked render this frame -> no layers.
+//                       exact poses and FOVs that were located. No head-tracked render this frame (menu, pause,
+//                       loading, movie) -> the flat frame on a quad layer fixed in LOCAL space ([xr] menu_screen).
 // Fail safe (CLAUDE.md rule 4): no runtime, no headset, an adapter mismatch or any XR error leaves the game flat.
 // Nothing here blocks the game except xrWaitFrame while the session is running.
 #pragma once
@@ -56,11 +57,12 @@ struct Status {
     bool running = false;
     bool shouldRender = false;
     bool tracked = false; // last located views had a valid orientation
+    const char* presentation = "-"; // "head-tracked" (projection layer), "screen" (menu quad), "-" (no layer)
     const char* copyMode = "-"; // "copy" (raw CopySubresourceRegion), "blit" (stretch), "-" (nothing submitted)
     std::uint32_t backBufferW = 0, backBufferH = 0;
     double waitMs = 0; // xrWaitFrame, smoothed
     double periodMs = 0; // predictedDisplayPeriod
-    std::uint64_t framesSubmitted = 0; // xrEndFrame calls with a projection layer
+    std::uint64_t framesSubmitted = 0; // xrEndFrame calls with a layer (projection or screen)
 };
 Status GetStatus(); // main thread
 

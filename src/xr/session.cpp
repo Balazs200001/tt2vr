@@ -51,6 +51,8 @@ struct State {
     XrEnvironmentBlendMode blendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
     bool running = false;
     EyeSwapchain eyes[2];
+    EyeSwapchain screen; // menu screen quad (created on first use, sized like the back buffer)
+    DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
     d3d::Blitter blitter;
 
     // Current frame (xrBeginFrame .. xrEndFrame).
@@ -124,6 +126,7 @@ void DestroySession()
     for (auto& eye : g.eyes) {
         eye.Destroy();
     }
+    g.screen.Destroy();
     if (g.local != XR_NULL_HANDLE) {
         xrDestroySpace(g.local);
         g.local = XR_NULL_HANDLE;
@@ -314,7 +317,7 @@ bool CreateSession()
     const std::uint32_t w = scaled(configViews[0].recommendedImageRectWidth, configViews[0].maxImageRectWidth);
     const std::uint32_t h = scaled(configViews[0].recommendedImageRectHeight, configViews[0].maxImageRectHeight);
     for (int eye = 0; eye < 2; ++eye) {
-        if (!g.eyes[eye].Create(g.instance, g.session, g.device, format, w, h, eye)) {
+        if (!g.eyes[eye].Create(g.instance, g.session, g.device, format, w, h, eye == 0 ? "left eye" : "right eye")) {
             DestroySession();
             g.status.error = "swapchain creation failed (see log)";
             return false;
@@ -323,6 +326,7 @@ bool CreateSession()
     g.status.eyeW = w;
     g.status.eyeH = h;
     g.status.format = static_cast<int>(format);
+    g.format = format;
     TT2VR_LOG_INFO("xr: session created; recommended eye size {}x{} (max {}x{}), scale {} -> swapchains {}x{} format {}; "
                    "run tools/set-eye-resolution.ps1 -Width {} -Height {} so the game renders at this size",
         configViews[0].recommendedImageRectWidth, configViews[0].recommendedImageRectHeight,
@@ -427,47 +431,98 @@ void EndFrame(const XrCompositionLayerBaseHeader* layer)
     g.frameOpen = g.located = g.rendered = false;
 }
 
-// Eye 0 <- back buffer (raw copy when size and family match, else stretch blit); eye 1 <- black.
-bool WriteEyes(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
+// Back buffer -> the target's current image: raw copy when size and family match, else a stretch blit.
+// Returns "copy", "blit" or nullptr on failure. The caller has acquired the image.
+const char* CopyBackBuffer(EyeSwapchain& target, ID3D11Texture2D* back, const D3D11_TEXTURE2D_DESC& bd,
+    ID3D11DeviceContext* context)
+{
+    const bool copy = bd.Width == target.Width() && bd.Height == target.Height() && bd.SampleDesc.Count == 1 &&
+                      d3d::IsSrgb(target.Format()) && d3d::SameFamily(bd.Format, target.TextureFormat());
+    if (copy) {
+        context->CopySubresourceRegion(target.Texture(), 0, 0, 0, 0, back, 0, nullptr);
+        return "copy";
+    }
+    if (!g.blitter.Ready() && !g.blitter.Init(g.device)) {
+        return nullptr;
+    }
+    return g.blitter.Blit(context, back, target.Rtv(), target.Width(), target.Height(), target.Decode()) ? "blit"
+                                                                                                          : nullptr;
+}
+
+ComPtr<ID3D11Texture2D> BackBuffer(IDXGISwapChain* swapChain, D3D11_TEXTURE2D_DESC& desc)
 {
     ComPtr<ID3D11Texture2D> back;
     if (FAILED(swapChain->GetBuffer(0, IID_PPV_ARGS(&back)))) {
+        return nullptr;
+    }
+    back->GetDesc(&desc);
+    g.status.backBufferW = desc.Width;
+    g.status.backBufferH = desc.Height;
+    return back;
+}
+
+// Eye 0 <- back buffer; eye 1 <- black (Phase 3: left eye only).
+bool WriteEyes(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
+{
+    D3D11_TEXTURE2D_DESC bd{};
+    const ComPtr<ID3D11Texture2D> back = BackBuffer(swapChain, bd);
+    if (!back) {
         return false;
     }
-    D3D11_TEXTURE2D_DESC bd{};
-    back->GetDesc(&bd);
-    g.status.backBufferW = bd.Width;
-    g.status.backBufferH = bd.Height;
     d3d::InternalScope internal; // keep our copies out of frame traces and dumps
-
     EyeSwapchain& left = g.eyes[0];
     if (!left.Acquire(g.instance)) {
         return false;
     }
-    bool ok = true;
-    const bool copy = bd.Width == left.Width() && bd.Height == left.Height() && bd.SampleDesc.Count == 1 &&
-                      d3d::IsSrgb(left.Format()) && d3d::SameFamily(bd.Format, left.TextureFormat());
-    if (copy) {
-        context->CopySubresourceRegion(left.Texture(), 0, 0, 0, 0, back.Get(), 0, nullptr);
-        g.status.copyMode = "copy";
-    }
-    else {
-        if (!g.blitter.Ready() && !g.blitter.Init(g.device)) {
-            ok = false;
-        }
-        ok = ok && g.blitter.Blit(context, back.Get(), left.Rtv(), left.Width(), left.Height(), left.Decode());
-        g.status.copyMode = ok ? "blit" : "-";
-    }
+    const char* mode = CopyBackBuffer(left, back.Get(), bd, context);
     left.Release(g.instance);
+    g.status.copyMode = mode ? mode : "-";
 
     EyeSwapchain& right = g.eyes[1];
     if (!right.Acquire(g.instance)) {
         return false;
     }
     constexpr float kBlack[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-    context->ClearRenderTargetView(right.Rtv(), kBlack); // Phase 3: left eye only
+    context->ClearRenderTargetView(right.Rtv(), kBlack);
     right.Release(g.instance);
-    return ok;
+    return mode != nullptr;
+}
+
+// Menu screen (Phase 3 interim): the whole flat frame on a quad fixed in LOCAL space in front of the recentered head.
+// Returns false if nothing could be written (the frame then ends without layers).
+bool WriteScreen(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, XrCompositionLayerQuad& quad)
+{
+    D3D11_TEXTURE2D_DESC bd{};
+    const ComPtr<ID3D11Texture2D> back = BackBuffer(swapChain, bd);
+    if (!back || bd.Width == 0 || bd.Height == 0) {
+        return false;
+    }
+    if (!g.screen.Valid() || g.screen.Width() != bd.Width || g.screen.Height() != bd.Height) {
+        if (!g.screen.Create(g.instance, g.session, g.device, g.format, bd.Width, bd.Height, "screen")) {
+            return false;
+        }
+    }
+    d3d::InternalScope internal;
+    if (!g.screen.Acquire(g.instance)) {
+        return false;
+    }
+    const char* mode = CopyBackBuffer(g.screen, back.Get(), bd, context);
+    g.screen.Release(g.instance);
+    if (!mode) {
+        return false;
+    }
+    g.status.copyMode = mode;
+    const auto& xc = core::GetConfig().xr;
+    const stereo::Pose pose = stereo::ScreenPose(g.recenter, xc.screen_distance);
+    quad = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+    quad.space = g.local;
+    quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+    quad.subImage.swapchain = g.screen.Handle();
+    quad.subImage.imageRect.extent = {static_cast<std::int32_t>(bd.Width), static_cast<std::int32_t>(bd.Height)};
+    quad.pose.orientation = {pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w};
+    quad.pose.position = {pose.position.x, pose.position.y, pose.position.z};
+    quad.size = {xc.screen_width, xc.screen_width * static_cast<float>(bd.Height) / static_cast<float>(bd.Width)};
+    return true;
 }
 
 } // namespace
@@ -532,13 +587,13 @@ void OnFrameStart()
     }
 }
 
-bool LocateViews(FrameViews& out)
+namespace {
+
+// xrLocateViews for the open frame (once), applying a pending recenter. Also used by the menu screen, which needs
+// the head pose for a recenter even though it renders nothing head-tracked.
+bool LocateInternal()
 {
-    if (!g.frameOpen || !g.shouldRender) {
-        return false;
-    }
     if (g.located) {
-        out = g.frameViews;
         return true;
     }
     XrViewLocateInfo info{XR_TYPE_VIEW_LOCATE_INFO};
@@ -586,6 +641,16 @@ bool LocateViews(FrameViews& out)
     }
     g.frameViews.recenter = g.recenter;
     g.located = true;
+    return true;
+}
+
+} // namespace
+
+bool LocateViews(FrameViews& out)
+{
+    if (!g.frameOpen || !g.shouldRender || !LocateInternal()) {
+        return false;
+    }
     out = g.frameViews;
     return true;
 }
@@ -603,14 +668,29 @@ void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
         return;
     }
     try {
-        if (!g.rendered || !g.shouldRender || !swapChain || !context || !g.eyes[0].Valid() || !g.eyes[1].Valid() ||
-            !WriteEyes(swapChain, context)) {
-            if (!g.rendered) {
-                g.status.copyMode = "-";
-            }
+        if (!g.shouldRender || !swapChain || !context) {
             EndFrame(nullptr);
             return;
         }
+        if (!g.rendered) {
+            // No head-tracked render this frame (menu, pause, loading, movie, unknown exe): flat frame on the screen.
+            XrCompositionLayerQuad quad{XR_TYPE_COMPOSITION_LAYER_QUAD};
+            if (g.recenterPending) {
+                LocateInternal();
+            }
+            const bool screen = core::GetConfig().xr.menu_screen && WriteScreen(swapChain, context, quad);
+            g.status.presentation = screen ? "screen" : "-";
+            if (!screen) {
+                g.status.copyMode = "-";
+            }
+            EndFrame(screen ? reinterpret_cast<const XrCompositionLayerBaseHeader*>(&quad) : nullptr);
+            return;
+        }
+        if (!g.eyes[0].Valid() || !g.eyes[1].Valid() || !WriteEyes(swapChain, context)) {
+            EndFrame(nullptr);
+            return;
+        }
+        g.status.presentation = "head-tracked";
         XrCompositionLayerProjectionView projViews[2] = {
             {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}, {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
         for (int i = 0; i < 2; ++i) {

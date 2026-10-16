@@ -20,7 +20,7 @@ DXGI_FORMAT ChooseSwapchainFormat(const std::vector<std::int64_t>& offered)
 }
 
 bool EyeSwapchain::Create(XrInstance instance, XrSession session, ID3D11Device* device, DXGI_FORMAT format,
-    std::uint32_t width, std::uint32_t height, int eye)
+    std::uint32_t width, std::uint32_t height, const char* name)
 {
     Destroy();
     XrSwapchainCreateInfo info{XR_TYPE_SWAPCHAIN_CREATE_INFO};
@@ -34,7 +34,7 @@ bool EyeSwapchain::Create(XrInstance instance, XrSession session, ID3D11Device* 
     info.mipCount = 1;
     XrResult r = xrCreateSwapchain(session, &info, &m_swapchain);
     if (XR_FAILED(r)) {
-        TT2VR_LOG_ERROR("xr: eye {} swapchain {}x{} format {} failed: {}", eye, width, height, static_cast<int>(format),
+        TT2VR_LOG_ERROR("xr: {} swapchain {}x{} format {} failed: {}", name, width, height, static_cast<int>(format),
             ResultString(instance, r));
         m_swapchain = XR_NULL_HANDLE;
         return false;
@@ -47,7 +47,7 @@ bool EyeSwapchain::Create(XrInstance instance, XrSession session, ID3D11Device* 
             reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data()));
     }
     if (XR_FAILED(r) || count == 0 || !images[0].texture) {
-        TT2VR_LOG_ERROR("xr: eye {} swapchain has no images: {}", eye, ResultString(instance, r));
+        TT2VR_LOG_ERROR("xr: {} swapchain has no images: {}", name, ResultString(instance, r));
         Destroy();
         return false;
     }
@@ -68,14 +68,14 @@ bool EyeSwapchain::Create(XrInstance instance, XrSession session, ID3D11Device* 
         rd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
         Microsoft::WRL::ComPtr<ID3D11RenderTargetView> rtv;
         if (FAILED(device->CreateRenderTargetView(image.texture, &rd, &rtv))) {
-            TT2VR_LOG_ERROR("xr: eye {} cannot create a render target view (format {})", eye, static_cast<int>(rtvFormat));
+            TT2VR_LOG_ERROR("xr: {} swapchain: cannot create a render target view (format {})", name, static_cast<int>(rtvFormat));
             Destroy();
             return false;
         }
         m_textures.push_back(image.texture);
         m_rtvs.push_back(rtv);
     }
-    TT2VR_LOG_INFO("xr: eye {} swapchain {}x{} format {}, {} images, texture format {}, view format {}, decode {}", eye,
+    TT2VR_LOG_INFO("xr: {} swapchain {}x{} format {}, {} images, texture format {}, view format {}, decode {}", name,
         width, height, static_cast<int>(format), count, static_cast<int>(desc.Format), static_cast<int>(rtvFormat),
         m_decode);
     return true;

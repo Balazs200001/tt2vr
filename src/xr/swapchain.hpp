@@ -1,4 +1,4 @@
-// One OpenXR color swapchain for one eye, with a render target view per image.
+// One OpenXR color swapchain (an eye, or the menu screen), with a render target view per image.
 //
 // Format rule (CLAUDE.md sRGB gotcha): prefer an _SRGB format of the game back buffer's family, so the raw
 // gamma-encoded bits can be copied unchanged. `decode` says whether a shader write must convert sRGB -> linear
@@ -23,7 +23,7 @@ DXGI_FORMAT ChooseSwapchainFormat(const std::vector<std::int64_t>& offered);
 class EyeSwapchain {
 public:
     bool Create(XrInstance instance, XrSession session, ID3D11Device* device, DXGI_FORMAT format, std::uint32_t width,
-        std::uint32_t height, int eye);
+        std::uint32_t height, const char* name);
     void Destroy();
     bool Valid() const { return m_swapchain != XR_NULL_HANDLE; }
 
