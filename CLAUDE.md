@@ -25,7 +25,7 @@ Headset: Meta Quest 3 over Link or Steam Link, through OpenXR. Developer: Balazs
    - Debug A/B bypass toggles are allowed only if default-off, labelled `[debug]`, and never used as the fix.
    - Full design, invariants and tests: `PLAN.md` → "Temporal design".
 2. **No game material in git:** no binaries, assets, shader bytecode or disassembly dumps, Ghidra projects, decompiler output, RenderDoc captures. Those live in `../tt2vr-re/`, outside the repo. Short byte signatures and our own notes are fine.
-3. **No hard-coded addresses.** Engine functions and globals are found by pattern scan through `src/game/signatures.hpp`. Each entry records: our name, pattern, how it was found, and the exe SHA-256 it was validated on.
+3. **No hard-coded addresses.** Engine functions and globals are found through `src/game/signatures.hpp`: by mangled export name from TT2.exe's export table first (PlayAll engine code is exported), with an IDA-style pattern scan as fallback. Each entry records: our name, export name, pattern, how it was found, and the exe SHA-256 it was validated on. Struct field offsets live in `src/game/engine_layout.hpp`.
 4. **Fail safe.** A missing signature or failed hook logs an error and falls back to pass-through; the flat game must keep running. No C++ exceptions across hook boundaries.
 5. **Visual only.** Never change gameplay, physics, timing, input or network behavior. Test in offline modes only.
 6. **Hands off the game install** except through the `deploy` build target. Never patch the exe on disk.
