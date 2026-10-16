@@ -275,3 +275,12 @@ TEST_CASE("EyeLocal is the eye relative to the recentered head")
     const Pose leaned{yawLeft, {-0.1f, 1.2f, 0.032f}};
     CheckVec(Translation(EyeLocal(recenter, leaned)), {-0.032f, 0.0f, -0.1f});
 }
+
+TEST_CASE("ScreenPose is straight ahead of the recentered head, facing it")
+{
+    const float h = kPi / 4; // head yawed 90 deg left at (0.2, 1.1, -0.5)
+    const Mat34 recenter = RecenterFromHead({{0, std::sin(h), 0, std::cos(h)}, {0.2f, 1.1f, -0.5f}});
+    const Pose screen = ScreenPose(recenter, 2.0f);
+    CheckVec(screen.position, {0.2f - 2.0f, 1.1f, -0.5f}); // forward is -X after a 90 deg left yaw
+    CheckMat(PoseToMatrix(screen), CameraLocalTransform(kPi / 2, 0, 0, screen.position), 1e-5f);
+}

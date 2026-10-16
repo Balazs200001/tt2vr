@@ -53,5 +53,8 @@ Mat34 RecenterFromHead(const Pose& head);
 // Eye transform relative to the recenter reference: inverse(recenter) * eye. This is the camera-local transform that
 // moves the engine camera to the eye (rule 1: eyeWorld = camera * EyeLocal).
 Mat34 EyeLocal(const Mat34& recenter, const Pose& eye);
+// Pose (XR reference space) of a virtual screen `distance` metres straight ahead of a recenter reference, facing it:
+// same yaw, same height. Used for the menu screen quad layer (Phase 3 interim, PLAN Phase 7).
+Pose ScreenPose(const Mat34& recenter, float distance);
 
 } // namespace stereo

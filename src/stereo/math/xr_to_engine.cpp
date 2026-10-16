@@ -88,4 +88,12 @@ Mat34 EyeLocal(const Mat34& recenter, const Pose& eye)
     return Mul(RigidInverse(recenter), PoseToMatrix(eye));
 }
 
+Pose ScreenPose(const Mat34& recenter, float distance)
+{
+    // Recenter is Ry(yaw) plus translation: column 2 (back) = (sin yaw, 0, cos yaw).
+    const float yaw = std::atan2(recenter.m[0][2], recenter.m[2][2]);
+    const Vec3 center = TransformPoint(recenter, {0.0f, 0.0f, -distance});
+    return {{0.0f, std::sin(yaw * 0.5f), 0.0f, std::cos(yaw * 0.5f)}, center};
+}
+
 } // namespace stereo
