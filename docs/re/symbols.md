@@ -520,6 +520,11 @@ Per-frame data flow (confirmed): `CameraManager::OnPostManage` -> `KTUCamera::Up
 | `TTCamera::TuckInOut` | 0x1401a50e0 | function | settings +0x88..+0xb0; calls 0x14019b400 | likely |
 | `TTCamera::LookAroundInput` | 0x1401a0a70 | function | stick/hat look; quaternion state mode+0x2c0 | likely |
 | `TTCamera::HelmetSprings` | 0x1401a04c0 | function | outputs matrix at mode+0x4c4 (helmet/visor, not obviously the eye) | likely |
+| TT2 player camera `AfterPhysicsStep` (FUN_1403afc80) | 0x1403afc80 | function | vtable slot at 0x140f60b00; places the HelmetView actor: `Actor::SetWorldMatrix(cam+0x160, mode+0x4c4)` when mode type 2 (camera-mode manager `DAT_14141e5c8`) | confirmed |
+| TT2 camera.helmetViewActor / helmetNode / viewEnum / helmetVisible | +0x160 / +0x158 / +0x138 / +0x360 | field | HelmetView actor, `Helmet_01` mesh node, GameCameraViews value, visibility flag (`FUN_1403b20a0`, `FUN_1403ae6a0`, `FUN_1403af2b0`) | confirmed |
+| TTSpringCameraMode.helmetMatrix | +0x4c4 | field | Matrix34 from HelmetSprings; origin read by `FUN_14019d4b0` | confirmed |
+| TTSpringCameraMode.cameraMatrix | +0x8 | field | Matrix34 the mode outputs (copied from +0x3e4 in ComputeView) | confirmed |
+| `FUN_1403b20a0` HelmetView creation | 0x1403b20a0 | function | creates `HelmetView_%d` from `ARCHETYPES:/GAMEPLAY/HELMETVIEW.PPF`, finds `Helmet_01` | confirmed |
 | `FUN_1401a5570` | 0x1401a5570 | function | called after HelmetSprings | guess |
 | `TTCameraType enum init` | 0x140056a70 | function | Fixed0 Spring1 Cockpit2 Helicopter3 PhotoCamera4; enumerators 0x1413824e0.. stride 0x20 | confirmed |
 | reference-point enum init | 0x1400568e0 | function | CenterWiper / PilotHead | confirmed |

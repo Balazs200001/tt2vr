@@ -199,17 +199,18 @@ Implementation notes (2026-10-16):
 
 ## Phase 2 — Camera control (flat)
 
-- [ ] Find the view matrix:
+- [x] Find the view matrix:
   - search constant buffer updates for a 4×4 whose upper 3×3 is orthonormal and whose translation changes as the bike moves;
   - put a hardware write breakpoint (x64dbg) on its CPU-side source to find the writer function, then walk up the call chain in Ghidra/REA;
   - cross-check with the strings route from Phase 0.
-  - 2026-10-16: found statically instead (Phase 0 strings route + Ghidra): pool matrix written by `KTUCamera::Update` → read by `ViewContext::InitFromCamera` 0x14091aeb0 → `cbCameraStd` (runtime f8323). Remaining: the runtime log check of the world matrix and camera fields (`docs/re/camera.md` section 7, checks 1–2); no breakpoint needed.
-- [x] Document in `docs/re/camera.md`: the camera object fields we use; where world→view and projection are built (fovY, aspect, near, far, jitter); where the culling frustum comes from. Done 2026-10-16 (fov is horizontal; runtime checks listed in its section 7).
-- [ ] `game::CameraOverride`: hook after the camera update; overlay sliders for yaw, pitch, roll and position offset.
-  - Code done 2026-10-16 (`src/game/camera.*`): `DoUpdate` pre + `InitFromCamera` post-fix-up of the main ViewContext; the scene-graph pool is never written. Runtime test pending.
-- [ ] Projection override: inject an asymmetric frustum (e.g. shifted 20% right) and verify both the image and culling.
-  - Code done 2026-10-16: `MatrixPerspectiveFovRH` choke point, reshapes calls whose fov is the main camera's fov or front fov inside the DoUpdate→Present window. Runtime test pending.
+  - 2026-10-16: found statically instead (Phase 0 strings route + Ghidra): pool matrix written by `KTUCamera::Update` → read by `ViewContext::InitFromCamera` 0x14091aeb0 → `cbCameraStd` (runtime f8323). Runtime check done 2026-10-16 from our log (`docs/re/camera.md` section 8, checks 1–2): world columns (right, up, back), Z up, det +1; helmet cam hfov 91°, near 0.01, far 25000, front pass off.
+- [x] Document in `docs/re/camera.md`: the camera object fields we use; where world→view and projection are built (fovY, aspect, near, far, jitter); where the culling frustum comes from. Done 2026-10-16 (fov is horizontal; runtime checks in its section 8).
+- [x] `game::CameraOverride`: hook after the camera update; overlay sliders for yaw, pitch, roll and position offset.
+  - Code done 2026-10-16 (`src/game/camera.*`): `DoUpdate` pre + `InitFromCamera` post-fix-up of the main ViewContext; the scene-graph pool is never written. Verified 2026-10-16 by Balazs: yaw/pitch/roll/offset all work in the helmet cam.
+- [x] Projection override: inject an asymmetric frustum (e.g. shifted 20% right) and verify both the image and culling.
+  - Code done 2026-10-16: `MatrixPerspectiveFovRH` choke point, reshapes calls whose fov is the main camera's fov or front fov inside the DoUpdate→Present window. Verified 2026-10-16 by Balazs.
 - [x] Unit tests: projection-from-FOV builder against hand-computed values; XR→engine basis conversion. `tests/test_math.cpp` (11 cases) + signature table test; 42 cases pass.
+- [ ] Helmet mesh follows the view override (found 2026-10-16: the HelmetView actor is placed by game code in `FUN_1403afc80` from `mode+0x4c4`, not from the render view; `docs/re/camera.md` section 7). Approach: decide with Balazs.
 
 **Done when:** I can turn the helmet camera 360° from the overlay with no culling holes and correct depth, and an asymmetric projection renders correctly at the frustum edges.
 

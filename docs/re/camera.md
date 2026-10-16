@@ -81,12 +81,27 @@ Why the projection choke point instead of `ViewContext::SetProjection` after `In
 
 World Shift: the override is recomputed every frame from the current pool matrix; nothing is accumulated in world space.
 
-## 7. Runtime checks (Phase 2)
+## 7. Helmet mesh (HelmetView actor)
+
+| Item | Value | Evidence | Confidence |
+|---|---|---|---|
+| Actor | `HelmetView_%d`, created from `ARCHETYPES:/GAMEPLAY/HELMETVIEW.PPF` by `FUN_1403b20a0`, stored at `cam+0x160` of TT2's player camera object; its mesh node `Helmet_01` cached at `cam+0x158`; visibility toggled by `FUN_1403ae6a0` / `FUN_1403af2b0` (`cam+0x360`) | decompile of `FUN_1403b20a0` (string xrefs 0x140f60c30, 0x140f60c58, "Helmet_01") | confirmed (static) |
+| Placement | `FUN_1403afc80` (vtable slot at 0x140f60b00; TT2 camera class `AfterPhysicsStep`, calls `Game::Camera::AfterPhysicsStep` first): if the view enum at `cam+0x138` passes `FUN_1401847b0` and the camera-mode manager `DAT_14141e5c8` reports mode type 2, `Actor::SetWorldMatrix(cam+0x160, mode+0x4c4)` | decompile; only TT2-range code using immediate 0x4c4 besides the mode ctor, `HelmetSprings` and `FUN_14019d4b0` | confirmed (static) |
+| Helmet matrix | `mode+0x4c4` (Matrix34) built by `TTCamera::HelmetSprings` `FUN_1401a04c0` from the mode's camera matrix `mode+8` (axes I/J/K, origin) plus pitch/yaw spring angles (`mode+0x4f4`, `+0x50c`) and the camera data's helmet position offset (`+0xe4`); fully recomputed each call, never read back | decompile | confirmed (static) |
+| Other reader of `mode+0x4c4` | `FUN_14019d4b0`: origin minus `mode+0x524` (a distance), called from `FUN_14035f270`, `FUN_1403613e0` | disasm | likely; purpose unknown |
+| Timing | physics step (CameraManager AfterPhysicsStep), i.e. before `KTUCamera::Update` and before `DoUpdate` | vtable slot / CameraManager slots 11/12 | likely |
+| `Actor::SetWorldMatrix` 0x1403d77f0 | `mov rcx,[rcx+0x70]; jmp GraphNode::SetWorldMatrix` (actor node at `Actor+0x70`) | disasm | confirmed |
+
+Consequence: the helmet is placed in the scene graph by game code, separately from the render view, so our ViewContext override (section 6) does not move it. Runtime (2026-10-16): with the view override on, the world view turns but the helmet stays fixed to the original camera.
+
+## 8. Runtime checks (Phase 2)
 
 | # | Check | How | Status |
 |---|---|---|---|
-| 1 | Camera field values in a race (hfov, near/far, aspect multiplier, front pass) | log line `camera: main view camera ...` on first sight; `tools/tt2vr-request.ps1 camera` | pending |
-| 2 | Camera world matrix: columns (right, up, back), Z-up, det +1 | log line `camera world: ...` / `camera` request; compare with cbCameraStd of the same frame | pending |
-| 3 | View override reaches image, culling and front pass | overlay yaw 0 -> 180 deg; no holes, bike/rider consistent | pending |
-| 4 | Projection reshape reaches image and culling | shift x 0.2: image moves left, no culling holes at the right edge, front pass consistent, `N calls reshaped` > 0 | pending |
-| 5 | Depth still correct | texture dump of depth with yaw 90 deg | pending |
+| 1 | Camera field values in a race (hfov, near/far, aspect multiplier, front pass) | log line `camera: main view camera ...`; `tools/tt2vr-request.ps1 camera` | done 2026-10-16: helmet cam hfov 91.00 deg (1.5882 rad), near 0.01, far 25000, aspect mul 1, **front pass off** (front fov 90, near 1, far 1); proj m00 0.982697, m11 1.74702 at 1920x1080, vfov 59.57 deg; menu cameras: hfov 45 / 90 / 50, near 0.5, far 10000 |
+| 2 | Camera world matrix: columns (right, up, back), Z-up, det +1 | same log | done 2026-10-16: right (-0.6214, 0.7835, -0.0026), up (-0.0551, -0.0405, 0.9977), back (0.7815, 0.6201, 0.0683); right x up = back (det +1), up z-dominant |
+| 3 | View override reaches image, culling and front pass | overlay yaw 0 -> 180 deg | done 2026-10-16 (Balazs: all view overrides work, no artefacts reported); helmet mesh does not follow (section 7) |
+| 4 | Projection reshape reaches image and culling | shift x 0.2 | done 2026-10-16 (Balazs: works) |
+| 5 | Depth still correct | texture dump of depth with yaw 90 deg | not separately dumped; no depth artefacts reported |
+
+Note: the helmet camera of f8323 had near 1.0; this session's helmet camera has near 0.01. Near differs per camera view (`GameViewCameras.cfg` data), so never hard-code it.
