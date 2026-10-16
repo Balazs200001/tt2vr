@@ -16,7 +16,7 @@ v1 is done when all of these hold during a 30-minute offline session on the Snae
 
 - [x] Phase 0 — Recon & setup
 - [x] Phase 1 — Skeleton mod (flat)
-- [ ] Phase 2 — Camera control (flat)
+- [x] Phase 2 — Camera control (flat)
 - [ ] Phase 3 — OpenXR, left eye head-tracked
 - [ ] Phase 4 — Dual-view stereo via the split-screen path (milestone)
 - [ ] Phase 5 — Synchronous stereo: shared per-frame work
@@ -26,7 +26,7 @@ v1 is done when all of these hold during a 30-minute offline session on the Snae
 - [ ] Phase 9 — Performance
 - [ ] Phase 10 — Robustness & release
 
-**Active phase: Phase 2** (Phase 1 completed 2026-10-16; Phase 0 completed 2026-10-16)
+**Active phase: Phase 3** (Phase 2 completed 2026-10-16; Phase 1 completed 2026-10-16; Phase 0 completed 2026-10-16)
 
 ---
 
@@ -210,9 +210,10 @@ Implementation notes (2026-10-16):
 - [x] Projection override: inject an asymmetric frustum (e.g. shifted 20% right) and verify both the image and culling.
   - Code done 2026-10-16: `MatrixPerspectiveFovRH` choke point, reshapes calls whose fov is the main camera's fov or front fov inside the DoUpdate→Present window. Verified 2026-10-16 by Balazs.
 - [x] Unit tests: projection-from-FOV builder against hand-computed values; XR→engine basis conversion. `tests/test_math.cpp` (11 cases) + signature table test; 42 cases pass.
-- [ ] Helmet mesh follows the view override (found 2026-10-16: the HelmetView actor is placed by game code in `FUN_1403afc80` from `mode+0x4c4`, not from the render view; `docs/re/camera.md` section 7). Chosen 2026-10-16 (Balazs): physics-step hook (`TTCamera::AfterPhysicsStep` + `Actor::SetWorldMatrix`, helmet' = M·local·M⁻¹·H with M = mode+0x8), switchable via `[camera] helmet_follows_view` / overlay; the game's Helmet No Mesh view stays supported. Code done; runtime test pending.
+- [x] Helmet mesh follows the view override (found 2026-10-16: the HelmetView actor is placed by game code in `FUN_1403afc80` from `mode+0x4c4`, not from the render view; `docs/re/camera.md` section 7). Chosen 2026-10-16 (Balazs): physics-step hook (`TTCamera::AfterPhysicsStep` + `Actor::SetWorldMatrix`, helmet' = M·local·M⁻¹·H with M = mode+0x8), switchable via `[camera] helmet_follows_view` / overlay; the game's Helmet No Mesh view stays supported. Verified 2026-10-16 by Balazs (log 15:19: `camera: helmet hooks installed`).
 
 **Done when:** I can turn the helmet camera 360° from the overlay with no culling holes and correct depth, and an asymmetric projection renders correctly at the frustum edges.
+- 2026-10-16: verified by Balazs (view override through ±180° yaw, projection shift, helmet follows, Helmet No Mesh view). Also added: F8 software mouse cursor for the overlay. **Phase 2 done.**
 
 ## Phase 3 — OpenXR, left eye head-tracked
 
