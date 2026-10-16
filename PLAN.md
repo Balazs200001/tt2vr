@@ -234,6 +234,7 @@ Implementation notes (2026-10-16, code done, runtime test pending; all boxes abo
 - Desktop: `[xr] desktop_vsync_off` (default on) presents with sync 0 while the session runs; `[xr] desktop_mirror = false` skips the desktop Present (the game still renders once per frame; see Decisions log).
 - Known: HUD is baked into the eye image (Phase 7); TAA smears one frame after a recenter (history reset is Phase 6).
 - Runtime 2026-10-16 (Balazs, SteamVR "in Meta compatibility mode 2.17.10", Quest 3 over Link): head-tracking test good; session focused, 72 Hz (period 13.89 ms), `xrWaitFrame` 3.72 ms, 10036 frames submitted, recommended eye 2528x2704; back buffer 1920x1080 -> blit (stretched). Still open: resolution forcing (set-eye-resolution.ps1 not yet run), recenter, colour match.
+- Interim menu screen (2026-10-16, Balazs chose "interim screen now"; code done, runtime test pending): while `KTUGuiManager::IsMenuOpen` or `IsGamePaused` is true (exports, read via `g_pGuiManager`; `src/game/menu_state.*`), the camera is not head-tracked, and any frame without a head-tracked render (menu, pause, loading, movie, unknown exe) goes to a quad layer fixed in LOCAL space, `[xr] screen_distance` ahead of the recentered head (`screen_width`, aspect from the back buffer). Runtime check: `menu state: ...` log lines show neither flag while riding. The full frozen-3D-world menu stays in Phase 7.
 
 **Done when:** in the headset, a roadside sign I fixate on stays fixed while I rotate and lean my head (no swimming), and colors match the desktop.
 
@@ -344,6 +345,7 @@ Approach (proposed 2026-10-16, see "Phase 0 findings"): the engine renders up to
 | 2026-10-16 | While the XR session runs, the desktop Present uses sync interval 0 (`[xr] desktop_vsync_off`, default on; chosen by Balazs) | `xrWaitFrame` paces the frame; desktop VSync at 50/60 Hz would fight the headset's 72/90 Hz. Only the desktop mirror's pacing changes (rule 5) |
 | 2026-10-16 | `[xr] desktop_mirror = false` skips the desktop Present while the session runs (Balazs asked for a way to not render to the PC screen) | the scene is rendered once per frame either way; the desktop costs only the present. A smaller desktop window is not offered: the engine sizes its render targets from the window resolution, so it would shrink the eye image too |
 | 2026-10-16 | XR frame loop: `xrWaitFrame`/`xrBeginFrame` at the end of the Present post-hook, `xrLocateViews` in `DoUpdate`, eye copy + `xrEndFrame` in the Present pre-hook before the overlay | the wait throttles the start of the next frame; the pose is taken after the game's camera update; the overlay stays desktop-only |
+| 2026-10-16 | Interim menu comfort before Phase 4: menus/pause/loading on a world-fixed screen quad, not head-tracked (Balazs) | the menu's camera cuts and head-locked UI caused nausea; the full frozen 3D menu needs Phase 7's UI separation |
 | TBD (Phase 4) | Temporal mechanism per state (C / A / B1 / B2) | |
 
 ## Open questions (answer in Phase 0)
