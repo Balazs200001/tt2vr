@@ -37,7 +37,8 @@ bool SameConfig(const Config& a, const Config& b)
            SameHotkey(a.hotkeys.overlay, b.hotkeys.overlay) && SameHotkey(a.hotkeys.frame_trace, b.hotkeys.frame_trace) &&
            SameHotkey(a.hotkeys.texture_dump, b.hotkeys.texture_dump) &&
            SameHotkey(a.hotkeys.renderdoc_capture, b.hotkeys.renderdoc_capture) &&
-           a.overlay.visible == b.overlay.visible && a.capture.dir == b.capture.dir &&
+           a.overlay.visible == b.overlay.visible &&
+           a.camera.helmet_follows_view == b.camera.helmet_follows_view && a.capture.dir == b.capture.dir &&
            a.capture.renderdoc_dir == b.capture.renderdoc_dir && a.capture.max_textures == b.capture.max_textures &&
            a.capture.include_depth == b.capture.include_depth && a.capture.cb_floats == b.capture.cb_floats &&
            a.commands.enabled == b.commands.enabled && a.commands.poll_frames == b.commands.poll_frames &&
@@ -222,6 +223,9 @@ renderdoc_capture = "Pause"
 [overlay]
 visible = false
 
+[camera]
+helmet_follows_view = false
+
 [capture]
 dir = "C:/caps"
 renderdoc_dir = "C:/dev/tt2vr-re/rdc"
@@ -245,6 +249,7 @@ fake_exe_sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
     CHECK(SameHotkey(c.hotkeys.texture_dump, Hotkey{0x63, false, false, true}));
     CHECK(SameHotkey(c.hotkeys.renderdoc_capture, Hotkey{0x13}));
     CHECK_FALSE(c.overlay.visible);
+    CHECK_FALSE(c.camera.helmet_follows_view);
     CHECK(c.capture.dir == "C:/caps");
     CHECK(c.capture.renderdoc_dir == "C:/dev/tt2vr-re/rdc");
     CHECK(c.capture.max_textures == 100);

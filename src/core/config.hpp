@@ -43,6 +43,9 @@ struct Config {
     struct Overlay {
         bool visible = true;
     } overlay;
+    struct Camera {
+        bool helmet_follows_view = true; // move the helmet mesh with the view/head override (Phase 2)
+    } camera;
     struct Capture {
         std::string dir = "captures"; // relative to <game>\tt2vr\ unless absolute
         std::string renderdoc_dir; // empty = same as dir

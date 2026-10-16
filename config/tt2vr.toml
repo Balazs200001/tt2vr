@@ -25,6 +25,11 @@ renderdoc_capture = "F9"
 # Show the debug overlay at startup.
 visible = true
 
+[camera]
+# Move the helmet mesh with the camera override (overlay sliders now, head tracking later). Off = the helmet stays
+# where the game puts it. Also switchable in the overlay. The game's "Helmet No Mesh" view has no helmet either way.
+helmet_follows_view = true
+
 [capture]
 # Folder for frame traces and texture dumps; relative to <game>\tt2vr\ unless absolute.
 dir = "captures"

@@ -210,6 +210,16 @@ void ReadOverlay(const toml::table& t, Config::Overlay& out, Warnings& w)
     }
 }
 
+void ReadCamera(const toml::table& t, Config::Camera& out, Warnings& w)
+{
+    const Section s("camera", w);
+    for (const auto& [k, node] : t) {
+        const std::string_view key = k.str();
+        if (key == "helmet_follows_view") s.Bool(key, node, out.helmet_follows_view);
+        else s.Warn(key, "unknown key, ignored", node);
+    }
+}
+
 void ReadCapture(const toml::table& t, Config::Capture& out, Warnings& w)
 {
     const Section s("capture", w);
@@ -269,6 +279,7 @@ void ReadTables(const toml::table& root, Config& cfg, Warnings& w)
         if (name == "log") ReadLog(*t, cfg.log, w);
         else if (name == "hotkeys") ReadHotkeys(*t, cfg.hotkeys, w);
         else if (name == "overlay") ReadOverlay(*t, cfg.overlay, w);
+        else if (name == "camera") ReadCamera(*t, cfg.camera, w);
         else if (name == "capture") ReadCapture(*t, cfg.capture, w);
         else if (name == "commands") ReadCommands(*t, cfg.commands, w);
         else if (name == "debug") ReadDebug(*t, cfg.debug, w);
