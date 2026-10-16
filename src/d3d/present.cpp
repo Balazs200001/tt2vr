@@ -24,6 +24,7 @@
 #include "d3d/vtable.hpp"
 #include "game/camera.hpp"
 #include "game/menu_state.hpp"
+#include "game/render_size.hpp"
 #include "game/version.hpp"
 #include "ui/overlay.hpp"
 #include "xr/session.hpp"
@@ -203,6 +204,7 @@ void InstallEngineHooksOnce()
     if (game::EngineHooksAllowed()) {
         game::InstallCameraHooks(); // resolves the signature table
         game::InitMenuState();
+        game::InstallRenderSizeHook();
     }
     else {
         TT2VR_LOG_WARN("engine hooks skipped: unknown game version");
@@ -280,6 +282,10 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
                 TT2VR_LOG_DEBUG("frame {}: {:.1f} fps", g_frame, Stats().fps);
             }
             xr::OnFrameStart(); // last: may block in xrWaitFrame until the headset wants the next frame
+            if (core::GetConfig().xr.force_render_size) {
+                const xr::Status xs = xr::GetStatus();
+                game::RequestRenderSize(g_window, xs.eyeW, xs.eyeH); // one device reset when the eye size is known
+            }
         }
         catch (...) {
             TT2VR_LOG_ERROR("exception in Present post-hook (frame {})", g_frame);

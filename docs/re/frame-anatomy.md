@@ -312,6 +312,20 @@ All `runtime-check` unless marked. Read these each frame to build the VR-present
 | Riding (mod signal, Phase 3) | player-0 `KTUCamera` (`KTUGameEngine::GetCamera(0)` export on `g_pGameEngine`) active mode `KTUCamera+0x48` has vtable slot 6 (+0x30, `Manage`, called at 0x1409d9125) == `TTSpringCameraMode::Manage` 0x14019d700 (vftable 0x140f338f8, pattern signature) | disasm of `KTUCamera::Update` 0x1409d90d0..0x1409d9125, vftable dump | confirmed (static); runtime check pending |
 | Menu flags at runtime | 2026-10-16 log: `IsGamePaused` true during the startup intros; `IsMenuOpen` and `IsGamePaused` both **false in the main menu** (TT2 menus run on the `TTxxxState` machine, not `KTUGuiManager+0xf0`) | `menu state:` log lines | confirmed (runtime) |
 
+### 8.5 Render size (swap chain and window render targets)
+
+Static, build 4989319 (Ghidra query server, 2026-10-16). Confidence `confirmed (static)` unless noted.
+
+| Item | Address | Finding |
+|---|---|---|
+| Client-size reader `FUN_140959f80(HWND, int* w, int* h)` | 0x140959f80 | `IsIconic` ? restored placement rect minus `AdjustWindowRect` frame : `GetClientRect`. Only callers: `DeviceReset(WindowWin32*)` (call 0x140958c7e) and `UpdateWindowResolution` 0x14095c270 (call 0x14095c2cd, WM_SIZE in windowed mode, clamps up to `GetVideoModeMin`). |
+| `VideoDeviceDX11Windows::DeviceReset(WindowWin32*)` | 0x140958ba0 | the only `ResizeBuffers` call (0x140958d56): (1, w, h, 0x1c, 0) with w/h from the reader rounded down to even; writes `Window+0x30/+0x34` (viewport) and, for the main window, `+0x418/+0x41c` and `+0x500/+0x504`; Fullscreen (mode 1) takes `+0x418/+0x41c` instead. Then rebuilds the back-buffer RT and `RenderTargetManager::ChangeRenderTargetsSize` 0x1408e1800 rescales every window RT from the back buffer size. |
+| Reset trigger | `SetDeviceResetNeeded` 0x14095b6e0 (export) | `nullptr` window -> `this+0x4d8 = 1`; `PostFlip` 0x14095a600 then calls `DeviceReset()` 0x140958dd0. |
+| Device instance | `GetVideoDevice` 0x140919d90 (export) | returns `DAT_14140b2e8`, the `ClassRegistry::New` object made in `FUN_140919740` ("VideoDevice Create"); vftable `??_7VideoDeviceDX11Windows` 0x1410328f0. |
+| Why Windowed 2528x2704 gave 2528x1060 then 1024x768 | | Windowed `SetScreenMode` -> `SetSize` -> `SetWindowPos`; Windows clamps the window to the desktop, the reader returns the clamped client rect (confirmed by our log). The later 1024x768 is the smallest adapter mode (`EnumerateVideoAdapters` keeps width >= 1024, sorted descending; `GetVideoModeMin` 0x1409171f0) applied by `UpdateWindowResolution` or by the resolution preset falling back for an unlisted pair (`likely`). |
+
+Mod rule (`src/game/render_size.*`): hook the reader (post) and report the eye size for the game's main window only. This keeps `ResizeBuffers`, the viewport, `+0x418/+0x500` and every derived RT consistent; a `ResizeBuffers`-argument override alone would not. `PostFlip` compares `+0x418` with `+0x500` each frame, and both come from the same reader, so no reset loop. Use Borderless or Windowed, not Fullscreen. The game's own mouse input stays in window client coordinates (menus may mis-map clicks; Phase 7).
+
 Frame-structure rule for a VR hook: **a frame with a fullscreen movie contains no 3D render at all** (no `DeferredRenderLoop::Render` call), so any per-eye render loop must tolerate "no scene this frame" and fall back to the theater quad.
 
 ---

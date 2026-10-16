@@ -33,6 +33,10 @@ enum class Sig {
     GameEngineInstance,
     GameEngineGetCamera,
     SpringCameraModeManage,
+    WindowClientSize,
+    GetVideoDevice,
+    SetDeviceResetNeeded,
+    VideoDeviceDX11WindowsVftable,
     Count,
 };
 
@@ -87,6 +91,20 @@ inline constexpr Signature kSignatures[] = {
         "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 30 48 8B D9 48 8B F2 48 8B 89 38 01 00 00 0F B6 93 40 01 00 00",
         0, "TT2 code, not exported; 0x14019d700 = slot 6 (+0x30) of the TTSpringCameraMode vftable 0x140f338f8; "
            "first 20 bytes already unique in .text",
+        kBuild4989319},
+    {"VideoDevice client size (FUN_140959f80)", nullptr,
+        "40 56 57 41 56 48 81 EC 80 00 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 70 4D 8B F0 48 8B F2 48 8B F9 "
+        "FF 15 ?? ?? ?? ?? 48 8B CF 85 C0 74 ?? BA F0 FF FF FF",
+        0, "not exported; 0x140959f80 (HWND, int* w, int* h): IsIconic ? placement rect : GetClientRect; only callers "
+           "DeviceReset(WindowWin32*) 0x140958c7e and UpdateWindowResolution 0x14095c2cd",
+        kBuild4989319},
+    {"Graphics::GetVideoDevice", "?GetVideoDevice@Graphics@PlayAll@@YAPEAVVideoDevice@12@XZ", nullptr, 0,
+        "export; 0x140919d90, the VideoDeviceDX11Windows instance", kBuild4989319},
+    {"VideoDeviceDX11Windows::SetDeviceResetNeeded",
+        "?SetDeviceResetNeeded@VideoDeviceDX11Windows@Graphics@PlayAll@@QEAAXPEAVWindowWin32@23@@Z", nullptr, 0,
+        "export; 0x14095b6e0, nullptr window -> this+0x4d8 = 1 (PostFlip then runs DeviceReset)", kBuild4989319},
+    {"VideoDeviceDX11Windows vftable", "??_7VideoDeviceDX11Windows@Graphics@PlayAll@@6B@", nullptr, 0,
+        "data export; 0x1410328f0, checked against *GetVideoDevice() before calling SetDeviceResetNeeded",
         kBuild4989319},
 };
 
