@@ -426,6 +426,20 @@ ConfigResult LoadConfig(const std::filesystem::path& file)
     }
 }
 
+namespace {
+std::vector<std::string> g_configWarnings;
+}
+
+void SetConfigWarnings(std::vector<std::string> warnings)
+{
+    g_configWarnings = std::move(warnings);
+}
+
+const std::vector<std::string>& ConfigWarnings()
+{
+    return g_configWarnings;
+}
+
 const Config& GetConfig()
 {
     return *g_config.load(std::memory_order_acquire);

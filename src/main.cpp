@@ -17,6 +17,7 @@ void LoadConfiguration()
     core::SetConfig(result.config);
     core::SetLogLevel(result.config.log.level);
     core::SetVerbose(result.config.log.verbose_frames);
+    core::SetConfigWarnings(result.warnings);
     for (const auto& warning : result.warnings) {
         TT2VR_LOG_WARN("config: {}", warning);
     }

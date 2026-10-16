@@ -75,4 +75,9 @@ ConfigResult LoadConfig(const std::filesystem::path& file);
 const Config& GetConfig();
 void SetConfig(const Config& config);
 
+// Warnings from the startup load, shown by the overlay. Written once by the init thread before the
+// game creates its device; read-only afterwards.
+void SetConfigWarnings(std::vector<std::string> warnings);
+const std::vector<std::string>& ConfigWarnings();
+
 } // namespace core

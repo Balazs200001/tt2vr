@@ -107,6 +107,14 @@ void DrawPanel()
     else {
         ImGui::Text("Hooks: %zu installed, 0 failed", installed);
     }
+    const auto& warnings = core::ConfigWarnings();
+    if (!warnings.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "Config: %zu warning(s), defaults used for those keys:",
+            warnings.size());
+        for (const auto& w : warnings) {
+            ImGui::BulletText("%s", w.c_str());
+        }
+    }
     ImGui::Text("Shaders: %zu unique", d3d::shaders::Count());
     ImGui::Text("RenderDoc: %s", d3d::renderdoc::Available() ? "attached" : "not attached");
     ImGui::Separator();
@@ -145,7 +153,8 @@ void DrawPanel()
 void DrawNotice()
 {
     const auto& version = game::ExeVersion();
-    if (version.status != game::VersionStatus::Unknown && core::hooks::FailedCount() == 0) {
+    const std::size_t warnings = core::ConfigWarnings().size();
+    if (version.status != game::VersionStatus::Unknown && core::hooks::FailedCount() == 0 && warnings == 0) {
         return;
     }
     ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_Always);
@@ -156,9 +165,13 @@ void DrawNotice()
     if (version.status == game::VersionStatus::Unknown) {
         ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.3f, 1.0f), "tt2vr: unknown game version - running flat (D3D layer only)");
     }
-    else {
+    if (core::hooks::FailedCount() > 0) {
         ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "tt2vr: %d hook(s) failed - see tt2vr/logs/tt2vr.log",
             core::hooks::FailedCount());
+    }
+    if (warnings > 0) {
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "tt2vr: %zu config warning(s) - press %s for details",
+            warnings, core::FormatHotkey(core::GetConfig().hotkeys.overlay).c_str());
     }
     ImGui::End();
 }
