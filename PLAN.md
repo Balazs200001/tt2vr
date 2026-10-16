@@ -217,12 +217,12 @@ Implementation notes (2026-10-16):
 
 ## Phase 3 — OpenXR, left eye head-tracked
 
-- [ ] `xr`: instance with `XR_KHR_D3D11_enable`; log the active runtime name and version (`xrGetInstanceProperties`), since Meta and SteamVR runtimes behave differently.
-- [ ] `xrGetD3D11GraphicsRequirementsKHR`: if the adapter LUID differs from the game device's adapter, log it and stay flat.
-- [ ] Session on the game's device; `LOCAL` reference space; per-eye swapchains (format per the sRGB rule); a session state machine (idle, focus loss, stopping) that never blocks the game.
-- [ ] Frame loop: `xrWaitFrame` / `xrBeginFrame` / `xrEndFrame` integrated with `Present`. Place `xrWaitFrame` so it throttles the start of the frame rather than stalling mid-render; measure.
+- [x] `xr`: instance with `XR_KHR_D3D11_enable`; log the active runtime name and version (`xrGetInstanceProperties`), since Meta and SteamVR runtimes behave differently.
+- [x] `xrGetD3D11GraphicsRequirementsKHR`: if the adapter LUID differs from the game device's adapter, log it and stay flat.
+- [x] Session on the game's device; `LOCAL` reference space; per-eye swapchains (format per the sRGB rule); a session state machine (idle, focus loss, stopping) that never blocks the game.
+- [x] Frame loop: `xrWaitFrame` / `xrBeginFrame` / `xrEndFrame` integrated with `Present`. Place `xrWaitFrame` so it throttles the start of the frame rather than stalling mid-render; measure.
 - [ ] Force the game to render at the recommended per-eye resolution × config scale (cleanest route: game config file, window size, or `ResizeBuffers`).
-- [ ] Left-eye-only mode: camera from `P_L`, projection from `F_L`, right eye black. This validates pose, projection and conversion exactly; a mono image shown to both eyes would match neither.
+- [x] Left-eye-only mode: camera from `P_L`, projection from `F_L`, right eye black. This validates pose, projection and conversion exactly; a mono image shown to both eyes would match neither.
 - [ ] Recenter via hotkey and overlay.
 
 Implementation notes (2026-10-16, code done, runtime test pending; all boxes above stay open until Balazs reports):
@@ -233,6 +233,7 @@ Implementation notes (2026-10-16, code done, runtime test pending; all boxes abo
 - Head tracking: `game::CameraOverride` view = world · sliders · `EyeLocal(recenter, P_L)`; projection = `F_L` tangents at the `MatrixPerspectiveFovRH` choke point (engine still adds TAA jitter). Recenter (yaw-only, eye midpoint) on session start, hotkey F7, overlay button, and after a runtime LOCAL recenter event.
 - Desktop: `[xr] desktop_vsync_off` (default on) presents with sync 0 while the session runs; `[xr] desktop_mirror = false` skips the desktop Present (the game still renders once per frame; see Decisions log).
 - Known: HUD is baked into the eye image (Phase 7); TAA smears one frame after a recenter (history reset is Phase 6).
+- Runtime 2026-10-16 (Balazs, SteamVR "in Meta compatibility mode 2.17.10", Quest 3 over Link): head-tracking test good; session focused, 72 Hz (period 13.89 ms), `xrWaitFrame` 3.72 ms, 10036 frames submitted, recommended eye 2528x2704; back buffer 1920x1080 -> blit (stretched). Still open: resolution forcing (set-eye-resolution.ps1 not yet run), recenter, colour match.
 
 **Done when:** in the headset, a roadside sign I fixate on stays fixed while I rotate and lean my head (no swimming), and colors match the desktop.
 
@@ -278,6 +279,8 @@ Approach (proposed 2026-10-16, see "Phase 0 findings"): the engine renders up to
 
 - [ ] Find where the HUD starts (frame trace: shader names or RT switch). The HUD renders once per frame into a UI texture, submitted as `XrCompositionLayerQuad` with configurable distance, size and tilt.
 - [ ] Menus, loading screens and replays (no 3D scene this frame, or camera not first-person) go to a theater quad.
+- [ ] Menu UI world-locked, never head-locked (Balazs, 2026-10-16, after the Phase 3 test: menu UI currently follows the head because it is baked into the eye image).
+- [ ] Menu comfort (Balazs, 2026-10-16): no cinematic camera cuts in the main menu. Hold one fixed, head-tracked vantage point in the menu's 3D scene (render-side override only, rule 5) with the UI on a static quad in that world. Needs: a menu-vs-riding signal (RE), the HUD/UI separation above, and a check that the frozen vantage keeps its scene content loaded while the game's own menu camera moves elsewhere.
 - [ ] Desktop mirror: eye L or side-by-side, per config.
 
 **Done when:** the HUD is readable, not doubled, with no depth conflict, and I can navigate menus in the headset.
