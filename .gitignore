@@ -1,0 +1,13 @@
+# Build output
+/build/
+/out/
+/vcpkg_installed/
+
+# Game material must never be committed (CLAUDE.md hard rule 2)
+*.rdc
+*.dmp
+dumps/
+
+# Local-only files
+CLAUDE.local.md
+.claude/settings.local.json
