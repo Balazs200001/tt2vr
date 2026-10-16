@@ -134,7 +134,7 @@ When I report a visual bug, ask for a frame trace or texture dump (or a RenderDo
 
 ## References
 
-- openRBRVR, VR mod for Richard Burns Rally (I worked on its FSR1 upscaling): https://github.com/Detegr/openRBRVR
+- openRBRVR, the closest similar project: open-source VR mod for Richard Burns Rally (OpenXR and OpenVR; the D3D9 game renders through a dxvk fork's Vulkan backend; loads as an RBR plugin; TOML config). I worked on its FSR1 upscaling. Use it as a reference for how a game-specific VR mod is structured. It is MPL-2.0, so any file we copy from it stays MPL-2.0: https://github.com/Detegr/openRBRVR
 - UEVR, stereo injection and per-view state handling: https://github.com/praydog/UEVR
 - OpenXR 1.1 specification: https://registry.khronos.org/OpenXR/specs/1.1/html/xrspec.html
 - REA (Windows notes in `docs/windows-ghidra-p0.md`): https://github.com/morluto/rea
