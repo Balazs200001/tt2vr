@@ -34,6 +34,7 @@ bool SameHotkey(const Hotkey& a, const Hotkey& b)
 bool SameConfig(const Config& a, const Config& b)
 {
     return a.log.level == b.log.level && a.log.verbose_frames == b.log.verbose_frames &&
+           a.log.perf_interval_s == b.log.perf_interval_s &&
            SameHotkey(a.hotkeys.overlay, b.hotkeys.overlay) && SameHotkey(a.hotkeys.frame_trace, b.hotkeys.frame_trace) &&
            SameHotkey(a.hotkeys.texture_dump, b.hotkeys.texture_dump) &&
            SameHotkey(a.hotkeys.renderdoc_capture, b.hotkeys.renderdoc_capture) &&
@@ -218,6 +219,7 @@ TEST_CASE("ParseConfig full valid file")
 [log]
 level = "DEBUG"
 verbose_frames = true
+perf_interval_s = 30
 
 [hotkeys]
 overlay = "Ctrl+F1"
@@ -263,6 +265,7 @@ input_log = true
     const Config& c = r.config;
     CHECK(c.log.level == "debug");
     CHECK(c.log.verbose_frames);
+    CHECK(c.log.perf_interval_s == 30);
     CHECK(SameHotkey(c.hotkeys.overlay, Hotkey{0x70, true, false, false}));
     CHECK_FALSE(c.hotkeys.frame_trace.Valid());
     CHECK(SameHotkey(c.hotkeys.texture_dump, Hotkey{0x63, false, false, true}));

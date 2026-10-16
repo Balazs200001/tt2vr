@@ -33,6 +33,7 @@ struct Config {
     struct Log {
         std::string level = "info"; // trace, debug, info, warn, error
         bool verbose_frames = false; // per-frame logging (CLAUDE.md: only behind a flag)
+        int perf_interval_s = 10; // one fps / frame-time line every N seconds, 0 = off, clamp 0..600
     } log;
     struct Hotkeys {
         Hotkey overlay{0x79}; // F10

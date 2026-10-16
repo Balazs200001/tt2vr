@@ -7,6 +7,9 @@
 level = "info"
 # Log per-frame details (very chatty; leave off unless debugging a specific frame).
 verbose_frames = false
+# Log fps and frame times (average and worst) every N seconds, so performance can be read after a headset session.
+# 0 = off.
+perf_interval_s = 10
 
 [hotkeys]
 # Hotkeys only fire while the game window has focus, and the keys are NOT blocked from the game.

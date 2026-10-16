@@ -33,6 +33,7 @@
 #include <spdlog/fmt/fmt.h>
 #include <windows.h>
 
+#include <algorithm>
 #include <chrono>
 #include <deque>
 #include <memory>
@@ -59,6 +60,10 @@ std::uint64_t g_frame = 0; // present thread
 std::chrono::steady_clock::time_point g_lastPresent;
 std::chrono::steady_clock::time_point g_fpsWindowStart;
 int g_fpsWindowFrames = 0;
+// Periodic performance log ([log] perf_interval_s): frames and frame times since the last line.
+std::chrono::steady_clock::time_point g_perfStart;
+int g_perfFrames = 0;
+double g_perfWorstMs = 0;
 
 std::deque<std::string> g_results; // present thread
 bool g_keyDown[256] = {};
@@ -212,6 +217,31 @@ void InstallEngineHooksOnce()
     }
 }
 
+void LogPerformance(std::chrono::steady_clock::time_point now, double frameMs)
+{
+    const int interval = core::GetConfig().log.perf_interval_s;
+    if (interval <= 0) {
+        return;
+    }
+    if (g_perfFrames == 0 && g_perfStart.time_since_epoch().count() == 0) {
+        g_perfStart = now;
+    }
+    ++g_perfFrames;
+    g_perfWorstMs = std::max(g_perfWorstMs, frameMs);
+    const double window = std::chrono::duration<double>(now - g_perfStart).count();
+    if (window < interval) {
+        return;
+    }
+    const xr::Status xs = xr::GetStatus();
+    TT2VR_LOG_INFO("perf: {:.1f} fps, frame {:.2f} ms avg / {:.2f} ms worst over {:.0f} s; back buffer {}x{}; headset {} "
+                   "({}), xrWaitFrame {:.2f} ms, display period {:.2f} ms",
+        g_perfFrames / window, 1000.0 * window / g_perfFrames, g_perfWorstMs, window, g_stats.width, g_stats.height,
+        xs.running ? xs.presentation : "off", xs.copyMode, xs.waitMs, xs.periodMs);
+    g_perfStart = now;
+    g_perfFrames = 0;
+    g_perfWorstMs = 0;
+}
+
 void UpdateStats()
 {
     const auto now = std::chrono::steady_clock::now();
@@ -230,7 +260,11 @@ void UpdateStats()
     else {
         g_fpsWindowStart = now;
     }
+    const double frameMs = g_lastPresent.time_since_epoch().count() != 0
+                               ? std::chrono::duration<double, std::milli>(now - g_lastPresent).count()
+                               : 0.0;
     g_lastPresent = now;
+    LogPerformance(now, frameMs);
 }
 
 // Thread: game main thread.

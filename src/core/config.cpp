@@ -206,6 +206,8 @@ void ReadLog(const toml::table& t, Config::Log& out, Warnings& w)
             }
         } else if (key == "verbose_frames") {
             s.Bool(key, node, out.verbose_frames);
+        } else if (key == "perf_interval_s") {
+            s.Int(key, node, out.perf_interval_s, 0, 600);
         } else {
             s.Warn(key, "unknown key, ignored", node);
         }
