@@ -8,8 +8,10 @@
 //      AND the view being rendered is that KTUCamera's Graphics::Camera (KTUCamera+0x10). Runtime 2026-10-16: the
 //      spring mode starts ~5 s before the race view while a loading/menu camera still renders.
 //      Menu, intro and replay cameras use other modes.
-//   3. Game time stopped: ViewContext::s_bMotionPause (export, written by RenderLoop::SetTime). Runtime 2026-10-16:
-//      the time-attack pause menu sets neither KTUGuiManager flag.
+//   3. Game time stopped: GameContext time factor == 0 (GameContext::GetTimeFactor on GameContext::s_pInstance).
+//      TTMenuManager::PauseGame 0x140246b70 (TT2's pause menu, "MenuState : PUSH TTPauseScreen") pushes 0.0;
+//      runtime 2026-10-16: that pause sets neither KTUGuiManager flag, and ViewContext::s_bMotionPause did not
+//      change either, so neither is used for it.
 // Screen = menu open || paused || time stopped || the riding camera is not the rendered view.
 #pragma once
 
@@ -20,8 +22,8 @@ struct MenuState {
     bool menuOpen = false;
     bool paused = false;
     bool springCamera = false; // player camera is in TTSpringCameraMode and is the rendered view (riding)
-    bool motionPaused = false; // game time stopped
-    bool Active() const { return available && (menuOpen || paused || motionPaused || !springCamera); }
+    bool timeStopped = false; // GameContext time factor is 0 (TT2 pause menu)
+    bool Active() const { return available && (menuOpen || paused || timeStopped || !springCamera); }
 };
 
 // Resolves the accessors (after ResolveSignatures). Missing ones leave `available` false.

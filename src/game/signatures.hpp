@@ -37,7 +37,8 @@ enum class Sig {
     GetVideoDevice,
     SetDeviceResetNeeded,
     VideoDeviceDX11WindowsVftable,
-    MotionPause,
+    GameContextInstance,
+    GameContextGetTimeFactor,
     Count,
 };
 
@@ -107,8 +108,12 @@ inline constexpr Signature kSignatures[] = {
     {"VideoDeviceDX11Windows vftable", "??_7VideoDeviceDX11Windows@Graphics@PlayAll@@6B@", nullptr, 0,
         "data export; 0x1410328f0, checked against *GetVideoDevice() before calling SetDeviceResetNeeded",
         kBuild4989319},
-    {"ViewContext::s_bMotionPause", "?s_bMotionPause@ViewContext@Graphics@PlayAll@@2_NA", nullptr, 0,
-        "data export; 0x14140bb30, bool written only by RenderLoop::SetTime (game time stopped)", kBuild4989319},
+    {"GameContext::s_pInstance", "?s_pInstance@GameContext@Game@PlayAll@@1PEAV123@EA", nullptr, 0,
+        "data export; 0x14139a590, GameContext*", kBuild4989319},
+    {"GameContext::GetTimeFactor", "?GetTimeFactor@GameContext@Game@PlayAll@@QEBAMXZ", nullptr, 0,
+        "export; 0x14012dbc0 (ICF-shared), movss xmm0,[rcx+0x48]: the factor PushTimeFactor sets; "
+        "TTMenuManager::PauseGame 0x140246b70 pushes 0.0 offline",
+        kBuild4989319},
 };
 
 static_assert(std::size(kSignatures) == static_cast<std::size_t>(Sig::Count), "kSignatures must match Sig");

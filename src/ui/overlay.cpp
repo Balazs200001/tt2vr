@@ -204,7 +204,7 @@ void XrSection()
             st.presentation);
         ImGui::Text("menu state: %s (menu %d, paused %d, time stopped %d, riding camera %d)",
             !menu.available ? "unavailable" : menu.Active() ? "screen" : "riding", menu.menuOpen, menu.paused,
-            menu.motionPaused, menu.springCamera);
+            menu.timeStopped, menu.springCamera);
     }
     if (ImGui::Button(fmt::format("Recenter ({})", core::FormatHotkey(core::GetConfig().hotkeys.recenter)).c_str())) {
         xr::RequestRecenter();

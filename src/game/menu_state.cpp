@@ -11,6 +11,7 @@ namespace {
 
 using BoolGetterFn = bool (*)(const void* guiManager);
 using GetCameraFn = void* (*)(void* gameEngine, int player);
+using GetTimeFactorFn = float (*)(const void* gameContext);
 
 void* const* g_gui = nullptr; // &g_pGuiManager
 BoolGetterFn g_isMenuOpen = nullptr;
@@ -18,9 +19,8 @@ BoolGetterFn g_isGamePaused = nullptr;
 void* const* g_engine = nullptr; // &g_pGameEngine
 GetCameraFn g_getCamera = nullptr;
 const void* g_springManage = nullptr;
-const bool* g_motionPause = nullptr;
-int g_motionPauseFrames = 0; // consecutive DoUpdate calls with game time stopped
-constexpr int kMotionPauseFrames = 5; // a single dt == 0 frame must not flip the headset to the screen
+void* const* g_context = nullptr; // &GameContext::s_pInstance
+GetTimeFactorFn g_getTimeFactor = nullptr;
 MenuState g_last;
 
 // Player-0 camera mode is TTSpringCameraMode and its Graphics::Camera is the rendered view. SEH guard: these are
@@ -58,13 +58,15 @@ void InitMenuState()
     g_engine = static_cast<void* const*>(SignatureAddress(Sig::GameEngineInstance));
     g_getCamera = reinterpret_cast<GetCameraFn>(SignatureAddress(Sig::GameEngineGetCamera));
     g_springManage = SignatureAddress(Sig::SpringCameraModeManage);
-    g_motionPause = static_cast<const bool*>(SignatureAddress(Sig::MotionPause));
-    if (!g_gui || !g_isMenuOpen || !g_isGamePaused || !g_engine || !g_getCamera || !g_springManage || !g_motionPause) {
+    g_context = static_cast<void* const*>(SignatureAddress(Sig::GameContextInstance));
+    g_getTimeFactor = reinterpret_cast<GetTimeFactorFn>(SignatureAddress(Sig::GameContextGetTimeFactor));
+    if (!g_gui || !g_isMenuOpen || !g_isGamePaused || !g_engine || !g_getCamera || !g_springManage || !g_context ||
+        !g_getTimeFactor) {
         g_gui = nullptr;
         TT2VR_LOG_WARN("menu state: signals missing; menus are head-tracked like riding");
         return;
     }
-    TT2VR_LOG_INFO("menu state: KTUGuiManager menu/pause, motion pause, player camera (TTSpringCameraMode and "
+    TT2VR_LOG_INFO("menu state: KTUGuiManager menu/pause, game time factor, player camera (TTSpringCameraMode and "
                    "rendered = riding)");
 }
 
@@ -78,13 +80,14 @@ MenuState ReadMenuState(const void* mainCamera)
             s.paused = g_isGamePaused(gui);
         }
         s.springCamera = mainCamera && SpringCameraActive(mainCamera);
-        g_motionPauseFrames = *g_motionPause ? g_motionPauseFrames + 1 : 0;
-        s.motionPaused = g_motionPauseFrames >= kMotionPauseFrames;
+        if (const void* context = *g_context) {
+            s.timeStopped = g_getTimeFactor(context) == 0.0f;
+        }
     }
     if (s.menuOpen != g_last.menuOpen || s.paused != g_last.paused || s.springCamera != g_last.springCamera ||
-        s.motionPaused != g_last.motionPaused) {
+        s.timeStopped != g_last.timeStopped) {
         TT2VR_LOG_INFO("menu state: menu open {}, paused {}, time stopped {}, riding camera {} -> {}", s.menuOpen,
-            s.paused, s.motionPaused, s.springCamera, s.Active() ? "screen" : "head-tracked");
+            s.paused, s.timeStopped, s.springCamera, s.Active() ? "screen" : "head-tracked");
     }
     g_last = s;
     return s;
