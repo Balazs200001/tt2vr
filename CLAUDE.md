@@ -92,7 +92,10 @@ Artifacts you can read afterwards (relative to `TT2_GAME_DIR`; hotkeys are in `c
 
 - `tt2vr/logs/tt2vr.log`: main log.
 - `tt2vr/captures/frametrace_<frame>.txt`: one frame's D3D11 call trace with shader names, render targets, SRVs/UAVs, viewports, draws, copies, constant buffer updates.
-- `tt2vr/captures/<frame>_<eye>_<pass>.png|.dds`: per-eye texture dumps. You can open the PNGs.
+- `tt2vr/captures/<frame>_<eye>_<pass>.png|.dds`: per-eye texture dumps. You can open the PNGs (float formats also get a `.preview.png`). `<frame>_dump.txt` indexes them.
+- `tt2vr/captures/shader_registry.txt`: every shader's xxh64, stage, size.
+
+You can trigger these yourself while I hold the game in a state: `powershell -File tools/tt2vr-request.ps1 frametrace dump` (also `"capture <name>"` under RenderDoc, `shaders`). It prints the result paths.
 
 When I report a visual bug, ask for a frame trace or texture dump (or a RenderDoc capture) before guessing.
 

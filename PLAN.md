@@ -26,7 +26,7 @@ v1 is done when all of these hold during a 30-minute offline session on the Snae
 - [ ] Phase 9 — Performance
 - [ ] Phase 10 — Robustness & release
 
-**Active phase: Phase 1** (first slice done; Phase 0 completed 2026-10-16)
+**Active phase: Phase 1** (all code done 2026-10-16; runtime "Done when" checks pending; Phase 0 completed 2026-10-16)
 
 ---
 
@@ -171,16 +171,28 @@ Goal: know exactly what we're dealing with before writing hooks.
 **First slice (unblocks Phase 0 captures):** CMake/vcpkg skeleton, the `dinput8.dll` proxy (5 forwarded exports, loads `tt2vr\tt2vr.dll`), a MinHook hook on `D3D11CreateDeviceAndSwapChain` that clears flag `0x80` and logs the call, and the `deploy` target. Then capture through RenderDoc as in `docs/re/frame-anatomy.md`. The rest of Phase 1 follows.
 - [x] First slice verified 2026-10-16: game runs with the proxy; under RenderDoc the log shows `flags 0x80 -> 0x0, hr=0, featureLevel=0xb100, context=ok, next=renderdoc.dll`. RenderDoc re-hooks the import slot on every DLL load (25 re-applies in the first 1.4 s), so the watchdog is required. Captures: `tt2vr-re/rdc/tt2_snaefell_helmet_moving_taa_f8323.rdc`, `..._stationary_taa_f8956.rdc`, `tt2_mainmenu_f10838.rdc`.
 
-- [ ] `CMakeLists.txt`, `CMakePresets.json` (VS 2022 generator, `x64-debug` / `x64-release`, test presets, `deploy` target), `vcpkg.json` with: minhook, spdlog, imgui (dx11-binding, win32-binding), tomlplusplus, directxtk (ScreenGrab), openxr-loader, xxhash, doctest.
-- [ ] `.gitignore`: build output, `*.rdc`, dumps, `CLAUDE.local.md`, `.claude/settings.local.json`.
-- [ ] Proxy DLL (per the Phase 0 decision): forwards all exports and loads `tt2vr\tt2vr.dll`. No heavy work in `DllMain` (loader lock); everything else happens on an init thread or the load notification.
-- [ ] `core`: logger; TOML config including hotkeys; MinHook wrapper (install / enable / disable all); IDA-style pattern scanner with `??` wildcards; exe SHA-256 check. Unknown version → D3D layer only, engine hooks off, overlay notice.
+- [x] `CMakeLists.txt`, `CMakePresets.json` (VS 2022 generator, `x64-debug` / `x64-release`, test presets, `deploy` target), `vcpkg.json` with: minhook, spdlog, imgui (dx11-binding, win32-binding), tomlplusplus, directxtk (ScreenGrab), openxr-loader, xxhash, doctest.
+- [x] `.gitignore`: build output, `*.rdc`, dumps, `CLAUDE.local.md`, `.claude/settings.local.json`.
+- [x] Proxy DLL (per the Phase 0 decision): forwards all exports and loads `tt2vr\tt2vr.dll`. No heavy work in `DllMain` (loader lock); everything else happens on an init thread or the load notification.
+- [x] `core`: logger; TOML config including hotkeys; MinHook wrapper (install / enable / disable all); IDA-style pattern scanner with `??` wildcards; exe SHA-256 check. Unknown version → D3D layer only, engine hooks off, overlay notice.
 - [ ] `d3d`: device and swapchain creation hooks, `Present` / `ResizeBuffers`, `Create*Shader` hooks feeding a shader registry (xxh64 of bytecode → stage, size, our name from `src/d3d/shader_names.inc`).
+  - Implemented 2026-10-16; build + unit tests pass; **awaiting runtime test**.
 - [ ] Frame trace: on hotkey, log every relevant context call for one frame (shader binds with names, `OMSetRenderTargets`, SRV/UAV binds, viewports, draws/dispatches, copies, clears, constant buffer updates) to `captures/frametrace_<frame>.txt`.
+  - Implemented 2026-10-16; build + unit tests pass; **awaiting runtime test**.
 - [ ] Texture dump: on hotkey, save tracked textures (PNG for UNORM, DDS for float formats).
+  - Implemented 2026-10-16; build + unit tests pass; **awaiting runtime test**.
 - [ ] Remote requests: Claude writes a command file into `tt2vr/commands/`; the mod checks it once per frame and runs a frame trace, a texture dump, or — when the game was launched under RenderDoc (`renderdoc.dll` loaded) — a RenderDoc capture through the in-application API (`renderdoc_app.h`, `TriggerCapture`), written to the capture folder set in `tt2vr.toml`. Balazs only holds the game in the wanted state.
+  - Implemented 2026-10-16; build + unit tests pass; **awaiting runtime test**.
 - [ ] ImGui overlay on the desktop window: FPS, hook status, version status, toggles.
-- [ ] Unit tests: pattern scanner, config parsing.
+  - Implemented 2026-10-16; build + unit tests pass; **awaiting runtime test**.
+- [x] Unit tests: pattern scanner, config parsing (also hotkeys, SHA-256, version table, command files): 30 cases, `ctest --preset x64-debug` passes.
+
+Implementation notes (2026-10-16):
+- `core` ships config + hotkeys (`core/config.*`), MinHook wrapper (`core/hooks.*`), pattern scanner (`core/pattern.*`), SHA-256 via CNG (`core/sha256.*`), remote command files (`core/commands.*`); `game/version.*` holds the known-build table (build 4989319) and `game/signatures.hpp` the (still empty) signature table. A non-empty `[debug] fake_exe_sha256` fakes the hash for the unknown-version test.
+- D3D layer: vtable slots in `d3d/vtable.hpp` are checked at compile time against the SDK's C layout (`vtable_check.cpp`). Context hooks cover the immediate and a deferred context vtable; deferred calls are buffered per context and spliced into the trace at `ExecuteCommandList` (GPU order). Shader objects carry their xxh64 as private data.
+- Texture dump rule: a written target is snapshotted on the immediate context when the immediate context explicitly rebinds its OM/CS outputs without it, and at frame end; float formats get a DDS plus a `.preview.png`. Index: `captures/<frame>_dump.txt`.
+- Remote requests: `tools/tt2vr-request.ps1 frametrace dump "capture <name>" shaders` writes `tt2vr/commands/<id>.txt` and prints `<id>.done`.
+- Overlay never subclasses the game window: it polls the mouse buttons, so game input is untouched (clicks also reach the game).
 
 **Done when:** 30 minutes of offline riding with the mod loaded, no crash; overlay works; shader registry and frame trace are produced; the unknown-version path is tested by faking the hash.
 
