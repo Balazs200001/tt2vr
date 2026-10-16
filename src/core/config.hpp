@@ -57,6 +57,7 @@ struct Config {
         bool menu_screen = true; // menus / pause: show the flat game on a world-fixed screen instead of head tracking
         float screen_distance = 2.0f; // metres in front of the recentered head, clamp 0.5..10
         float screen_width = 2.4f; // metres (height follows the game window's aspect), clamp 0.25..10
+        bool force_render_size = true; // render the game at the eye swapchain size while a headset is connected
     } xr;
     struct Capture {
         std::string dir = "captures"; // relative to <game>\tt2vr\ unless absolute

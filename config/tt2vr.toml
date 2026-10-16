@@ -39,8 +39,8 @@ helmet_follows_view = true
 [xr]
 # Start OpenXR (headset) when a runtime and a connected headset are available. Off = the game stays flat.
 enabled = true
-# Eye image size = the runtime's recommended size times this (0.25..2.0). The log and overlay show the result; run
-# tools/set-eye-resolution.ps1 with it so the game renders at that size (otherwise the image is stretched).
+# Eye image size = the runtime's recommended size times this (0.25..2.0). The game renders at this size too
+# (force_render_size below), so lowering it is the main performance knob.
 resolution_scale = 1.0
 # While the headset session runs, present the desktop window without VSync; the headset paces the frames instead.
 desktop_vsync_off = true
@@ -55,6 +55,10 @@ menu_screen = true
 # The height follows the game window's aspect ratio. 2.4 m wide at 2 m is about a 62 degree wide view.
 screen_distance = 2.0
 screen_width = 2.4
+# Render the game at the eye image size while the headset is connected, whatever the window size (the desktop window
+# shows it stretched). Keep the game in Borderless or Windowed mode. false = render at the window size (stretched
+# into the headset).
+force_render_size = true
 
 [capture]
 # Folder for frame traces and texture dumps; relative to <game>\tt2vr\ unless absolute.
