@@ -27,12 +27,18 @@ target_include_directories(tt2vr_core PUBLIC src)
 target_link_libraries(tt2vr_core PUBLIC spdlog::spdlog minhook::minhook tomlplusplus::tomlplusplus bcrypt)
 tt2vr_warnings(tt2vr_core)
 
+# ---- tt2vr_math: engine-convention matrix code (projection, XR -> engine); pure, unit-tested ----
+file(GLOB TT2VR_MATH_SOURCES CONFIGURE_DEPENDS src/stereo/math/*.cpp)
+add_library(tt2vr_math STATIC ${TT2VR_MATH_SOURCES})
+target_include_directories(tt2vr_math PUBLIC src)
+tt2vr_warnings(tt2vr_math)
+
 # ---- tt2vr.dll: the mod itself, loaded from <game>\tt2vr\ by the proxy ----
 file(GLOB TT2VR_SOURCES CONFIGURE_DEPENDS
     src/main.cpp src/d3d/*.cpp src/game/*.cpp src/stereo/*.cpp src/ui/*.cpp src/xr/*.cpp)
 add_library(tt2vr SHARED ${TT2VR_SOURCES})
 target_include_directories(tt2vr PRIVATE src third_party)
-target_link_libraries(tt2vr PRIVATE tt2vr_core imgui::imgui Microsoft::DirectXTK xxHash::xxhash d3d11 dxgi dxguid windowscodecs ole32)
+target_link_libraries(tt2vr PRIVATE tt2vr_core tt2vr_math imgui::imgui Microsoft::DirectXTK xxHash::xxhash d3d11 dxgi dxguid windowscodecs ole32)
 tt2vr_warnings(tt2vr)
 
 # ---- dinput8.dll: tiny forwarding proxy dropped into the game root ----
@@ -47,7 +53,7 @@ tt2vr_warnings(proxy)
 enable_testing()
 file(GLOB TT2VR_TEST_SOURCES CONFIGURE_DEPENDS tests/*.cpp)
 add_executable(tt2vr_tests ${TT2VR_TEST_SOURCES})
-target_link_libraries(tt2vr_tests PRIVATE tt2vr_core doctest::doctest)
+target_link_libraries(tt2vr_tests PRIVATE tt2vr_core tt2vr_math doctest::doctest)
 tt2vr_warnings(tt2vr_tests)
 add_test(NAME tt2vr_tests COMMAND tt2vr_tests)
 
