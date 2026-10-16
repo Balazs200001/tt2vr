@@ -12,6 +12,7 @@
 #include "d3d/device_hooks.hpp"
 
 #include "core/log.hpp"
+#include "d3d/present.hpp"
 
 #include <windows.h>
 #include <d3d11.h>
@@ -75,6 +76,16 @@ HRESULT WINAPI HookedCreateDeviceAndSwapChain(IDXGIAdapter* adapter, D3D_DRIVER_
                    "context={}, next={}",
         flags, newFlags, static_cast<unsigned>(hr), gotLevel ? static_cast<unsigned>(*gotLevel) : 0u,
         (context && *context) ? "ok" : "null", ModuleOf(reinterpret_cast<const void*>(next)));
+    // Install the rest of the D3D layer before the game creates its first shader (outermost call only).
+    static std::atomic<bool> s_setupDone{false};
+    if (SUCCEEDED(hr) && depth == 1 && device && *device && !s_setupDone.exchange(true)) {
+        try {
+            OnDeviceCreated(*device, context ? *context : nullptr, swapChain ? *swapChain : nullptr);
+        }
+        catch (...) {
+            TT2VR_LOG_ERROR("exception while installing D3D hooks; continuing without them");
+        }
+    }
     return hr;
 }
 
