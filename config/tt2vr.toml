@@ -20,10 +20,14 @@ frame_trace = "F11"
 texture_dump = "Shift+F11"
 # Trigger a RenderDoc capture of the next frame (needs RenderDoc attached).
 renderdoc_capture = "F9"
+# Show or hide a mouse cursor drawn by the overlay (the game hides the Windows cursor while riding).
+cursor = "F8"
 
 [overlay]
 # Show the debug overlay at startup.
 visible = true
+# Draw the overlay's mouse cursor at startup (toggle with the cursor hotkey).
+show_cursor = false
 
 [camera]
 # Move the helmet mesh with the camera override (overlay sliders now, head tracking later). Off = the helmet stays

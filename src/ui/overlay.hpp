@@ -10,5 +10,8 @@ void Render(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext
 void ReleaseTargets(); // before ResizeBuffers
 void ToggleVisible();
 bool Visible();
+// Software mouse cursor drawn by ImGui on top of the frame. Purely visual: the game's own cursor state
+// (ShowCursor / SetCursor / clipping) is never touched.
+void ToggleCursor();
 
 } // namespace ui

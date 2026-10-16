@@ -143,13 +143,14 @@ void PollHotkeys()
 {
     const bool focused = g_window && GetForegroundWindow() == g_window;
     const auto& hk = core::GetConfig().hotkeys;
-    const core::Hotkey* keys[] = {&hk.overlay, &hk.frame_trace, &hk.texture_dump, &hk.renderdoc_capture};
+    const core::Hotkey* keys[] = {&hk.overlay, &hk.frame_trace, &hk.texture_dump, &hk.renderdoc_capture, &hk.cursor};
+    constexpr int kCount = static_cast<int>(std::size(keys));
     const bool ctrl = KeyDown(VK_CONTROL);
     const bool shift = KeyDown(VK_SHIFT);
     const bool alt = KeyDown(VK_MENU);
-    bool fired[4] = {};
-    bool down[4] = {};
-    for (int i = 0; i < 4; ++i) {
+    bool fired[kCount] = {};
+    bool down[kCount] = {};
+    for (int i = 0; i < kCount; ++i) {
         const unsigned vk = keys[i]->vk;
         if (!keys[i]->Valid() || vk >= 256) {
             continue;
@@ -158,7 +159,7 @@ void PollHotkeys()
         fired[i] = focused && down[i] && !g_keyDown[vk] && keys[i]->Matches(vk, ctrl, shift, alt);
     }
     // Update after all edges are known: several hotkeys may share a key with different modifiers.
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < kCount; ++i) {
         if (keys[i]->Valid() && keys[i]->vk < 256) {
             g_keyDown[keys[i]->vk] = down[i];
         }
@@ -174,6 +175,9 @@ void PollHotkeys()
     }
     if (fired[3]) {
         RequestRenderDocCapture("hotkey", "tt2vr");
+    }
+    if (fired[4]) {
+        ui::ToggleCursor();
     }
 }
 

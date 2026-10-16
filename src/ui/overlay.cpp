@@ -30,6 +30,7 @@ using Microsoft::WRL::ComPtr;
 bool g_initialized = false;
 bool g_failed = false;
 bool g_visible = true;
+bool g_cursor = false;
 HWND g_window = nullptr;
 ComPtr<ID3D11RenderTargetView> g_rtv;
 bool g_mouseDown[2] = {};
@@ -66,8 +67,10 @@ bool Init(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext* 
         return false;
     }
     g_visible = core::GetConfig().overlay.visible;
-    TT2VR_LOG_INFO("overlay initialized (visible={}, toggle {})", g_visible,
-        core::FormatHotkey(core::GetConfig().hotkeys.overlay));
+    g_cursor = core::GetConfig().overlay.show_cursor;
+    TT2VR_LOG_INFO("overlay initialized (visible={}, toggle {}; cursor={}, toggle {})", g_visible,
+        core::FormatHotkey(core::GetConfig().hotkeys.overlay), g_cursor,
+        core::FormatHotkey(core::GetConfig().hotkeys.cursor));
     return true;
 }
 
@@ -191,6 +194,7 @@ void DrawPanel()
         d3d::WriteShaderRegistry("overlay");
     }
     CameraSection();
+    ImGui::Checkbox(fmt::format("Show mouse cursor ({})", core::FormatHotkey(hk.cursor)).c_str(), &g_cursor);
     bool verbose = core::GetVerbose();
     if (ImGui::Checkbox("Verbose per-frame log", &verbose)) {
         core::SetVerbose(verbose);
@@ -258,6 +262,8 @@ void Render(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
     PollMouseButtons();
+    // NoMouseCursorChange keeps imgui_impl_win32 from calling SetCursor, so this only adds ImGui's own drawing.
+    ImGui::GetIO().MouseDrawCursor = g_cursor;
     ImGui::NewFrame();
     if (g_visible) {
         DrawPanel();
@@ -297,6 +303,11 @@ void ToggleVisible()
 bool Visible()
 {
     return g_visible;
+}
+
+void ToggleCursor()
+{
+    g_cursor = !g_cursor;
 }
 
 } // namespace ui

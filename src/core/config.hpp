@@ -39,9 +39,11 @@ struct Config {
         Hotkey frame_trace{0x7A}; // F11
         Hotkey texture_dump{0x7A, false, true}; // Shift+F11
         Hotkey renderdoc_capture{0x78}; // F9
+        Hotkey cursor{0x77}; // F8: show/hide the overlay's own mouse cursor
     } hotkeys;
     struct Overlay {
         bool visible = true;
+        bool show_cursor = false; // draw the overlay's mouse cursor at startup (the game hides the OS cursor)
     } overlay;
     struct Camera {
         bool helmet_follows_view = true; // move the helmet mesh with the view/head override (Phase 2)

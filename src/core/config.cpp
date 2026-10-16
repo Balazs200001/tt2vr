@@ -196,6 +196,7 @@ void ReadHotkeys(const toml::table& t, Config::Hotkeys& out, Warnings& w)
         else if (key == "frame_trace") s.Key(key, node, out.frame_trace);
         else if (key == "texture_dump") s.Key(key, node, out.texture_dump);
         else if (key == "renderdoc_capture") s.Key(key, node, out.renderdoc_capture);
+        else if (key == "cursor") s.Key(key, node, out.cursor);
         else s.Warn(key, "unknown key, ignored", node);
     }
 }
@@ -206,6 +207,7 @@ void ReadOverlay(const toml::table& t, Config::Overlay& out, Warnings& w)
     for (const auto& [k, node] : t) {
         const std::string_view key = k.str();
         if (key == "visible") s.Bool(key, node, out.visible);
+        else if (key == "show_cursor") s.Bool(key, node, out.show_cursor);
         else s.Warn(key, "unknown key, ignored", node);
     }
 }
