@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstdio>
 #include <string>
+#include <string_view>
 
 namespace ui {
 namespace {
@@ -23,14 +24,24 @@ XINPUT_STATE g_state[XUSER_MAX_COUNT] = {};
 Clock::time_point g_nextProbe{}; // disconnected slots are slow to query: re-probe every 2 s
 Clock::time_point g_nextSummary{};
 
-// Loaded at run time so the mod adds no import; xinput1_4 ships with Windows 8+.
+// Prefer the XInput DLL the game itself loaded (xinput1_3, possibly UWP\xinput1_3.dll): Steam Input hooks that copy,
+// so we see what the game sees. Otherwise load the system one (loaded at run time: the mod adds no import).
 void LoadXInput()
 {
     g_loadTried = true;
-    for (const wchar_t* dll : {L"xinput1_4.dll", L"xinput9_1_0.dll"}) {
-        if (HMODULE mod = LoadLibraryW(dll)) {
+    for (const wchar_t* dll : {L"xinput1_3.dll", L"xinput1_4.dll", L"xinput9_1_0.dll"}) {
+        HMODULE mod = GetModuleHandleW(dll);
+        const bool loaded = mod != nullptr;
+        if (!mod && dll != std::wstring_view(L"xinput1_3.dll")) {
+            mod = LoadLibraryW(dll);
+        }
+        if (mod) {
             g_getState = reinterpret_cast<XInputGetStateFn>(GetProcAddress(mod, "XInputGetState"));
             if (g_getState) {
+                char path[MAX_PATH] = {};
+                GetModuleFileNameA(mod, path, MAX_PATH);
+                TT2VR_LOG_INFO("input diag: reading pads through {} ({})", path,
+                    loaded ? "already loaded by the game" : "loaded by us");
                 return;
             }
         }
