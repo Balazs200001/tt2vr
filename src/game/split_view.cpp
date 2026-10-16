@@ -7,6 +7,8 @@
 
 #include <spdlog/fmt/fmt.h>
 
+#include <windows.h>
+
 #include <bit>
 #include <cstdint>
 
@@ -61,6 +63,7 @@ const void* g_writtenScene1 = nullptr;
 void* g_borderLoop = nullptr; // DeferredRenderLoop whose 'Split border' byte we cleared (was 1)
 bool g_possibleSet = false;
 bool g_active = false;
+bool g_ownerSynced = false; // last SyncOwnerState result (logged on change)
 std::uint64_t g_frames = 0; // two-view frames so far
 
 std::string Describe(const Desc& d)
@@ -125,6 +128,48 @@ void StartOrKeep(void* renderer, const void* camera)
     if (void* loop = RenderLoop(renderer); loop && Read<std::uint8_t>(loop, kDeferredLoopSplitBorder) == 1) {
         Write<std::uint8_t>(loop, kDeferredLoopSplitBorder, 0);
         g_borderLoop = loop;
+    }
+}
+
+// The game hides the rider's own suit and helmet (render flags), the shadow decal and switches first-person SSR /
+// probe factor for the player's camera index only (FUN_1403aea40, FUN_1403aec70). View 1 is a second index, so it
+// gets index 0's values every frame (the game rewrites index 0 on every view change). Index 1 is unused in one-view
+// frames, so nothing is restored. Returns false if the rider object did not check out.
+bool SyncOwnerState(void* renderer, const void* camera, const void* rider)
+{
+    __try {
+        if (!rider || Read<const void*>(rider, kTTCameraGraphicsCamera) != camera) {
+            return false;
+        }
+        const void* player = Read<const void*>(rider, kTTCameraPlayer);
+        if (!player || Read<int>(player, kPlayerKind) != 0 || Read<std::uint16_t>(player, kPlayerCameraIndex) != 0) {
+            return false;
+        }
+        for (int i = 0; i < 3; ++i) {
+            if (void* entity = Read<void*>(rider, kTTCameraOwnMeshes + i * 8)) {
+                Write(entity, kRenderEntityFlags + 2, Read<std::uint16_t>(entity, kRenderEntityFlags));
+            }
+        }
+        for (int i = 0; i < 2; ++i) {
+            const void* decal = Read<const void*>(rider, kTTCameraShadowDecals + i * 8);
+            const void* volume = decal ? Read<const void*>(decal, kDecalVolume) : nullptr;
+            const void* owner = volume ? Read<const void*>(volume, kVolumeOwner) : nullptr;
+            auto* bytes = owner ? Read<std::uint8_t*>(owner, kVolumeOwnerVisibility) : nullptr;
+            if (bytes) {
+                std::uint8_t& b = bytes[Read<int>(volume, kVolumeIndex)];
+                b = static_cast<std::uint8_t>((b & ~2u) | ((b & 1u) << 1));
+            }
+        }
+        if (void* loop = RenderLoop(renderer)) {
+            if (void* lighting = Read<void*>(loop, kRenderLoopDeferredLighting)) {
+                Write(lighting, kLightingFrontPassSsr + 1, Read<std::uint8_t>(lighting, kLightingFrontPassSsr));
+                Write(lighting, kLightingProbeFactor + 4, Read<float>(lighting, kLightingProbeFactor));
+            }
+        }
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
     }
 }
 
@@ -197,12 +242,23 @@ const void* GameMainCamera(void* renderer)
     return index <= 1 ? g_game.camera[index] : nullptr;
 }
 
-void ApplySplitView(void* renderer, const void* camera, bool twoViews)
+void ApplySplitView(void* renderer, const void* camera, bool twoViews, const void* riderCamera)
 {
     twoViews = twoViews && g_available && camera && g_game.mode == 0 && g_game.mask == 1u &&
                camera == g_game.camera[0] && EnsurePossibleSplitMode();
     if (twoViews) {
         StartOrKeep(renderer, camera);
+        const bool owner = SyncOwnerState(renderer, camera, riderCamera);
+        if (owner != g_ownerSynced) {
+            g_ownerSynced = owner;
+            if (owner) {
+                TT2VR_LOG_INFO("split view: rider camera {} index 0 state mirrored to view 1", riderCamera);
+            }
+            else {
+                TT2VR_LOG_WARN("split view: rider camera {} not usable; view 1 may show the rider's own helmet",
+                    riderCamera);
+            }
+        }
         ++g_frames;
     }
     else {

@@ -74,6 +74,8 @@ bool g_helmetApply = false;
 Mat34 g_helmetLocal = stereo::Identity34();
 std::atomic<std::uint32_t> g_helmetCount{0};
 thread_local const void* t_helmetActor = nullptr; // non-null only inside TTCamera::AfterPhysicsStep
+// Last TT2 player camera seen in its physics step; split view mirrors its per-camera-index state into view 1.
+std::atomic<const void*> g_riderCamera{nullptr};
 
 constexpr float kDegToRad = std::numbers::pi_v<float> / 180.0f;
 constexpr float kRadToDeg = 180.0f / std::numbers::pi_v<float>;
@@ -122,7 +124,7 @@ void BeginFrame(void* renderer)
     if (camera && Read<int>(camera, kCameraProjType) == 0) {
         twoViews = BeginMainView(camera);
     }
-    ApplySplitView(renderer, camera, twoViews);
+    ApplySplitView(renderer, camera, twoViews, g_riderCamera.load(std::memory_order_relaxed));
     xr::SetSideBySide(SplitViewActive());
 }
 
@@ -254,6 +256,7 @@ int HookedAfterPhysicsStep(void* ttCamera, void* gameContext)
         apply = g_helmetApply;
     }
     t_helmetActor = apply && ttCamera ? Read<const void*>(ttCamera, kTTCameraHelmetActor) : nullptr;
+    g_riderCamera.store(ttCamera, std::memory_order_relaxed);
     const int result = g_afterPhysicsStep(ttCamera, gameContext);
     t_helmetActor = nullptr;
     return result;

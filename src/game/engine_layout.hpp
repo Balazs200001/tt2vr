@@ -34,7 +34,19 @@ inline constexpr std::ptrdiff_t kTmWorld = 0x40; // inverse of view = camera wor
 inline constexpr std::ptrdiff_t kTmProj = 0xc0; // including jitter
 
 // TT2 player camera object (FUN_1403afc80's `this`) and TTSpringCameraMode
+inline constexpr std::ptrdiff_t kTTCameraGraphicsCamera = 0x10; // Graphics::Camera* (Game::Camera, as KTUCamera)
+inline constexpr std::ptrdiff_t kTTCameraPlayer = 0x38; // player/vehicle component
+inline constexpr std::ptrdiff_t kTTCameraOwnMeshes = 0x148; // RenderEntity*[3]: Pilot_Suit, Pilot_Helmet, Helmet_01
+inline constexpr std::ptrdiff_t kTTCameraShadowDecals = 0x170; // DecalComponent*[2], hidden per index in first person
 inline constexpr std::ptrdiff_t kTTCameraHelmetActor = 0x160; // HelmetView actor
+inline constexpr std::ptrdiff_t kPlayerKind = 0x790; // int, 0 = local player (FUN_1403aec70 gate)
+inline constexpr std::ptrdiff_t kPlayerCameraIndex = 0x794; // ushort, the player's camera index
+// RenderEntity / DecalComponent / BoundedVolume (per-camera-index visibility, docs/re/frame-anatomy.md 5.2)
+inline constexpr std::ptrdiff_t kRenderEntityFlags = 0x74; // ushort[2] render flags per camera index
+inline constexpr std::ptrdiff_t kDecalVolume = 0xb0; // BoundedVolume*
+inline constexpr std::ptrdiff_t kVolumeOwner = 0x58; // -> +0x48 visibility byte array
+inline constexpr std::ptrdiff_t kVolumeOwnerVisibility = 0x48;
+inline constexpr std::ptrdiff_t kVolumeIndex = 0x64; // int, this volume's byte; bit i = visible in camera index i
 inline constexpr std::ptrdiff_t kModeCameraMatrix = 0x8; // Matrix34 the mode outputs
 inline constexpr std::ptrdiff_t kModeHelmetMatrix = 0x4c4; // Matrix34 from HelmetSprings (built from +0x8)
 
@@ -53,6 +65,10 @@ inline constexpr std::ptrdiff_t kRendererViewContexts = 0x30; // ViewContext[2],
 inline constexpr std::ptrdiff_t kViewContextSize = 0x620;
 inline constexpr std::ptrdiff_t kRendererRenderLoop = 0xd30; // active RenderLoop*
 inline constexpr std::ptrdiff_t kRendererScenes = 0xd80; // Scene*[2], per view (lighting, fog)
+inline constexpr std::ptrdiff_t kRenderLoopDeferredLighting = 0x1e78; // DeferredLighting* (GetDeferredLighting)
+// DeferredLighting, per camera index (set by FUN_1403aec70 on view changes)
+inline constexpr std::ptrdiff_t kLightingFrontPassSsr = 0x1e; // byte[2], 0 in first person
+inline constexpr std::ptrdiff_t kLightingProbeFactor = 0x34; // float[2], 0.35 in first person, else 1.0
 
 // DeferredRenderLoop
 inline constexpr std::ptrdiff_t kDeferredLoopSplitBorder = 0x1e71; // byte, 1 = draw 'Split border' (0x140849344)

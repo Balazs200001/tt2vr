@@ -29,7 +29,9 @@ bool SplitViewAvailable();
 const void* GameMainCamera(void* renderer);
 // Thread: game main thread, Renderer::DoUpdate pre-hook. twoViews = render `camera` as views 0 and 1 this frame.
 // Refused (single view) unless the game's desc is one view at index 0 and `camera` is its camera.
-void ApplySplitView(void* renderer, const void* camera, bool twoViews);
+// `riderCamera` = the TT2 player camera object last seen in its physics step (or nullptr): its per-camera-index
+// state (own suit/helmet hidden in first person, shadow decal, first-person lighting) is copied from index 0 to 1.
+void ApplySplitView(void* renderer, const void* camera, bool twoViews, const void* riderCamera);
 // This frame was set up as two views (valid from ApplySplitView to the next one).
 bool SplitViewActive();
 
