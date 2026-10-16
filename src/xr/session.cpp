@@ -442,13 +442,16 @@ const char* CopyBackBuffer(EyeSwapchain& target, ID3D11Texture2D* back, const D3
 {
     const bool copy = srcW == target.Width() && bd.Height == target.Height() && bd.SampleDesc.Count == 1 &&
                       d3d::IsSrgb(target.Format()) && d3d::SameFamily(bd.Format, target.TextureFormat());
-    if (copy) {
-        const D3D11_BOX box{srcX, 0, 0, srcX + srcW, bd.Height, 1};
-        context->CopySubresourceRegion(target.Texture(), 0, 0, 0, 0, back, 0, &box);
-        return "copy";
-    }
     if (!g.blitter.Ready() && !g.blitter.Init(g.device)) {
         return nullptr;
+    }
+    if (copy) {
+        // 2026-10-16: with the raw copy SteamVR showed its background through the riding view (~20%): the game's
+        // back-buffer alpha came along. Eye and screen images are opaque.
+        const D3D11_BOX box{srcX, 0, 0, srcX + srcW, bd.Height, 1};
+        context->CopySubresourceRegion(target.Texture(), 0, 0, 0, 0, back, 0, &box);
+        g.blitter.FillAlpha(context, target.Rtv(), target.Width(), target.Height());
+        return "copy";
     }
     const float u0 = static_cast<float>(srcX) / static_cast<float>(bd.Width);
     const float uw = static_cast<float>(srcW) / static_cast<float>(bd.Width);

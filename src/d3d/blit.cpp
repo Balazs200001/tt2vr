@@ -59,6 +59,10 @@ float4 PSDecode(V i) : SV_Target
 {
     return float4(ToLinear(saturate(src.Sample(smp, i.uv).rgb)), 1);
 }
+float4 PSOpaque(V i) : SV_Target
+{
+    return float4(0, 0, 0, 1); // written through an alpha-only write mask
+}
 )";
 
 ComPtr<ID3DBlob> Compile(const char* entry, const char* target)
@@ -211,7 +215,8 @@ bool Blitter::Init(ID3D11Device* device)
     const auto vs = Compile("VS", "vs_5_0");
     const auto psRaw = Compile("PSRaw", "ps_5_0");
     const auto psDecode = Compile("PSDecode", "ps_5_0");
-    if (!vs || !psRaw || !psDecode) {
+    const auto psOpaque = Compile("PSOpaque", "ps_5_0");
+    if (!vs || !psRaw || !psDecode || !psOpaque) {
         return false;
     }
     D3D11_SAMPLER_DESC sd{};
@@ -225,11 +230,15 @@ bool Blitter::Init(ID3D11Device* device)
     rd.ScissorEnable = TRUE; // the destination rectangle
     D3D11_BLEND_DESC bd{};
     bd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+    D3D11_BLEND_DESC ad{};
+    ad.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALPHA;
     D3D11_DEPTH_STENCIL_DESC dd{};
     dd.DepthFunc = D3D11_COMPARISON_ALWAYS;
     if (FAILED(device->CreateVertexShader(vs->GetBufferPointer(), vs->GetBufferSize(), nullptr, &m_vs)) ||
         FAILED(device->CreatePixelShader(psRaw->GetBufferPointer(), psRaw->GetBufferSize(), nullptr, &m_psRaw)) ||
         FAILED(device->CreatePixelShader(psDecode->GetBufferPointer(), psDecode->GetBufferSize(), nullptr, &m_psDecode)) ||
+        FAILED(device->CreatePixelShader(psOpaque->GetBufferPointer(), psOpaque->GetBufferSize(), nullptr, &m_psOpaque)) ||
+        FAILED(device->CreateBlendState(&ad, &m_blendAlpha)) ||
         FAILED(device->CreateSamplerState(&sd, &m_sampler)) || FAILED(device->CreateRasterizerState(&rd, &m_raster)) ||
         FAILED(device->CreateBlendState(&bd, &m_blend)) || FAILED(device->CreateDepthStencilState(&dd, &m_depth))) {
         TT2VR_LOG_ERROR("blit: creating shaders or states failed");
@@ -328,9 +337,37 @@ bool Blitter::BlitRect(ID3D11DeviceContext* context, ID3D11Texture2D* source, ID
     return true;
 }
 
+bool Blitter::FillAlpha(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, UINT width, UINT height)
+{
+    if (!m_ready || !context || !target) {
+        return false;
+    }
+    InternalScope internal;
+    StateBackup backup(context);
+    const D3D11_VIEWPORT vp{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f};
+    const D3D11_RECT scissor{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+    context->IASetInputLayout(nullptr);
+    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    context->VSSetShader(m_vs.Get(), nullptr, 0);
+    context->PSSetShader(m_psOpaque.Get(), nullptr, 0);
+    context->GSSetShader(nullptr, nullptr, 0);
+    context->HSSetShader(nullptr, nullptr, 0);
+    context->DSSetShader(nullptr, nullptr, 0);
+    context->RSSetState(m_raster.Get());
+    context->RSSetViewports(1, &vp);
+    context->RSSetScissorRects(1, &scissor);
+    context->OMSetRenderTargets(1, &target, nullptr);
+    context->OMSetBlendState(m_blendAlpha.Get(), nullptr, 0xffffffff);
+    context->OMSetDepthStencilState(m_depth.Get(), 0);
+    context->Draw(3, 0);
+    return true;
+}
+
 void Blitter::Release()
 {
     m_ready = false;
+    m_blendAlpha.Reset();
+    m_psOpaque.Reset();
     m_copySrv.Reset();
     m_copy.Reset();
     m_depth.Reset();

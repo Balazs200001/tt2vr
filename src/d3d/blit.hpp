@@ -37,6 +37,9 @@ public:
     // target may be the source itself (the source is copied first).
     bool BlitRect(ID3D11DeviceContext* context, ID3D11Texture2D* source, ID3D11RenderTargetView* target,
         const D3D11_VIEWPORT& dst, bool decode, float u0 = 0.0f, float uw = 1.0f, bool copySource = true);
+    // Sets alpha to 1 in the whole target, colour untouched (a raw copy carries the game's back-buffer alpha,
+    // which a compositor may blend with).
+    bool FillAlpha(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, UINT width, UINT height);
     void Release();
 
 private:
@@ -50,6 +53,8 @@ private:
     ComPtr<ID3D11VertexShader> m_vs;
     ComPtr<ID3D11PixelShader> m_psRaw;
     ComPtr<ID3D11PixelShader> m_psDecode;
+    ComPtr<ID3D11PixelShader> m_psOpaque;
+    ComPtr<ID3D11BlendState> m_blendAlpha;
     ComPtr<ID3D11SamplerState> m_sampler;
     ComPtr<ID3D11RasterizerState> m_raster;
     ComPtr<ID3D11BlendState> m_blend;
