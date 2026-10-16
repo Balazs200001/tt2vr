@@ -92,6 +92,8 @@ World Shift: the override is recomputed every frame from the current pool matrix
 | Timing | physics step (CameraManager AfterPhysicsStep), i.e. before `KTUCamera::Update` and before `DoUpdate` | vtable slot / CameraManager slots 11/12 | likely |
 | `Actor::SetWorldMatrix` 0x1403d77f0 | `mov rcx,[rcx+0x70]; jmp GraphNode::SetWorldMatrix` (actor node at `Actor+0x70`) | disasm | confirmed |
 
+Our fix (Phase 2): hook `FUN_1403afc80` (pattern) and `Actor::SetWorldMatrix` (export); inside the former, for the HelmetView actor only, pass `M * local * M^-1 * H` (M = `mode+0x8`, the pivot the helmet was built from) to the game's own setter, so child meshes update the normal way. Runs in the physics step: while physics is paused the helmet does not follow slider changes, and with head tracking the helmet may trail the view by up to a frame (revisit with late latching if visible).
+
 Consequence: the helmet is placed in the scene graph by game code, separately from the render view, so our ViewContext override (section 6) does not move it. Runtime (2026-10-16): with the view override on, the world view turns but the helmet stays fixed to the original camera.
 
 ## 8. Runtime checks (Phase 2)

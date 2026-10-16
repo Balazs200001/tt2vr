@@ -210,7 +210,7 @@ Implementation notes (2026-10-16):
 - [x] Projection override: inject an asymmetric frustum (e.g. shifted 20% right) and verify both the image and culling.
   - Code done 2026-10-16: `MatrixPerspectiveFovRH` choke point, reshapes calls whose fov is the main camera's fov or front fov inside the DoUpdate→Present window. Verified 2026-10-16 by Balazs.
 - [x] Unit tests: projection-from-FOV builder against hand-computed values; XR→engine basis conversion. `tests/test_math.cpp` (11 cases) + signature table test; 42 cases pass.
-- [ ] Helmet mesh follows the view override (found 2026-10-16: the HelmetView actor is placed by game code in `FUN_1403afc80` from `mode+0x4c4`, not from the render view; `docs/re/camera.md` section 7). Approach: decide with Balazs.
+- [ ] Helmet mesh follows the view override (found 2026-10-16: the HelmetView actor is placed by game code in `FUN_1403afc80` from `mode+0x4c4`, not from the render view; `docs/re/camera.md` section 7). Chosen 2026-10-16 (Balazs): physics-step hook (`TTCamera::AfterPhysicsStep` + `Actor::SetWorldMatrix`, helmet' = M·local·M⁻¹·H with M = mode+0x8), switchable via `[camera] helmet_follows_view` / overlay; the game's Helmet No Mesh view stays supported. Code done; runtime test pending.
 
 **Done when:** I can turn the helmet camera 360° from the overlay with no culling holes and correct depth, and an asymmetric projection renders correctly at the frustum edges.
 
