@@ -43,6 +43,9 @@ bool LocateViews(FrameViews& out); // Renderer::DoUpdate; false = no head pose t
 void MarkRendered(int view, int eye); // ViewContext::InitFromCamera: view 0/1 was rendered from LocateViews' eye
 void SetSideBySide(bool sideBySide); // Renderer::DoUpdate: this frame's back buffer holds view 0 | view 1
 void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context); // Present pre-hook
+// Present pre-hook, after OnFrameEnd and before the overlay: while the session runs, redraws the back buffer for the
+// desktop window ([xr] desktop_view), letterboxed so the window's stretch gives the right shape.
+void DrawDesktopMirror(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, HWND window);
 
 bool SessionRunning(); // between xrBeginSession and xrEndSession
 void RequestRecenter(); // hotkey / overlay; applied at the next LocateViews

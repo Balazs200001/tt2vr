@@ -60,6 +60,7 @@ struct Config {
         float screen_width = 2.4f; // metres (height follows the game window's aspect), clamp 0.25..10
         bool force_render_size = true; // render the game at the eye swapchain size while a headset is connected
         bool stereo = true; // both eyes as the engine's two split-screen views (Phase 4); false = left eye only
+        std::string desktop_view = "left"; // window while the session runs: "left" eye, "both" eyes, "game" (raw)
     } xr;
     struct Capture {
         std::string dir = "captures"; // relative to <game>\tt2vr\ unless absolute

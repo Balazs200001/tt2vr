@@ -281,6 +281,7 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
             trace::End(g_frame);
             dump::End(g_frame, self);
             xr::OnFrameEnd(self, g_immediate); // before the overlay, so the overlay stays on the desktop
+            xr::DrawDesktopMirror(self, g_immediate, g_window);
             if (!renderdoc::Busy()) {
                 ui::Render(self, g_device, g_immediate);
             }

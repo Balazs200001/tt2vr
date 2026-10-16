@@ -65,6 +65,10 @@ force_render_size = true
 # Render both eyes every frame, as the engine's two split-screen views side by side (the game then renders at twice
 # the eye width; the desktop window shows both eyes). false = left eye only, right eye black (Phase 3 mode).
 stereo = true
+# What the desktop window shows while the headset session runs (the game renders at the headset's size, which the
+# window would show stretched): "left" = left eye, "both" = both eyes side by side, each letterboxed to the window's
+# shape; "game" = the raw rendered image, stretched.
+desktop_view = "left"
 
 [capture]
 # Folder for frame traces and texture dumps; relative to <game>\tt2vr\ unless absolute.

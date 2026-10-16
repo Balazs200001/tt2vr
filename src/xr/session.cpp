@@ -316,8 +316,9 @@ bool CreateSession()
         const auto v = static_cast<std::uint32_t>(std::lround(static_cast<double>(recommended) * scale));
         return std::clamp<std::uint32_t>(v, 16u, std::max(16u, max));
     };
-    const std::uint32_t w = scaled(configViews[0].recommendedImageRectWidth, configViews[0].maxImageRectWidth);
-    const std::uint32_t h = scaled(configViews[0].recommendedImageRectHeight, configViews[0].maxImageRectHeight);
+    // Even sizes: the engine rounds its render size down to even, and a mismatch forces a blit instead of a copy.
+    const std::uint32_t w = scaled(configViews[0].recommendedImageRectWidth, configViews[0].maxImageRectWidth) & ~1u;
+    const std::uint32_t h = scaled(configViews[0].recommendedImageRectHeight, configViews[0].maxImageRectHeight) & ~1u;
     for (int eye = 0; eye < 2; ++eye) {
         if (!g.eyes[eye].Create(g.instance, g.session, g.device, format, w, h, eye == 0 ? "left eye" : "right eye")) {
             DestroySession();
@@ -557,6 +558,7 @@ void Init(ID3D11Device* device)
 
 void OnFrameStart()
 {
+    g.sideBySide = false; // set again by this frame's DoUpdate (a movie frame has none)
     if (!g.configured || !g.status.enabled || !g.device) {
         return;
     }
@@ -740,6 +742,55 @@ void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
         if (g.frameOpen) {
             EndFrame(nullptr);
         }
+    }
+}
+
+void DrawDesktopMirror(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, HWND window)
+{
+    const std::string& view = core::GetConfig().xr.desktop_view;
+    if (!g.running || !swapChain || !context || !window || view == "game") {
+        return;
+    }
+    try {
+        RECT rc{};
+        if (!GetClientRect(window, &rc) || rc.right <= 0 || rc.bottom <= 0) {
+            return;
+        }
+        D3D11_TEXTURE2D_DESC bd{};
+        const ComPtr<ID3D11Texture2D> back = BackBuffer(swapChain, bd);
+        if (!back || bd.Width == 0 || bd.Height == 0) {
+            return;
+        }
+        const float uw = g.sideBySide && view == "left" ? 0.5f : 1.0f; // one-view frames: the whole image
+        // The window stretches the back buffer by (cw / bw, ch / bh). Fit the image's shape into the window, then
+        // map that rectangle back into back-buffer pixels.
+        const float cw = static_cast<float>(rc.right), ch = static_cast<float>(rc.bottom);
+        const float bw = static_cast<float>(bd.Width), bh = static_cast<float>(bd.Height);
+        const float aspect = uw * bw / bh;
+        const float dw = std::min(cw, ch * aspect);
+        const float dh = dw / aspect;
+        const D3D11_VIEWPORT dst{(cw - dw) * 0.5f * bw / cw, (ch - dh) * 0.5f * bh / ch, dw * bw / cw, dh * bh / ch,
+            0.0f, 1.0f};
+        D3D11_RENDER_TARGET_VIEW_DESC rd{};
+        rd.Format = d3d::LinearViewOf(bd.Format); // raw gamma-encoded values in, raw out
+        rd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+        ComPtr<ID3D11RenderTargetView> rtv;
+        if (FAILED(g.device->CreateRenderTargetView(back.Get(), &rd, &rtv))) {
+            return;
+        }
+        if (!g.blitter.Ready() && !g.blitter.Init(g.device)) {
+            return;
+        }
+        d3d::InternalScope internal;
+        // Copy first (the blitter's source copy, 1x1 draw), then clear and draw the letterboxed image.
+        constexpr float kBlack[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+        const D3D11_VIEWPORT corner{0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f};
+        g.blitter.BlitRect(context, back.Get(), rtv.Get(), corner, false, 0.0f, 1.0f, true);
+        context->ClearRenderTargetView(rtv.Get(), kBlack);
+        g.blitter.BlitRect(context, back.Get(), rtv.Get(), dst, false, 0.0f, uw, false);
+    }
+    catch (...) {
+        TT2VR_LOG_ERROR("xr: exception in DrawDesktopMirror");
     }
 }
 

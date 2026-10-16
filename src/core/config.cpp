@@ -264,6 +264,13 @@ void ReadXr(const toml::table& t, Config::Xr& out, Warnings& w)
         else if (key == "screen_width") s.Float(key, node, out.screen_width, 0.25, 10.0);
         else if (key == "force_render_size") s.Bool(key, node, out.force_render_size);
         else if (key == "stereo") s.Bool(key, node, out.stereo);
+        else if (key == "desktop_view") {
+            s.String(key, node, out.desktop_view);
+            if (out.desktop_view != "left" && out.desktop_view != "both" && out.desktop_view != "game") {
+                s.Warn(key, "must be \"left\", \"both\" or \"game\"; using \"left\"", node);
+                out.desktop_view = "left";
+            }
+        }
         else s.Warn(key, "unknown key, ignored", node);
     }
 }
