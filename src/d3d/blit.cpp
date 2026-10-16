@@ -275,18 +275,23 @@ bool Blitter::PrepareSource(ID3D11Texture2D* source)
 }
 
 bool Blitter::Blit(ID3D11DeviceContext* context, ID3D11Texture2D* source, ID3D11RenderTargetView* target, UINT dstW,
-    UINT dstH, bool decode)
+    UINT dstH, bool decode, float u0, float uw, bool copySource)
 {
-    if (!m_ready || !context || !source || !target) {
+    if (!m_ready || !context || !source || !target || uw <= 0.0f) {
         return false;
     }
     InternalScope internal;
     if (!PrepareSource(source)) {
         return false;
     }
-    context->CopyResource(m_copy.Get(), source);
+    if (copySource) {
+        context->CopyResource(m_copy.Get(), source);
+    }
     StateBackup backup(context);
-    const D3D11_VIEWPORT vp{0.0f, 0.0f, static_cast<float>(dstW), static_cast<float>(dstH), 0.0f, 1.0f};
+    // A sub-range of the source = the whole source drawn into a wider viewport shifted left; the render target
+    // clips the rest (viewport origins may be negative).
+    const float width = static_cast<float>(dstW) / uw;
+    const D3D11_VIEWPORT vp{-u0 * width, 0.0f, width, static_cast<float>(dstH), 0.0f, 1.0f};
     context->IASetInputLayout(nullptr);
     context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     context->VSSetShader(m_vs.Get(), nullptr, 0);

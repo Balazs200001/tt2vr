@@ -28,9 +28,11 @@ public:
     // Compiles the shaders and creates the fixed states. Returns false (and logs) if anything fails.
     bool Init(ID3D11Device* device);
     bool Ready() const { return m_ready; }
-    // Stretches all of `source` over the target view (viewport dstW x dstH, linear filtering).
+    // Stretches the source columns [u0, u0 + uw) (fractions of its width; default all of it) over the target view
+    // (dstW x dstH, linear filtering). copySource = false reuses the source copy of the previous Blit (same source,
+    // same frame).
     bool Blit(ID3D11DeviceContext* context, ID3D11Texture2D* source, ID3D11RenderTargetView* target, UINT dstW,
-        UINT dstH, bool decode);
+        UINT dstH, bool decode, float u0 = 0.0f, float uw = 1.0f, bool copySource = true);
     void Release();
 
 private:
