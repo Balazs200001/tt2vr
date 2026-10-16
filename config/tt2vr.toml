@@ -1,0 +1,48 @@
+# tt2vr configuration. Deployed next to tt2vr.dll in <game>\tt2vr\.
+# Every key is shown with its default value. Unknown keys and bad values are reported in the log
+# (tt2vr\logs\tt2vr.log) and the default is used instead.
+
+[log]
+# Log verbosity: "trace", "debug", "info", "warn" or "error".
+level = "info"
+# Log per-frame details (very chatty; leave off unless debugging a specific frame).
+verbose_frames = false
+
+[hotkeys]
+# Hotkeys only fire while the game window has focus, and the keys are NOT blocked from the game.
+# Format: "F11", "Ctrl+F11", "Ctrl+Shift+F12", "Alt+P", "Insert", "PageUp", "Num0", "A".."Z", "0".."9", "F1".."F24".
+# Modifiers must match exactly (Shift+F11 does not trigger a plain F11 hotkey). "none" disables a hotkey.
+# Show or hide the debug overlay.
+overlay = "F10"
+# Write a frame trace (tt2vr\captures\frametrace_<frame>.txt) of the next presented frame.
+frame_trace = "F11"
+# Dump the textures written by the next presented frame (one snapshot per pass) into the capture folder.
+texture_dump = "Shift+F11"
+# Trigger a RenderDoc capture of the next frame (needs RenderDoc attached).
+renderdoc_capture = "F9"
+
+[overlay]
+# Show the debug overlay at startup.
+visible = true
+
+[capture]
+# Folder for frame traces and texture dumps; relative to <game>\tt2vr\ unless absolute.
+dir = "captures"
+# Folder for RenderDoc captures; empty = same as dir. E.g. "C:/dev/tt2vr-re/rdc" to keep captures with the RE material.
+renderdoc_dir = ""
+# Maximum number of textures written per texture dump request (1..1024).
+max_textures = 64
+# Include depth buffers in texture dumps.
+include_depth = true
+# Floats of each constant buffer update recorded in a frame trace (0..1024).
+cb_floats = 16
+
+[commands]
+# Accept command files dropped into <game>\tt2vr\commands\ (lets tools trigger captures without a hotkey).
+enabled = true
+# Check the commands folder every N presented frames (1..600).
+poll_frames = 10
+
+[debug]
+# [debug] Pretend TT2.exe has this SHA-256 (64 hex characters) to test the unknown-version path. Empty = real hash.
+fake_exe_sha256 = ""

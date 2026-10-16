@@ -23,4 +23,9 @@ void InitLog()
     }
 }
 
+void SetLogLevel(std::string_view level)
+{
+    spdlog::set_level(spdlog::level::from_str(std::string(level)));
+}
+
 } // namespace core
