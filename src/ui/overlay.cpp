@@ -13,6 +13,7 @@
 #include "d3d/present.hpp"
 #include "d3d/renderdoc.hpp"
 #include "d3d/shader_registry.hpp"
+#include "game/camera.hpp"
 #include "game/version.hpp"
 
 #include <imgui.h>
@@ -87,6 +88,53 @@ void VersionLine(const game::VersionInfo& v)
     }
 }
 
+// PLAN Phase 2: camera override test controls. Values apply from the next frame (read in Renderer::DoUpdate).
+void CameraSection()
+{
+    if (!ImGui::CollapsingHeader("Camera (Phase 2)")) {
+        return;
+    }
+    if (!game::CameraHooksActive()) {
+        ImGui::TextDisabled("camera hooks not active (see log)");
+        return;
+    }
+    game::CameraSettings& s = game::Settings();
+    const game::CameraInfo info = game::LastCameraInfo();
+    constexpr float kRadToDeg = 57.2957795f;
+    if (info.valid) {
+        ImGui::Text("hfov %.2f deg  near %.2f  far %.0f  viewport %dx%d", info.fov * kRadToDeg, info.nearZ, info.farZ,
+            info.viewportW, info.viewportH);
+        ImGui::Text("front pass %s: fov %.2f deg  near %.2f  far %.1f", info.frontPass ? "on" : "off",
+            info.frontFov * kRadToDeg, info.frontNear, info.frontFar);
+        ImGui::Text("pos %.2f %.2f %.2f  fwd %.3f %.3f %.3f", info.world[0][3], info.world[1][3], info.world[2][3],
+            -info.world[0][2], -info.world[1][2], -info.world[2][2]);
+        ImGui::Text("proj m02 %.4f  m12 %.4f  (%u calls reshaped)", info.proj[0][2], info.proj[1][2],
+            info.projOverrides);
+    }
+    else {
+        ImGui::TextDisabled("no main view yet (menu or loading)");
+    }
+    ImGui::Checkbox("Override view", &s.viewEnabled);
+    ImGui::SliderFloat("yaw (left +)", &s.yawDeg, -180.0f, 180.0f, "%.1f deg");
+    ImGui::SliderFloat("pitch (up +)", &s.pitchDeg, -90.0f, 90.0f, "%.1f deg");
+    ImGui::SliderFloat("roll (left +)", &s.rollDeg, -180.0f, 180.0f, "%.1f deg");
+    ImGui::SliderFloat3("offset x/y/z (m)", s.offset, -2.0f, 2.0f, "%.2f");
+    if (ImGui::Button("Reset view")) {
+        s.yawDeg = s.pitchDeg = s.rollDeg = 0.0f;
+        s.offset[0] = s.offset[1] = s.offset[2] = 0.0f;
+    }
+    ImGui::Checkbox("Override projection", &s.projEnabled);
+    ImGui::SliderFloat("shift x (right +)", &s.shiftX, -0.5f, 0.5f, "%.2f of width");
+    ImGui::SliderFloat("shift y (up +)", &s.shiftY, -0.5f, 0.5f, "%.2f of height");
+    if (ImGui::Button("Reset projection")) {
+        s.shiftX = s.shiftY = 0.0f;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Log camera")) {
+        TT2VR_LOG_INFO("{}", game::DescribeCamera());
+    }
+}
+
 void DrawPanel()
 {
     const auto stats = d3d::Stats();
@@ -95,7 +143,7 @@ void DrawPanel()
     ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowBgAlpha(0.8f);
     ImGui::Begin("tt2vr", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
-    ImGui::Text("tt2vr 0.1.0 - Phase 1 (flat)");
+    ImGui::Text("tt2vr 0.1.0 - Phase 2 (flat)");
     ImGui::Text("%.1f fps  %.2f ms  frame %llu  %ux%u", stats.fps, stats.ms,
         static_cast<unsigned long long>(stats.frame), stats.width, stats.height);
     VersionLine(version);
@@ -134,6 +182,7 @@ void DrawPanel()
     if (ImGui::Button("Write shader registry")) {
         d3d::WriteShaderRegistry("overlay");
     }
+    CameraSection();
     bool verbose = core::GetVerbose();
     if (ImGui::Checkbox("Verbose per-frame log", &verbose)) {
         core::SetVerbose(verbose);
