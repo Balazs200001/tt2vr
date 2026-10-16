@@ -6,3 +6,4 @@ EXPORTS
     DllRegisterServer    = Proxy_DllRegisterServer PRIVATE
     DllUnregisterServer  = Proxy_DllUnregisterServer PRIVATE
     GetdfDIJoystick      = Proxy_GetdfDIJoystick
+    tt2vr_proxy_device_import = Proxy_TakeDeviceImport

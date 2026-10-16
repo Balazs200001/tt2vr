@@ -5,13 +5,17 @@
 // crashes under RenderDoc (docs/re/README.md, "Capture-tool opt-out"). We clear the bit before the
 // call reaches anything else. The flag only affects debug-layer registry settings; no gameplay effect.
 //
-// How: redirect TT2.exe's import address table slot (a data write, no code patching). Whatever the
-// slot pointed to before (RenderDoc's hook if present, otherwise d3d11.dll) is called next, so the
-// chain stays intact. RenderDoc re-applies its import hooks when new DLLs load, so a watchdog
-// re-checks the slot until the game has created its device.
+// How: TT2.exe's import address table slot is redirected (a data write, no code patching). Normally the dinput8
+// proxy did that in its DllMain, before the SteamStub ran, pointing it at its forwarder, which calls us once
+// tt2vr_start is done; we take the slot over through its tt2vr_proxy_device_import export. An older proxy
+// without it: we write the slot ourselves (that raced the stub, see src/proxy/dinput8_proxy.cpp). Whatever the
+// slot pointed to before (RenderDoc's hook if present, otherwise d3d11.dll) is called next, so the chain stays
+// intact. RenderDoc re-applies its import hooks when new DLLs load, so a watchdog re-checks the slot until the
+// game has created its device.
 #include "d3d/device_hooks.hpp"
 
 #include "core/log.hpp"
+#include "core/paths.hpp"
 #include "d3d/present.hpp"
 
 #include <windows.h>
@@ -31,6 +35,7 @@ using CreateDeviceAndSwapChainFn = HRESULT(WINAPI*)(IDXGIAdapter*, D3D_DRIVER_TY
 constexpr UINT kPreventAlteringLayerSettings = 0x80; // D3D11_CREATE_DEVICE_PREVENT_ALTERING_LAYER_SETTINGS_FROM_REGISTRY
 
 void** g_slot = nullptr;
+void* g_slotValue = nullptr; // what the slot must hold: the proxy's forwarder or our hook
 std::atomic<CreateDeviceAndSwapChainFn> g_next{nullptr};
 std::atomic<bool> g_called{false};
 
@@ -134,9 +139,9 @@ DWORD WINAPI Watchdog(LPVOID)
 {
     for (int i = 0; i < 12000 && !g_called; ++i) { // up to ~60 s
         void* current = *g_slot;
-        if (current != reinterpret_cast<void*>(&HookedCreateDeviceAndSwapChain)) {
+        if (current != g_slotValue) {
             g_next = reinterpret_cast<CreateDeviceAndSwapChainFn>(current);
-            if (WriteSlot(reinterpret_cast<void*>(&HookedCreateDeviceAndSwapChain))) {
+            if (WriteSlot(g_slotValue)) {
                 TT2VR_LOG_WARN("Import slot was overwritten (now -> {}); redirect re-applied",
                     ModuleOf(current));
             }
@@ -153,6 +158,24 @@ DWORD WINAPI Watchdog(LPVOID)
 
 bool InstallDeviceHooks()
 {
+    using TakeFn = BOOL(WINAPI*)(void*** slot, void** original, void** forwarder, void* hook);
+    const auto proxyPath = core::ModDir().parent_path() / L"dinput8.dll";
+    HMODULE proxy = GetModuleHandleW(proxyPath.c_str());
+    auto take = proxy ? reinterpret_cast<TakeFn>(GetProcAddress(proxy, "tt2vr_proxy_device_import")) : nullptr;
+    void** slot = nullptr;
+    void* original = nullptr;
+    void* forwarder = nullptr;
+    if (take && take(&slot, &original, &forwarder, reinterpret_cast<void*>(&HookedCreateDeviceAndSwapChain))) {
+        g_slot = slot;
+        g_slotValue = forwarder;
+        g_next = reinterpret_cast<CreateDeviceAndSwapChainFn>(original);
+        TT2VR_LOG_INFO("D3D11CreateDeviceAndSwapChain import redirected by the proxy at load (previous target: {})",
+            ModuleOf(original));
+        if (HANDLE t = CreateThread(nullptr, 0, Watchdog, nullptr, 0, nullptr)) {
+            CloseHandle(t);
+        }
+        return true;
+    }
     g_slot = FindImportSlot(GetModuleHandleW(nullptr), "d3d11.dll", "D3D11CreateDeviceAndSwapChain");
     if (!g_slot) {
         TT2VR_LOG_ERROR("D3D11CreateDeviceAndSwapChain import not found in TT2.exe; device hook disabled");
@@ -160,11 +183,14 @@ bool InstallDeviceHooks()
     }
     void* current = *g_slot;
     g_next = reinterpret_cast<CreateDeviceAndSwapChainFn>(current);
-    if (!WriteSlot(reinterpret_cast<void*>(&HookedCreateDeviceAndSwapChain))) {
+    g_slotValue = reinterpret_cast<void*>(&HookedCreateDeviceAndSwapChain);
+    if (!WriteSlot(g_slotValue)) {
         TT2VR_LOG_ERROR("VirtualProtect failed on the import slot; device hook disabled");
         return false;
     }
-    TT2VR_LOG_INFO("D3D11CreateDeviceAndSwapChain import redirected (previous target: {})", ModuleOf(current));
+    TT2VR_LOG_WARN("D3D11CreateDeviceAndSwapChain import redirected from the init thread (old proxy without "
+                   "tt2vr_proxy_device_import; can race the SteamStub); previous target: {}",
+        ModuleOf(current));
     if (HANDLE t = CreateThread(nullptr, 0, Watchdog, nullptr, 0, nullptr)) {
         CloseHandle(t);
     }

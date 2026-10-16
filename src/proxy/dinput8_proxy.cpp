@@ -2,16 +2,94 @@
 //
 // TT2.exe statically imports dinput8.dll, so Windows loads this file from the game folder before any
 // game code runs. It forwards the 5 real exports to System32\dinput8.dll and starts the mod.
-// Rules: no heavy work in DllMain (loader lock). DllMain only starts a thread; that thread loads
-// tt2vr\tt2vr.dll once the loader lock is released and calls its tt2vr_start export.
+// Rules: no heavy work in DllMain (loader lock). DllMain only redirects one import slot (a memory write) and
+// starts a thread; that thread loads tt2vr\tt2vr.dll once the loader lock is released and calls tt2vr_start.
+//
+// Why the import redirect is here: DllMain runs after the loader has bound TT2.exe's imports and before the
+// SteamStub entry point. A redirect written later from a thread raced the stub (2026-10-16: some launches
+// exited silently right after it); here nothing else runs yet. The slot points at ProxyCreateDevice, which waits
+// for tt2vr_start to finish and then calls tt2vr's device hook (or the original if the mod did not load).
 #include <windows.h>
 #include <unknwn.h>
+#include <d3d11.h>
 
+#include <atomic>
+#include <cstring>
 #include <string>
 
 namespace {
 
 HMODULE g_self = nullptr;
+
+using CreateDeviceFn = HRESULT(WINAPI*)(IDXGIAdapter*, D3D_DRIVER_TYPE, HMODULE, UINT, const D3D_FEATURE_LEVEL*,
+    UINT, UINT, const DXGI_SWAP_CHAIN_DESC*, IDXGISwapChain**, ID3D11Device**, D3D_FEATURE_LEVEL*,
+    ID3D11DeviceContext**);
+
+void** g_deviceSlot = nullptr; // TT2.exe's import slot of d3d11!D3D11CreateDeviceAndSwapChain
+CreateDeviceFn g_deviceOriginal = nullptr; // what the slot held at load
+std::atomic<CreateDeviceFn> g_deviceHook{nullptr}; // tt2vr's hook, set by tt2vr_proxy_device_import
+HANDLE g_ready = nullptr; // set when the init thread is done (mod started, or failed to load)
+
+// Thread: game main thread (the game's device creation).
+HRESULT WINAPI ProxyCreateDevice(IDXGIAdapter* adapter, D3D_DRIVER_TYPE driverType, HMODULE software, UINT flags,
+    const D3D_FEATURE_LEVEL* levels, UINT levelCount, UINT sdkVersion, const DXGI_SWAP_CHAIN_DESC* scDesc,
+    IDXGISwapChain** swapChain, ID3D11Device** device, D3D_FEATURE_LEVEL* gotLevel, ID3D11DeviceContext** context)
+{
+    if (g_ready) {
+        WaitForSingleObject(g_ready, 30000); // the mod starts in ~50 ms; the game creates its device ~1 s in
+    }
+    CreateDeviceFn fn = g_deviceHook.load();
+    if (!fn) {
+        fn = g_deviceOriginal;
+    }
+    return fn ? fn(adapter, driverType, software, flags, levels, levelCount, sdkVersion, scDesc, swapChain, device,
+                    gotLevel, context)
+              : E_FAIL;
+}
+
+// Finds the IAT slot of `func` imported from `dll` in `module`.
+void** FindImportSlot(HMODULE module, const char* dll, const char* func)
+{
+    auto base = reinterpret_cast<BYTE*>(module);
+    auto dos = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
+    auto nt = reinterpret_cast<IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
+    const auto& dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (dir.VirtualAddress == 0) {
+        return nullptr;
+    }
+    for (auto desc = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(base + dir.VirtualAddress); desc->Name; ++desc) {
+        if (_stricmp(reinterpret_cast<const char*>(base + desc->Name), dll) != 0) {
+            continue;
+        }
+        auto names = reinterpret_cast<IMAGE_THUNK_DATA*>(
+            base + (desc->OriginalFirstThunk ? desc->OriginalFirstThunk : desc->FirstThunk));
+        auto slots = reinterpret_cast<IMAGE_THUNK_DATA*>(base + desc->FirstThunk);
+        for (; names->u1.AddressOfData; ++names, ++slots) {
+            if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal)) {
+                continue;
+            }
+            auto byName = reinterpret_cast<IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData);
+            if (std::strcmp(reinterpret_cast<const char*>(byName->Name), func) == 0) {
+                return reinterpret_cast<void**>(&slots->u1.Function);
+            }
+        }
+    }
+    return nullptr;
+}
+
+// Thread: loader (DllMain, process attach). No other thread of the process runs game code yet.
+void RedirectDeviceImport()
+{
+    void** slot = FindImportSlot(GetModuleHandleW(nullptr), "d3d11.dll", "D3D11CreateDeviceAndSwapChain");
+    DWORD old = 0;
+    if (!slot || !VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &old)) {
+        return; // the mod falls back to its own redirect
+    }
+    g_deviceOriginal = reinterpret_cast<CreateDeviceFn>(*slot);
+    *slot = reinterpret_cast<void*>(&ProxyCreateDevice);
+    VirtualProtect(slot, sizeof(void*), old, &old);
+    g_deviceSlot = slot;
+}
 
 // Real dinput8.dll, loaded on first use by full System32 path (never from the game folder).
 HMODULE RealDinput8()
@@ -52,11 +130,15 @@ DWORD WINAPI InitThread(LPVOID)
     HMODULE mod = LoadLibraryW(ModMainPath().c_str());
     if (!mod) {
         OutputDebugStringW(L"[tt2vr] proxy: failed to load tt2vr\\tt2vr.dll; running flat\n");
-        return 0;
     }
-    using StartFn = void(__cdecl*)();
-    if (auto start = reinterpret_cast<StartFn>(GetProcAddress(mod, "tt2vr_start"))) {
-        start();
+    else {
+        using StartFn = void(__cdecl*)();
+        if (auto start = reinterpret_cast<StartFn>(GetProcAddress(mod, "tt2vr_start"))) {
+            start();
+        }
+    }
+    if (g_ready) {
+        SetEvent(g_ready);
     }
     return 0;
 }
@@ -64,6 +146,20 @@ DWORD WINAPI InitThread(LPVOID)
 } // namespace
 
 extern "C" {
+
+// Called by tt2vr.dll (d3d::InstallDeviceHooks, from tt2vr_start on the init thread): hands over the slot the
+// proxy redirected at load and installs the mod's device hook behind ProxyCreateDevice. FALSE = no redirect here.
+BOOL WINAPI Proxy_TakeDeviceImport(void*** slot, void** original, void** forwarder, void* hook)
+{
+    if (!g_deviceSlot || !slot || !original || !forwarder) {
+        return FALSE;
+    }
+    *slot = g_deviceSlot;
+    *original = reinterpret_cast<void*>(g_deviceOriginal);
+    *forwarder = reinterpret_cast<void*>(&ProxyCreateDevice);
+    g_deviceHook = reinterpret_cast<CreateDeviceFn>(hook);
+    return TRUE;
+}
 
 // Forwarded exports (names mapped in dinput8.def). Signatures use generic types; the real
 // functions receive the caller's arguments unchanged.
@@ -117,8 +213,13 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
     if (reason == DLL_PROCESS_ATTACH) {
         g_self = module;
         DisableThreadLibraryCalls(module);
+        g_ready = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        RedirectDeviceImport();
         if (HANDLE t = CreateThread(nullptr, 0, InitThread, nullptr, 0, nullptr)) {
             CloseHandle(t);
+        }
+        else if (g_ready) {
+            SetEvent(g_ready); // no mod: the forwarder calls the original right away
         }
     }
     return TRUE;
