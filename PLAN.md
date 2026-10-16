@@ -169,6 +169,7 @@ Goal: know exactly what we're dealing with before writing hooks.
 ## Phase 1 — Skeleton mod (flat, no VR)
 
 **First slice (unblocks Phase 0 captures):** CMake/vcpkg skeleton, the `dinput8.dll` proxy (5 forwarded exports, loads `tt2vr\tt2vr.dll`), a MinHook hook on `D3D11CreateDeviceAndSwapChain` that clears flag `0x80` and logs the call, and the `deploy` target. Then capture through RenderDoc as in `docs/re/frame-anatomy.md`. The rest of Phase 1 follows.
+- [x] First slice verified 2026-10-16: game runs with the proxy; under RenderDoc the log shows `flags 0x80 -> 0x0, hr=0, featureLevel=0xb100, context=ok, next=renderdoc.dll`. RenderDoc re-hooks the import slot on every DLL load (25 re-applies in the first 1.4 s), so the watchdog is required. Captures: `tt2vr-re/rdc/tt2_snaefell_helmet_moving_taa_f8323.rdc`, `..._stationary_taa_f8956.rdc`, `tt2_mainmenu_f10838.rdc`.
 
 - [ ] `CMakeLists.txt`, `CMakePresets.json` (VS 2022 generator, `x64-debug` / `x64-release`, test presets, `deploy` target), `vcpkg.json` with: minhook, spdlog, imgui (dx11-binding, win32-binding), tomlplusplus, directxtk (ScreenGrab), openxr-loader, xxhash, doctest.
 - [ ] `.gitignore`: build output, `*.rdc`, dumps, `CLAUDE.local.md`, `.claude/settings.local.json`.
