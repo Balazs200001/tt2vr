@@ -144,7 +144,7 @@ Goal: know exactly what we're dealing with before writing hooks.
 - [x] In-game graphics options (AA modes including TAA, motion blur, resolution, FOV) and the config file location. Use the TAA setting for all captures. Menu: AA Off / FXAA / TAA (menu "TAA" is stored as `FXAA_TAA` = mode 2), motion blur Off / Low / Normal, dynamic resolution On/Off, no FOV option. Config: `Documents/My Games/TT Isle of Man 2/UserSettings.cfg`, plain `Engine.X.Y = value;` lines.
 
 **Frame anatomy (RenderDoc) → `docs/re/frame-anatomy.md`**
-- [ ] Capture helmet-cam frames: daytime on the TT course, plus one in a menu.
+- [ ] Capture helmet-cam frames: daytime on the TT course, plus one in a menu. **Blocked until Phase 1's first slice:** RenderDoc cannot capture the unmodified game. `EnableVideoAdapter` passes `Flags = 0x80` (`D3D11_CREATE_DEVICE_PREVENT_ALTERING_LAYER_SETTINGS_FROM_REGISTRY`) to `D3D11CreateDeviceAndSwapChain`; RenderDoc treats that flag as "application requested not to be hooked" (its log, `d3d11_hooks.cpp(163)`), skips wrapping the device while DXGI is already wrapped, and the call returns S_OK with a null immediate context. The game then crashes at `TT2.exe+0x9592dd` (`mov r9,[rcx]`, QueryInterface on context slot 0). Confirmed 2026-10-16 from 3 CrashRpt minidumps (access violation reading 0, rcx = 0, loop index 0, returned feature level 11_1) and the RenderDoc log; NVIDIA NvCamera and the Steam overlay were ruled out. Fix: our proxy hooks `D3D11CreateDeviceAndSwapChain` and clears bit 0x80 before the call goes on (debug-layer registry behaviour only; no gameplay effect).
 - [ ] Pass table (static draft in `frame-anatomy.md`; needs a capture): event range, guessed name, RT formats and sizes, inputs, outputs, `per-frame` or `per-view`, temporal inputs.
 - [x] Threading (static: no render thread; pass execution on deferred contexts per enki worker): are deferred contexts / `ExecuteCommandList` used? Is there a separate render thread?
 - [ ] Identify (static candidates found; confirm in a capture): TAA pass (jittered projection, history SRV slot, output), motion-vector pass, exposure pass, shadow passes, HUD start event.
@@ -167,6 +167,8 @@ Goal: know exactly what we're dealing with before writing hooks.
 **Done when:** `frame-anatomy.md` has a classified pass table; `conventions.md` is filled in with evidence; protection status is known; the loader is decided; the temporal inventory has a first pass.
 
 ## Phase 1 — Skeleton mod (flat, no VR)
+
+**First slice (unblocks Phase 0 captures):** CMake/vcpkg skeleton, the `dinput8.dll` proxy (5 forwarded exports, loads `tt2vr\tt2vr.dll`), a MinHook hook on `D3D11CreateDeviceAndSwapChain` that clears flag `0x80` and logs the call, and the `deploy` target. Then capture through RenderDoc as in `docs/re/frame-anatomy.md`. The rest of Phase 1 follows.
 
 - [ ] `CMakeLists.txt`, `CMakePresets.json` (VS 2022 generator, `x64-debug` / `x64-release`, test presets, `deploy` target), `vcpkg.json` with: minhook, spdlog, imgui (dx11-binding, win32-binding), tomlplusplus, directxtk (ScreenGrab), openxr-loader, xxhash, doctest.
 - [ ] `.gitignore`: build output, `*.rdc`, dumps, `CLAUDE.local.md`, `.claude/settings.local.json`.
@@ -292,6 +294,7 @@ Approach (proposed 2026-10-16, see "Phase 0 findings"): the engine renders up to
 | Double scene cost | low frame rate | shared per-frame passes, combined culling, resolution scale, FSR1 |
 | Wrong OpenXR runtime active | runtime name in log | document runtime selection for Meta Link vs SteamVR |
 | Game update | signature scan fails | version table, flat fallback |
+| Game opts out of capture tools (`D3D11_CREATE_DEVICE_PREVENT_ALTERING_LAYER_SETTINGS_FROM_REGISTRY`) | RenderDoc "application requested not to be hooked", null immediate context, crash at `TT2.exe+0x9592dd` | proxy clears flag 0x80 in our `D3D11CreateDeviceAndSwapChain` hook; keep that hook first in the chain |
 
 ## Decisions log
 

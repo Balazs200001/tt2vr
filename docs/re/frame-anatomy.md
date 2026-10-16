@@ -278,6 +278,8 @@ Nothing in sections 1 to 9 is `confirmed` at runtime until the row is ticked. Ca
 
 ### Capture procedure (summary)
 
+> **Blocker (confirmed 2026-10-16):** RenderDoc cannot capture the unmodified game. `EnableVideoAdapter` passes `Flags = 0x80` (`D3D11_CREATE_DEVICE_PREVENT_ALTERING_LAYER_SETTINGS_FROM_REGISTRY`) to `D3D11CreateDeviceAndSwapChain`; RenderDoc treats that flag as "application requested not to be hooked" (its log, `d3d11_hooks.cpp(163)`), skips wrapping the device while DXGI is already wrapped, and the call returns S_OK with a null immediate context. The game then crashes at `TT2.exe+0x9592dd` (`mov r9,[rcx]`, QueryInterface on context slot 0). Confirmed 2026-10-16 from 3 CrashRpt minidumps (access violation reading 0, rcx = 0, loop index 0, returned feature level 11_1) and the RenderDoc log; NVIDIA NvCamera and the Steam overlay were ruled out. Fix: our proxy hooks `D3D11CreateDeviceAndSwapChain` and clears bit 0x80 before the call goes on (debug-layer registry behaviour only; no gameplay effect). Until the Phase 1 proxy exists, every RenderDoc launch (Steam launch option or qrenderdoc) crashes during device creation. Disabling NVIDIA Ansel or the Steam overlay does not help.
+
 Full steps, caveats and fallbacks are in the Phase 0 capture notes; the export script is `tools/renderdoc/rd_export_frame.py`.
 
 1. **Prep.** `mkdir C:\dev\tt2vr-re\rdc`. Close the NVIDIA overlay, Steam overlay (or untick 'Enable the Steam Overlay while in-game'), Discord, RTSS/Afterburner. If the game crashes at start, disable Ansel in the NVIDIA app.
