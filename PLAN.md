@@ -203,10 +203,13 @@ Implementation notes (2026-10-16):
   - search constant buffer updates for a 4×4 whose upper 3×3 is orthonormal and whose translation changes as the bike moves;
   - put a hardware write breakpoint (x64dbg) on its CPU-side source to find the writer function, then walk up the call chain in Ghidra/REA;
   - cross-check with the strings route from Phase 0.
-- [ ] Document in `docs/re/camera.md`: the camera object fields we use; where world→view and projection are built (fovY, aspect, near, far, jitter); where the culling frustum comes from.
+  - 2026-10-16: found statically instead (Phase 0 strings route + Ghidra): pool matrix written by `KTUCamera::Update` → read by `ViewContext::InitFromCamera` 0x14091aeb0 → `cbCameraStd` (runtime f8323). Remaining: the runtime log check of the world matrix and camera fields (`docs/re/camera.md` section 7, checks 1–2); no breakpoint needed.
+- [x] Document in `docs/re/camera.md`: the camera object fields we use; where world→view and projection are built (fovY, aspect, near, far, jitter); where the culling frustum comes from. Done 2026-10-16 (fov is horizontal; runtime checks listed in its section 7).
 - [ ] `game::CameraOverride`: hook after the camera update; overlay sliders for yaw, pitch, roll and position offset.
+  - Code done 2026-10-16 (`src/game/camera.*`): `DoUpdate` pre + `InitFromCamera` post-fix-up of the main ViewContext; the scene-graph pool is never written. Runtime test pending.
 - [ ] Projection override: inject an asymmetric frustum (e.g. shifted 20% right) and verify both the image and culling.
-- [ ] Unit tests: projection-from-FOV builder against hand-computed values; XR→engine basis conversion.
+  - Code done 2026-10-16: `MatrixPerspectiveFovRH` choke point, reshapes calls whose fov is the main camera's fov or front fov inside the DoUpdate→Present window. Runtime test pending.
+- [x] Unit tests: projection-from-FOV builder against hand-computed values; XR→engine basis conversion. `tests/test_math.cpp` (11 cases) + signature table test; 42 cases pass.
 
 **Done when:** I can turn the helmet camera 360° from the overlay with no culling holes and correct depth, and an asymmetric projection renders correctly at the frustum edges.
 
@@ -321,6 +324,9 @@ Approach (proposed 2026-10-16, see "Phase 0 findings"): the engine renders up to
 | 2026-10-15 | GPU captures: Balazs drives the game into the wanted state; Claude triggers captures (Phase 1 command file + RenderDoc in-app API) and analyses them through a RenderDoc MCP server | Claude can't play or see the game, but can read every capture itself |
 | 2026-10-16 | Loader: `dinput8.dll` proxy (forwards its 5 exports, loads `tt2vr\tt2vr.dll`) that hooks `D3D11CreateDeviceAndSwapChain` | static import of TT2.exe and not a KnownDLL, so it loads before any game code; no game copy to overwrite; leaves `d3d11.dll`/`dxgi.dll` free for ReShade-style tools |
 | 2026-10-16 | Stereo approach (proposed, validate in Phase 4): engine split-screen two-view path, eye k = camera index k (mechanism C); alternate-eye + A/B1 kept as fallback | engine already keeps per-camera-index temporal history and renders both views from one simulation frame |
+| 2026-10-16 | Signatures resolve by TT2.exe export name first, pattern scan as fallback (CLAUDE.md rule 3 reworded) | PlayAll engine functions are exported by mangled name, which survives code changes better than byte patterns; patterns stay as a checked fallback |
+| 2026-10-16 | Camera override changes the main ViewContext after `InitFromCamera`, never the scene-graph pool; projection reshaped at the `MatrixPerspectiveFovRH` choke point inside the DoUpdate→Present window | the pool camera matrix is read by audio, physics and camera logic (rule 5); 20 render-side callers rebuild symmetric projections from the camera fields |
+| 2026-10-16 | Pure matrix code lives in a `tt2vr_math` static lib (`src/stereo/math`), linked by the DLL and the tests | testable without the game; DirectXMath is header-only, no new dependency |
 | TBD (Phase 4) | Temporal mechanism per state (C / A / B1 / B2) | |
 
 ## Open questions (answer in Phase 0)
