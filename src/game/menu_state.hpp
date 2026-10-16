@@ -1,19 +1,25 @@
-// game::MenuState (Phase 3 interim menu screen, PLAN Phase 7): is a game menu open or the game paused?
-// Read through KTUGuiManager's own exported accessors on g_pGuiManager (docs/re/frame-anatomy.md 8.4), never by
-// writing anything. Semantics are `likely` until the runtime check (log lines "menu state: ...") confirms that a
-// race shows neither flag and the main menu / pause screen show one of them.
+// game::MenuState (Phase 3 interim menu screen, PLAN Phase 7): should the headset show the flat game on a screen
+// (menus, intros, pause, replays) or the head-tracked view (riding)?
+// Signals, all read-only (docs/re/frame-anatomy.md 8.4, docs/re/camera.md):
+//   1. KTUGuiManager::IsMenuOpen / IsGamePaused on g_pGuiManager (exports). Runtime 2026-10-16: paused is true
+//      during the startup intros; neither is set in TT2's main menu, which runs on its own menu state machine.
+//   2. Riding camera: the player-0 KTUCamera (KTUGameEngine::GetCamera(0) on g_pGameEngine) has an active mode
+//      (KTUCamera+0x48) whose Manage slot is TTSpringCameraMode::Manage, the on-bike camera for every ride view.
+//      Menu, intro and replay cameras use other modes.
+// Screen = menu open || paused || the riding camera is not active.
 #pragma once
 
 namespace game {
 
 struct MenuState {
-    bool available = false; // signatures resolved
+    bool available = false; // signals resolved (else never a menu: head tracking as in Phase 3)
     bool menuOpen = false;
     bool paused = false;
-    bool Active() const { return menuOpen || paused; }
+    bool springCamera = false; // player camera is in TTSpringCameraMode (riding)
+    bool Active() const { return available && (menuOpen || paused || !springCamera); }
 };
 
-// Resolves the accessors (after ResolveSignatures). Missing ones leave `available` false: never a menu.
+// Resolves the accessors (after ResolveSignatures). Missing ones leave `available` false.
 void InitMenuState();
 // Thread: game main thread. Reads the state and logs every change.
 MenuState ReadMenuState();

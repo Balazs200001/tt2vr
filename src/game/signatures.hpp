@@ -30,6 +30,9 @@ enum class Sig {
     GuiManagerInstance,
     GuiManagerIsMenuOpen,
     GuiManagerIsGamePaused,
+    GameEngineInstance,
+    GameEngineGetCamera,
+    SpringCameraModeManage,
     Count,
 };
 
@@ -75,6 +78,16 @@ inline constexpr Signature kSignatures[] = {
         kBuild4989319},
     {"KTUGuiManager::IsGamePaused", "?IsGamePaused@KTUGuiManager@@QEBA_NXZ", nullptr, 0,
         "export; 0x14043b420, movzx eax, byte [rcx+0xe8] (set by PauseGame; too short for a pattern)", kBuild4989319},
+    {"g_pGameEngine", "?g_pGameEngine@@3PEAVKTUGameEngine@@EA", nullptr, 0,
+        "data export; 0x1414150b0, KTUGameEngine* (read by KTUCamera::Update at 0x1409d906d)", kBuild4989319},
+    {"KTUGameEngine::GetCamera", "?GetCamera@KTUGameEngine@@UEAAPEAVKTUCamera@@H@Z", nullptr, 0,
+        "export; 0x140651200, player i (count +0x3b4) -> GetPlayerStruct(i)+0x18 = KTUCamera* (too short for a pattern)",
+        kBuild4989319},
+    {"TTSpringCameraMode::Manage", nullptr,
+        "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 30 48 8B D9 48 8B F2 48 8B 89 38 01 00 00 0F B6 93 40 01 00 00",
+        0, "TT2 code, not exported; 0x14019d700 = slot 6 (+0x30) of the TTSpringCameraMode vftable 0x140f338f8; "
+           "first 20 bytes already unique in .text",
+        kBuild4989319},
 };
 
 static_assert(std::size(kSignatures) == static_cast<std::size_t>(Sig::Count), "kSignatures must match Sig");

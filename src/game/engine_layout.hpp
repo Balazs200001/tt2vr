@@ -38,6 +38,10 @@ inline constexpr std::ptrdiff_t kTTCameraHelmetActor = 0x160; // HelmetView acto
 inline constexpr std::ptrdiff_t kModeCameraMatrix = 0x8; // Matrix34 the mode outputs
 inline constexpr std::ptrdiff_t kModeHelmetMatrix = 0x4c4; // Matrix34 from HelmetSprings (built from +0x8)
 
+// KTUCamera / KTUCameraMode (game side; read only, never written)
+inline constexpr std::ptrdiff_t kKTUCameraMode = 0x48; // active KTUCameraMode*; KTUCamera::Update calls its Manage
+inline constexpr int kModeManageSlot = 6; // vtable slot (+0x30): Manage, called at 0x1409d9125
+
 // PlayAll::Game::Renderer
 inline constexpr std::ptrdiff_t kRendererSplitMode = 0xe40; // cameraDesc.splitMode (0 = one view)
 inline constexpr std::ptrdiff_t kRendererSplitCameras = 0xe48; // Camera*[2]
