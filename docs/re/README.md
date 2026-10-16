@@ -69,7 +69,9 @@ Snapshot: `C:\dev\tt2vr-re\logs\TT Isle of Man 2.build4989319.2026-10-15T1304.lo
 - Engine defaults: `COMMON:/SETTINGS/DUMMYS.DAT` (`<game>\Common\Settings\DUMMYS.DAT`, XOR-obfuscated Lua, decrypted by `VirtualFile::EncryptDecrypt` 0x140786f20). Never modify it.
 - User settings: Options menu → `SettingsManager::Apply` → `GameEngine::SaveUserSettings` 0x1404d2a20 writes `<Documents>\My Games\TT Isle of Man 2\UserSettings.cfg` (Lua, serialisable CVars only). On this machine: `C:\Users\Balazs\OneDrive\Documents\My Games\TT Isle of Man 2\` (empty until an option is changed). Read at startup by `GameEngine::LoadSettings` 0x1404bbeb0 unless a budget preset is active. Camera/HUD/gameplay options go to the profile (Steam Cloud `Save.dat`), not to CVars.
 - CVars of interest: `Engine.Renderer.AntiAliasing` (0 off, 1 FXAA, 2 FXAA_TAA, 3 TAA), `Engine.Renderer.MotionBlur.*`, `Engine.Device.{VSync,ScreenMode,ResolutionWidth,ResolutionHeight,RefreshRate}`, `Engine.Renderer.DynamicResolution.*`, `Engine.Renderer.RenderJobCount`, `Engine.Renderer.UseAnsel`.
-- Use TAA (mode 2 or 3) for all captures. A `UserSettings.cfg` in Documents can probably force resolution and AA without touching game files (syntax to confirm by letting the game write the file once).
+- In-game menu (confirmed by Balazs, 2026-10-16): AA Off / FXAA / TAA, motion blur Off / Low / Normal, dynamic resolution On / Off, no FOV option. Menu "TAA" is written as `Engine.Renderer.AntiAliasing = "FXAA_TAA";` (mode 2).
+- `UserSettings.cfg` syntax (confirmed, written by the game): one `Engine.Group.Name = value;` line per CVar, strings quoted (`Engine.Device.ScreenMode = "Borderless";`, `Engine.Renderer.DynamicResolution.DynamicResolutionMode = "Off";`). Resolution: `Engine.Device.ResolutionWidth/ResolutionHeight`. This is the route for forcing per-eye render size in Phase 3/4 without touching game files.
+- Captures use AA = TAA (`FXAA_TAA`), dynamic resolution Off.
 
 ## Tooling for this build
 

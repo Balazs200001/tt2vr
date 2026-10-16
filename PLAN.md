@@ -128,8 +128,8 @@ Goal: know exactly what we're dealing with before writing hooks.
 - [x] Create `.claude/settings.local.json` (gitignored) with `permissions.additionalDirectories` for `<TT2_GAME_DIR>\tt2vr` and `C:\dev\tt2vr-re`, so Claude Code can read logs, dumps and captures.
 
 **Toolchain**
-- [ ] VS 2022 (Desktop C++), CMake ≥ 3.28, vcpkg, Git. Install plan ready (a stale VS instance on the missing D: drive must be cleaned first); waiting for Balazs to run the elevated steps.
-- [ ] RenderDoc, x64dbg, and a PE inspector (PE-bear or Detect It Easy). RenderDoc 1.46 done; x64dbg / PE-bear are in the install plan.
+- [x] VS 2022 (Desktop C++), CMake ≥ 3.28, vcpkg, Git. VS Community 17.14, CMake 4.4.4, vcpkg at `C:/tools/vcpkg` (`VCPKG_ROOT`).
+- [x] RenderDoc, x64dbg, and a PE inspector (PE-bear or Detect It Easy). RenderDoc 1.46; x64dbg, PE-bear, DIE in `C:/tools/`.
 - [x] RenderDoc MCP server for capture analysis (vetted community server with a qrenderdoc bridge), registered with Claude Code. LifeSugar/RenderDoc_MCP @359e4e3, hardened locally (program launch removed, captures limited to `C:\dev\tt2vr-re\rdc`); RenderDoc upgraded to 1.46.
 - [x] Ghidra 12.1.4 and JDK 21, then REA (REA times out on TT2.exe at the default; user env `REA_GHIDRA_STARTUP_TIMEOUT_MS=2700000` + `GHIDRA_HEADLESS_MAXMEM=12G` set, effective after a restart; meanwhile use the `tools/ghidra/` query server) (`npm install --global rea-agents`). On Windows `rea setup` doesn't run, so:
   - set `GHIDRA_INSTALL_DIR`, `JAVA_HOME` and `REA_ANALYSIS_PROVIDER=ghidra`, then check with `rea doctor --json`;
@@ -141,7 +141,7 @@ Goal: know exactly what we're dealing with before writing hooks.
 - [x] Steam build ID, exe name, SHA-256. Copy the exe into `tt2vr-re/bin/<build-id>/`.
 - [x] Bitness and imports (d3d11/dxgi, input DLLs).
 - [x] Protection status (SteamStub only, code not encrypted; engine AntiCheatManager inert): section names, entropy, Steam DRM wrapper, Denuvo, anti-cheat folders. **If the exe is packed or encrypted on disk, stop and discuss with me. Don't remove DRM.**
-- [ ] In-game graphics options (AA modes including TAA, motion blur, resolution, FOV) and the config file location. Use the TAA setting for all captures. Config location and CVars found (static); Balazs to confirm the in-game option list.
+- [x] In-game graphics options (AA modes including TAA, motion blur, resolution, FOV) and the config file location. Use the TAA setting for all captures. Menu: AA Off / FXAA / TAA (menu "TAA" is stored as `FXAA_TAA` = mode 2), motion blur Off / Low / Normal, dynamic resolution On/Off, no FOV option. Config: `Documents/My Games/TT Isle of Man 2/UserSettings.cfg`, plain `Engine.X.Y = value;` lines.
 
 **Frame anatomy (RenderDoc) → `docs/re/frame-anatomy.md`**
 - [ ] Capture helmet-cam frames: daytime on the TT course, plus one in a menu.
