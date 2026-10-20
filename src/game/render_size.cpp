@@ -10,10 +10,12 @@ namespace game {
 namespace {
 
 using ClientSizeFn = void (*)(HWND window, int* width, int* height);
+using UpdateWindowResolutionFn = void (*)(void* videoDevice, HWND window);
 using GetVideoDeviceFn = void* (*)();
 using SetDeviceResetNeededFn = void (*)(void* videoDevice, void* window);
 
 ClientSizeFn g_clientSize = nullptr;
+UpdateWindowResolutionFn g_updateWindowResolution = nullptr;
 GetVideoDeviceFn g_getVideoDevice = nullptr;
 SetDeviceResetNeededFn g_setDeviceResetNeeded = nullptr;
 const void* g_dx11Vftable = nullptr;
@@ -33,6 +35,21 @@ void HookedClientSize(HWND window, int* width, int* height)
         *width = w;
         *height = h;
     }
+}
+
+// Thread: game main thread (RenderWindowWin32::DefaultWndProc, WM_SIZE in Windowed mode).
+void HookedUpdateWindowResolution(void* videoDevice, HWND window)
+{
+    if (g_width.load(std::memory_order_relaxed) > 0 && window && window == g_window.load(std::memory_order_relaxed)) {
+        static bool s_logged = false;
+        if (!s_logged) {
+            s_logged = true;
+            TT2VR_LOG_INFO("render size: window resize handling skipped while the render size is forced (the "
+                           "window keeps its own size)");
+        }
+        return;
+    }
+    g_updateWindowResolution(videoDevice, window);
 }
 
 } // namespace
@@ -56,6 +73,14 @@ bool InstallRenderSizeHook()
                    &g_clientSize) == core::hooks::Result::Ok;
     if (g_active) {
         TT2VR_LOG_INFO("render size: hook installed");
+    }
+    if (g_active) {
+        void* update = SignatureAddress(Sig::VideoDeviceUpdateWindowResolution);
+        if (!update || core::hooks::Create("VideoDeviceDX11Windows::UpdateWindowResolution", update,
+                           &HookedUpdateWindowResolution, &g_updateWindowResolution) != core::hooks::Result::Ok) {
+            TT2VR_LOG_WARN("render size: UpdateWindowResolution not hooked; in Windowed mode the game may resize its "
+                           "window to the render size (use Borderless)");
+        }
     }
     return g_active;
 }

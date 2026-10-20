@@ -386,6 +386,8 @@ Static, build 4989319 (Ghidra query server, 2026-10-16). Confidence `confirmed (
 
 Mod rule (`src/game/render_size.*`): hook the reader (post) and report the eye size for the game's main window only. This keeps `ResizeBuffers`, the viewport, `+0x418/+0x500` and every derived RT consistent; a `ResizeBuffers`-argument override alone would not. `PostFlip` compares `+0x418` with `+0x500` each frame, and both come from the same reader, so no reset loop. Use Borderless or Windowed, not Fullscreen. The game's own mouse input stays in window client coordinates (menus may mis-map clicks; Phase 7).
 
+Windowed-mode window resize (runtime 2026-10-20): `RenderWindowWin32::DefaultWndProc` (call 0x140709899) -> `UpdateWindowResolution` 0x14095c270 (only for ScreenMode 0 = Windowed, guard `this+0x4d9`) reads the client size through the hooked reader and calls `SetSize` 0x14095bc20, which `SetWindowPos`es the window to that client size (+ frame) and writes `+0x418/+0x500`. With the forced eye size this made the window ~3540 wide (wider than the monitor; Windows clamped only the height). Mod rule: skip `UpdateWindowResolution` for the main window while a size is forced (Borderless never reaches it).
+
 Frame-structure rule for a VR hook: **a frame with a fullscreen movie contains no 3D render at all** (no `DeferredRenderLoop::Render` call), so any per-eye render loop must tolerate "no scene this frame" and fall back to the theater quad.
 
 ---

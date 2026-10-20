@@ -9,6 +9,9 @@
 // Hook (post, game main thread): for the game's main window only, report the forced size instead of the client rect.
 // A size change asks for a device reset with the engine's own SetDeviceResetNeeded(nullptr); the next PostFlip
 // runs DeviceReset. The window itself keeps its size; the desktop shows the back buffer stretched.
+// Second hook: UpdateWindowResolution is skipped for the main window while a size is forced. In Windowed mode it
+// passes the (forced) client size to SetSize, which SetWindowPos'es the real window to it (runtime 2026-10-20: the
+// window became ~3540 wide, wider than the monitor). The forced size reaches the RTs through DeviceReset anyway.
 #pragma once
 
 #include <windows.h>

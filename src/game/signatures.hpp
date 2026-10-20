@@ -44,6 +44,7 @@ enum class Sig {
     EffectorMapManagerInstance,
     EffectorMapManagerSetCenterWorldPos,
     DeferredRenderLoopVftable,
+    VideoDeviceUpdateWindowResolution,
     Count,
 };
 
@@ -135,6 +136,11 @@ inline constexpr Signature kSignatures[] = {
         kBuild4989319},
     {"DeferredRenderLoop vftable", "??_7DeferredRenderLoop@Graphics@PlayAll@@6B@", nullptr, 0,
         "data export; 0x140f7bfc8, checked against Renderer+0xd30 before touching DeferredRenderLoop fields",
+        kBuild4989319},
+    {"VideoDeviceDX11Windows::UpdateWindowResolution",
+        "?UpdateWindowResolution@VideoDeviceDX11Windows@Graphics@PlayAll@@QEAAXPEAUHWND__@@@Z", nullptr, 0,
+        "export; 0x14095c270, WM_SIZE in Windowed mode (RenderWindowWin32::DefaultWndProc 0x140709899): reads the "
+        "client size (FUN_140959f80) and SetSize 0x14095bc20 -> SetWindowPos to that size",
         kBuild4989319},
 };
 
