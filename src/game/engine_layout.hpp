@@ -27,6 +27,8 @@ inline constexpr std::ptrdiff_t kViewViewportW = 0x340; // int
 inline constexpr std::ptrdiff_t kViewViewportH = 0x344; // int
 inline constexpr std::ptrdiff_t kViewProjOffset = 0x448; // float2, TAA jitter / Ansel offset
 inline constexpr std::ptrdiff_t kViewCamera = 0x450; // Camera*
+inline constexpr std::ptrdiff_t kViewCameraIndex = 0x464; // ushort, selects the per-slot history (0 / 1)
+inline constexpr std::ptrdiff_t kViewHudList = 0x5e8; // HudItemList* (3D HUD flags 8 / 0x14, per-view 2D HUD 0x22)
 
 // TransformMatrix slots (4x4, engine layout, stride 0x40)
 inline constexpr std::ptrdiff_t kTmView = 0x00;
@@ -66,6 +68,7 @@ inline constexpr std::ptrdiff_t kViewContextSize = 0x620;
 inline constexpr std::ptrdiff_t kRendererRenderLoop = 0xd30; // active RenderLoop*
 inline constexpr std::ptrdiff_t kRendererScenes = 0xd80; // Scene*[2], per view (lighting, fog)
 inline constexpr std::ptrdiff_t kRenderLoopDeferredLighting = 0x1e78; // DeferredLighting* (GetDeferredLighting)
+inline constexpr std::ptrdiff_t kRenderLoopMainContext = 0x1f00; // RenderContext re-prepared for every view
 // DeferredLighting, per camera index (set by FUN_1403aec70 on view changes)
 inline constexpr std::ptrdiff_t kLightingFrontPassSsr = 0x1e; // byte[2], 0 in first person
 inline constexpr std::ptrdiff_t kLightingProbeFactor = 0x34; // float[2], 0.35 in first person, else 1.0
