@@ -79,6 +79,12 @@ std::vector<Command> ParseCommands(std::string_view text)
         else if (word == "xrprobe") {
             c.kind = CommandKind::XrProbe;
         }
+        else if (word == "leaktest") {
+            c.kind = CommandKind::LeakTest;
+        }
+        else if (word == "taareset") {
+            c.kind = CommandKind::TaaReset;
+        }
         commands.push_back(std::move(c));
     }
     return commands;

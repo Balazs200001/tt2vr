@@ -8,6 +8,7 @@
 #include "game/signatures.hpp"
 #include "game/split_view.hpp"
 #include "game/shared_exposure.hpp"
+#include "game/taa_control.hpp"
 #include "game/vr_effects.hpp"
 #include "stereo/math/projection.hpp"
 #include "stereo/math/xr_to_engine.hpp"
@@ -201,6 +202,7 @@ void BeginFrame(void* renderer)
     g_autoLookFix = stereo::Identity34();
     g_info.autoLookYawDeg = 0.0f;
     OnSharedExposureFrame();
+    OnTaaFrame(xr::RecenterCount());
     g_renderer = renderer;
     // The game's own CameraDesc, not the Renderer fields: while two views run those hold our desc.
     const void* camera = GameMainCamera(renderer);

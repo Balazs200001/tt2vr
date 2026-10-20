@@ -16,6 +16,8 @@ enum class CommandKind {
     ShaderRegistry,   // "shaders"
     Camera,           // "camera": log the main view camera (Phase 2) and return a summary line
     XrProbe,          // "xrprobe": alpha of the back buffer and of the images handed to the headset (next frame)
+    LeakTest,         // "leaktest": tint eye 0's TAA input for one frame, report red in each back-buffer half
+    TaaReset,         // "taareset": reset both eyes' TAA history next frame
     Unknown,
 };
 

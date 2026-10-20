@@ -53,6 +53,7 @@ bool SessionRunning(); // between xrBeginSession and xrEndSession
 // the back buffer and of each submitted image (after our alpha pass) and reports their alpha (main thread).
 void RequestAlphaProbe(std::function<void(const std::string&)> done);
 void RequestRecenter(); // hotkey / overlay; applied at the next LocateViews
+unsigned RecenterCount(); // increments whenever a recenter is applied (the view jumps; TAA history is reset)
 void RequestRestart(); // overlay: tear everything down and start again (also after the runtime asked us to exit)
 
 struct Status {

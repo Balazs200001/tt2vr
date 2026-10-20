@@ -28,6 +28,7 @@
 #include "game/split_view.hpp"
 #include "game/shared_exposure.hpp"
 #include "game/ssao_fix.hpp"
+#include "game/taa_control.hpp"
 #include "game/version.hpp"
 #include "ui/input_diag.hpp"
 #include "ui/overlay.hpp"
@@ -142,6 +143,16 @@ void RunCommands()
                 done(r);
                 break;
             }
+            case core::CommandKind::LeakTest:
+                game::RequestLeakTest([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
+                break;
+            case core::CommandKind::TaaReset: {
+                game::RequestTaaReset("remote command");
+                const std::string r = "taareset ok (next frame, both eyes)";
+                AddResult(origin, r);
+                done(r);
+                break;
+            }
             case core::CommandKind::XrProbe:
                 xr::RequestAlphaProbe([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;
@@ -220,6 +231,7 @@ void InstallEngineHooksOnce()
         game::InitSplitView();
         game::InstallSsaoFix();
         game::InstallSharedExposure();
+        game::InstallTaaControl();
     }
     else {
         TT2VR_LOG_WARN("engine hooks skipped: unknown game version");
@@ -287,6 +299,7 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
             }
             trace::End(g_frame);
             dump::End(g_frame, self);
+            game::OnTaaPresent(self, g_device, g_immediate); // reads the engine's frame, before eyes and mirror
             xr::OnFrameEnd(self, g_immediate); // before the overlay, so the overlay stays on the desktop
             xr::DrawDesktopMirror(self, g_immediate, g_window);
             if (!renderdoc::Busy()) {

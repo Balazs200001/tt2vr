@@ -71,6 +71,7 @@ struct State {
     bool recenterPending = true;
     XrTime recenterAfter = 0;
     stereo::Vec3 lastPosition[2] = {};
+    unsigned recenterCount = 0;
 
     Status status;
     bool syncWarned = false;
@@ -743,6 +744,7 @@ bool LocateInternal()
                 (l.position.z + r.position.z) * 0.5f}};
         g.recenter = stereo::RecenterFromHead(head);
         g.recenterPending = false;
+        ++g.recenterCount;
         TT2VR_LOG_INFO("xr: recentered at head position [{:.3f} {:.3f} {:.3f}] (LOCAL space)", head.position.x,
             head.position.y, head.position.z);
     }
@@ -895,6 +897,11 @@ void RequestAlphaProbe(std::function<void(const std::string&)> done)
 bool SessionRunning()
 {
     return g.running;
+}
+
+unsigned RecenterCount()
+{
+    return g.recenterCount;
 }
 
 void RequestRecenter()
