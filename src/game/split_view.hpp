@@ -32,6 +32,9 @@ const void* GameMainCamera(void* renderer);
 // `riderCamera` = the TT2 camera controller last seen in its physics step (or nullptr): its per-camera-index
 // state (own suit/helmet hidden in first person, shadow decal, first-person lighting) is copied from index 0 to 1.
 void ApplySplitView(void* renderer, const void* camera, bool twoViews, const void* riderCamera);
+// True if `rider` (a TT2 camera controller, FUN_1403afc80's `this`) belongs to the local player with camera index
+// 0. Several controllers run their physics step per frame (runtime 2026-10-16: the last one seen was not local).
+bool IsLocalRiderCamera(const void* rider);
 // This frame was set up as two views (valid from ApplySplitView to the next one).
 bool SplitViewActive();
 

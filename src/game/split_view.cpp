@@ -233,6 +233,17 @@ void Stop(void* renderer)
 
 } // namespace
 
+bool IsLocalRiderCamera(const void* rider)
+{
+    __try {
+        const void* player = rider ? Read<const void*>(rider, kTTCameraPlayer) : nullptr;
+        return player && Read<int>(player, kPlayerKind) == 0 && Read<std::uint16_t>(player, kPlayerCameraIndex) == 0;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 void InitSplitView()
 {
     g_rtm = static_cast<void* const*>(SignatureAddress(Sig::RenderTargetManagerInstance));
