@@ -281,7 +281,18 @@ bool CreateSession()
     if (XR_SUCCEEDED(xrEnumerateEnvironmentBlendModes(g.instance, g.system, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
             8, &blendCount, blendModes)) &&
         blendCount > 0) {
+        // A game view must be opaque. The runtime lists its modes in its own preference order, which need not start
+        // with OPAQUE (2026-10-20: the SteamVR background showed through the riding view at ~20%).
         g.blendMode = blendModes[0];
+        std::string modes;
+        for (std::uint32_t i = 0; i < blendCount && i < 8; ++i) {
+            modes += fmt::format("{}{}", i ? ", " : "", static_cast<int>(blendModes[i]));
+            if (blendModes[i] == XR_ENVIRONMENT_BLEND_MODE_OPAQUE) {
+                g.blendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+            }
+        }
+        TT2VR_LOG_INFO("xr: environment blend modes offered [{}] (1 opaque, 2 additive, 3 alpha blend); using {}",
+            modes, static_cast<int>(g.blendMode));
     }
 
     XrGraphicsBindingD3D11KHR binding{XR_TYPE_GRAPHICS_BINDING_D3D11_KHR};
@@ -473,6 +484,68 @@ ComPtr<ID3D11Texture2D> BackBuffer(IDXGISwapChain* swapChain, D3D11_TEXTURE2D_DE
     return back;
 }
 
+// Alpha probe ("xrprobe"): min / mean / max alpha of a 64x64 patch at (x, y), via a staging copy (stalls once).
+std::string ProbeAlpha(ID3D11DeviceContext* context, ID3D11Texture2D* texture, UINT x, UINT y, const char* name)
+{
+    D3D11_TEXTURE2D_DESC d{};
+    texture->GetDesc(&d);
+    const DXGI_FORMAT typeless = d3d::TypelessOf(d.Format);
+    if (typeless != DXGI_FORMAT_R8G8B8A8_TYPELESS && typeless != DXGI_FORMAT_B8G8R8A8_TYPELESS) {
+        return fmt::format("{}: format {} not probed", name, static_cast<int>(d.Format));
+    }
+    x = std::min(x, d.Width > 64 ? d.Width - 64 : 0u);
+    y = std::min(y, d.Height > 64 ? d.Height - 64 : 0u);
+    const UINT w = std::min(64u, d.Width), h = std::min(64u, d.Height);
+    D3D11_TEXTURE2D_DESC sd{};
+    sd.Width = w;
+    sd.Height = h;
+    sd.MipLevels = 1;
+    sd.ArraySize = 1;
+    sd.Format = d.Format;
+    sd.SampleDesc.Count = 1;
+    sd.Usage = D3D11_USAGE_STAGING;
+    sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ComPtr<ID3D11Texture2D> staging;
+    if (FAILED(g.device->CreateTexture2D(&sd, nullptr, &staging))) {
+        return fmt::format("{}: staging texture failed", name);
+    }
+    const D3D11_BOX box{x, y, 0, x + w, y + h, 1};
+    context->CopySubresourceRegion(staging.Get(), 0, 0, 0, 0, texture, 0, &box);
+    D3D11_MAPPED_SUBRESOURCE m{};
+    if (FAILED(context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &m))) {
+        return fmt::format("{}: map failed", name);
+    }
+    int lo = 255, hi = 0;
+    double sum = 0;
+    for (UINT row = 0; row < h; ++row) {
+        const auto* p = static_cast<const std::uint8_t*>(m.pData) + row * m.RowPitch;
+        for (UINT col = 0; col < w; ++col) {
+            const int a = p[col * 4 + 3];
+            lo = std::min(lo, a);
+            hi = std::max(hi, a);
+            sum += a;
+        }
+    }
+    context->Unmap(staging.Get(), 0);
+    return fmt::format("{} {}x{} fmt {}: alpha min {} mean {:.1f} max {}", name, d.Width, d.Height,
+        static_cast<int>(d.Format), lo, sum / (w * h), hi);
+}
+
+std::function<void(const std::string&)> g_probe; // pending "xrprobe"
+
+void FinishProbe(std::string text)
+{
+    if (!g_probe) {
+        return;
+    }
+    text += fmt::format("; swapchain format {}, layer flags 0, blend mode {}, presentation {}, copy {}",
+        static_cast<int>(g.format), static_cast<int>(g.blendMode), g.status.presentation, g.status.copyMode);
+    TT2VR_LOG_INFO("xrprobe: {}", text);
+    auto done = std::move(g_probe);
+    g_probe = nullptr;
+    done("xrprobe ok " + text);
+}
+
 // Side by side (two views): eye k <- back-buffer half k. Otherwise eye 0 <- back buffer, eye 1 <- black (left eye
 // only, Phase 3 mode).
 bool WriteEyes(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
@@ -504,6 +577,11 @@ bool WriteEyes(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
         constexpr float kBlack[4] = {0.0f, 0.0f, 0.0f, 1.0f};
         context->ClearRenderTargetView(right.Rtv(), kBlack);
     }
+    if (g_probe) {
+        // The left image is released already; probe the back buffer and the right image (same copy path).
+        FinishProbe(ProbeAlpha(context, back.Get(), bd.Width / 4, bd.Height / 2, "back buffer") + "; " +
+                    ProbeAlpha(context, right.Texture(), right.Width() / 2, right.Height() / 2, "right eye image"));
+    }
     right.Release(g.instance);
     return mode != nullptr && rightMode != nullptr;
 }
@@ -528,6 +606,11 @@ bool WriteScreen(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, XrComp
         return false;
     }
     const char* mode = CopyBackBuffer(g.screen, back.Get(), bd, context, 0, w);
+    if (g_probe && mode) {
+        FinishProbe(ProbeAlpha(context, back.Get(), bd.Width / 4, bd.Height / 2, "back buffer") + "; " +
+                    ProbeAlpha(context, g.screen.Texture(), g.screen.Width() / 2, g.screen.Height() / 2,
+                        "screen image"));
+    }
     g.screen.Release(g.instance);
     if (!mode) {
         return false;
@@ -795,6 +878,18 @@ void DrawDesktopMirror(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, 
     catch (...) {
         TT2VR_LOG_ERROR("xr: exception in DrawDesktopMirror");
     }
+}
+
+void RequestAlphaProbe(std::function<void(const std::string&)> done)
+{
+    if (!g.running) {
+        done("xrprobe FAILED: no XR session running");
+        return;
+    }
+    if (g_probe) {
+        g_probe("xrprobe FAILED: superseded by a newer request");
+    }
+    g_probe = std::move(done);
 }
 
 bool SessionRunning()

@@ -76,6 +76,9 @@ std::vector<Command> ParseCommands(std::string_view text)
         else if (word == "camera") {
             c.kind = CommandKind::Camera;
         }
+        else if (word == "xrprobe") {
+            c.kind = CommandKind::XrProbe;
+        }
         commands.push_back(std::move(c));
     }
     return commands;

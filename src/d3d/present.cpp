@@ -140,6 +140,9 @@ void RunCommands()
                 done(r);
                 break;
             }
+            case core::CommandKind::XrProbe:
+                xr::RequestAlphaProbe([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
+                break;
             case core::CommandKind::Unknown:
                 done(fmt::format("unknown command: {}", cmd.text));
                 break;

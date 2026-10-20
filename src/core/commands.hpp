@@ -15,6 +15,7 @@ enum class CommandKind {
     RenderDocCapture, // "capture [name]" / "renderdoc [name]"
     ShaderRegistry,   // "shaders"
     Camera,           // "camera": log the main view camera (Phase 2) and return a summary line
+    XrProbe,          // "xrprobe": alpha of the back buffer and of the images handed to the headset (next frame)
     Unknown,
 };
 

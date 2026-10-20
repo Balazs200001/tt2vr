@@ -21,6 +21,7 @@
 #include <dxgi.h>
 
 #include <cstdint>
+#include <functional>
 #include <string>
 
 namespace xr {
@@ -48,6 +49,9 @@ void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context); // Pre
 void DrawDesktopMirror(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, HWND window);
 
 bool SessionRunning(); // between xrBeginSession and xrEndSession
+// Remote "xrprobe": at the next frame that hands images to the runtime, reads back a 64x64 patch from the centre of
+// the back buffer and of each submitted image (after our alpha pass) and reports their alpha (main thread).
+void RequestAlphaProbe(std::function<void(const std::string&)> done);
 void RequestRecenter(); // hotkey / overlay; applied at the next LocateViews
 void RequestRestart(); // overlay: tear everything down and start again (also after the runtime asked us to exit)
 
