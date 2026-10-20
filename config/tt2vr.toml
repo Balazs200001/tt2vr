@@ -78,6 +78,9 @@ shadow_scale = 2
 # views it stretches and moves with your head; false = off in VR (your in-game setting is kept for flat play and is
 # never changed).
 ssao = false
+# Motion blur while the headset session runs. At VR frame rates the game's camera motion blur smears the bike and
+# rider heavily; false = off in VR (your in-game setting is kept for flat play and is never changed). TAA stays on.
+motion_blur = false
 
 [capture]
 # Folder for frame traces and texture dumps; relative to <game>\tt2vr\ unless absolute.

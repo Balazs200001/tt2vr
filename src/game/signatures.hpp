@@ -54,6 +54,7 @@ enum class Sig {
     IntelSsaoUpdateConstants,
     RenderLayerInstance,
     SsaoEnable,
+    MotionBlurEnable,
     Count,
 };
 
@@ -188,6 +189,11 @@ inline constexpr Signature kSignatures[] = {
     {"IntelSSAO::s_bSSAOEnable", "?s_bSSAOEnable@IntelSSAO@Graphics@PlayAll@@2V?$CVar@_N@Core@3@A", nullptr, 0,
         "data export; 0x14140c730, CVar<bool> Engine.Renderer.SSAO.Enable; value bytes +0x80/+0x81 per camera index "
         "checked per view in DeferredRenderLoop::Render (0x140847c91)",
+        kBuild4989319},
+    {"RenderLoop::s_bMotionBlurEnable", "?s_bMotionBlurEnable@RenderLoop@Graphics@PlayAll@@2V?$CVar@_N@Core@3@A", nullptr,
+        0,
+        "data export; 0x1414077b0, CVar<bool> Engine.Renderer.MotionBlur.Enable; per-slot bytes 0x141407830[idx] gate "
+        "RenderMotionBlur and (with TAA off) the MV pass (docs/re/temporal.md P6)",
         kBuild4989319},
 };
 

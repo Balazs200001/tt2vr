@@ -266,6 +266,7 @@ void ReadXr(const toml::table& t, Config::Xr& out, Warnings& w)
         else if (key == "stereo") s.Bool(key, node, out.stereo);
         else if (key == "shadow_scale") s.Int(key, node, out.shadow_scale, 1, 4);
         else if (key == "ssao") s.Bool(key, node, out.ssao);
+        else if (key == "motion_blur") s.Bool(key, node, out.motion_blur);
         else if (key == "desktop_view") {
             s.String(key, node, out.desktop_view);
             if (out.desktop_view != "left" && out.desktop_view != "both" && out.desktop_view != "game") {

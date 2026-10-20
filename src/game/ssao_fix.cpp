@@ -1,6 +1,5 @@
 #include "game/ssao_fix.hpp"
 
-#include "core/config.hpp"
 #include "core/hooks.hpp"
 #include "core/log.hpp"
 #include "game/engine_layout.hpp"
@@ -66,41 +65,7 @@ void HookedUpdateConstants(void* ssao, int pass, const float* proj)
     }
 }
 
-void* g_ssaoEnable = nullptr; // CVar<bool> Engine.Renderer.SSAO.Enable
-bool g_ssaoOverridden = false;
-
-using UpdateSlotFn = void (*)(void* cvar, unsigned short index, char notify);
-
 } // namespace
-
-void UpdateSsaoOverride(bool vrActive)
-{
-    if (!g_ssaoEnable) {
-        g_ssaoEnable = SignatureAddress(Sig::SsaoEnable);
-        if (!g_ssaoEnable) {
-            return;
-        }
-    }
-    const bool off = vrActive && !core::GetConfig().xr.ssao;
-    if (off) {
-        if (!g_ssaoOverridden) {
-            g_ssaoOverridden = true;
-            TT2VR_LOG_INFO("ssao: off while the headset session runs ([xr] ssao = false; game value {})",
-                Read<std::uint8_t>(g_ssaoEnable, kCVarBoolValue));
-        }
-        Write<std::uint8_t>(g_ssaoEnable, kCVarBoolValue, 0);
-        Write<std::uint8_t>(g_ssaoEnable, kCVarBoolValue + 1, 0);
-        return;
-    }
-    if (g_ssaoOverridden) {
-        g_ssaoOverridden = false;
-        const auto update = reinterpret_cast<UpdateSlotFn>((*static_cast<void* const* const*>(g_ssaoEnable))[kCVarUpdateSlot]);
-        for (unsigned short i = 0; i < 2; ++i) {
-            update(g_ssaoEnable, i, 0); // slot = the CVar's value again
-        }
-        TT2VR_LOG_INFO("ssao: game setting restored ({})", Read<std::uint8_t>(g_ssaoEnable, kCVarBoolValue));
-    }
-}
 
 void InstallSsaoFix()
 {

@@ -63,6 +63,7 @@ struct Config {
         std::string desktop_view = "left"; // window while the session runs: "left" eye, "both" eyes, "game" (raw)
         int shadow_scale = 2; // shadow maps created at this multiple of the game's shadow quality size (1 = off)
         bool ssao = false; // keep the game's SSAO while the headset session runs (screen-space AO swims in VR)
+        bool motion_blur = false; // keep the game's motion blur while the headset session runs (smears in VR)
     } xr;
     struct Capture {
         std::string dir = "captures"; // relative to <game>\tt2vr\ unless absolute
