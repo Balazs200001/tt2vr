@@ -70,6 +70,10 @@ inline constexpr std::ptrdiff_t kRenderLoopDeferredLighting = 0x1e78; // Deferre
 inline constexpr std::ptrdiff_t kLightingFrontPassSsr = 0x1e; // byte[2], 0 in first person
 inline constexpr std::ptrdiff_t kLightingProbeFactor = 0x34; // float[2], 0.35 in first person, else 1.0
 
+// RenderLayer (RenderLayerDX11 instance): vtable slot 14 (+0x70) = constant buffer data allocation
+// (layer, flags, buffer, -1, 0) -> CPU memory, uploaded when the recorded pass executes.
+inline constexpr int kRenderLayerAllocateCbSlot = 14;
+
 // DeferredRenderLoop
 inline constexpr std::ptrdiff_t kDeferredLoopSplitBorder = 0x1e71; // byte, 1 = draw 'Split border' (0x140849344)
 // Engine.Renderer.Split (Lua, RenderLoop::Create 0x1408da8d5): with >= 2 views Render caps every view's CSM cascade

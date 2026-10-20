@@ -51,6 +51,8 @@ enum class Sig {
     GameEngineConfigureRenderer,
     RendererUpdateShadowQuality,
     CsmCreateStaticShadowMap,
+    IntelSsaoUpdateConstants,
+    RenderLayerInstance,
     Count,
 };
 
@@ -173,6 +175,14 @@ inline constexpr Signature kSignatures[] = {
         kBuild4989319},
     {"CascadedShadowMapRenderer::CreateStaticShadowMap", "?CreateStaticShadowMap@CascadedShadowMapRenderer@Graphics@PlayAll@@QEAAHXZ",
         nullptr, 0, "export; 0x140825c20, reads StaticShadow.Size slot 0 (DAT_1413caa10), / 2 per view in split",
+        kBuild4989319},
+    {"IntelSSAO::UpdateConstants", "?UpdateConstants@IntelSSAO@Graphics@PlayAll@@AEAAXHAEBVMatrix44@Math@3@@Z", nullptr,
+        0,
+        "export; 0x140927e20 (this, pass, const Matrix44& proj): g_ASSAOConsts from 1/m00, 1/m11 only (symmetric), "
+        "written into RenderLayer vtbl+0x70 memory",
+        kBuild4989319},
+    {"RenderLayer::s_pInstance", "?s_pInstance@RenderLayer@Graphics@PlayAll@@2PEAV123@EA", nullptr, 0,
+        "data export; 0x141407290, RenderLayerDX11*; its vtable slot +0x70 allocates constant buffer data",
         kBuild4989319},
 };
 

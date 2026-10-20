@@ -26,6 +26,7 @@
 #include "game/menu_state.hpp"
 #include "game/render_size.hpp"
 #include "game/split_view.hpp"
+#include "game/ssao_fix.hpp"
 #include "game/version.hpp"
 #include "ui/input_diag.hpp"
 #include "ui/overlay.hpp"
@@ -216,6 +217,7 @@ void InstallEngineHooksOnce()
         game::InitMenuState();
         game::InstallRenderSizeHook();
         game::InitSplitView();
+        game::InstallSsaoFix();
     }
     else {
         TT2VR_LOG_WARN("engine hooks skipped: unknown game version");
