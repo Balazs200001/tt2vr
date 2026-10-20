@@ -37,6 +37,10 @@ void ApplySplitView(void* renderer, const void* camera, bool twoViews, const voi
 bool IsLocalRiderCamera(const void* rider);
 // This frame was set up as two views (valid from ApplySplitView to the next one).
 bool SplitViewActive();
+// Thread: game main thread, around DeferredRenderLoop::Render (game::CameraOverride's hook): view 1 draws view 0's
+// HUD list (the cockpit dashboard) while the views are recorded.
+void BeginLoopRender(void* renderer);
+void EndLoopRender(void* renderer);
 
 // One-line state for the log and overlay.
 std::string SplitViewSummary();

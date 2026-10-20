@@ -433,7 +433,10 @@ void HookedRestoreAfterCulling(void* renderLoop, void* viewContext)
 void HookedLoopRender(void* renderLoop, void* renderDesc)
 {
     t_eye = -1; // the scene phase (culling, cascade fitting) serves both eyes
+    void* renderer = g_renderer && Read<void*>(g_renderer, kRendererRenderLoop) == renderLoop ? g_renderer : nullptr;
+    BeginLoopRender(renderer); // the main render only (not external scenes)
     g_loopRender(renderLoop, renderDesc);
+    EndLoopRender(renderer);
     t_eye = -1;
 }
 

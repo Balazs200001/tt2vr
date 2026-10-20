@@ -63,8 +63,8 @@ bool g_writing = false; // our two-view desc is in the Renderer
 Desc g_written;
 const void* g_savedScene1 = nullptr; // Renderer+0xd88 before we pointed it at view 0's scene
 const void* g_writtenScene1 = nullptr;
-const void* g_savedHud1 = nullptr; // view 1's HudItemList before we pointed it at view 0's
-const void* g_writtenHud1 = nullptr;
+const void* g_savedHud1 = nullptr; // view 1's HudItemList during the current DeferredRenderLoop::Render
+bool g_hudSwapped = false;
 void* g_borderLoop = nullptr; // DeferredRenderLoop whose 'Split border' byte we cleared (was 1)
 bool g_possibleSet = false;
 bool g_active = false;
@@ -133,21 +133,6 @@ void StartOrKeep(void* renderer, const void* camera)
     g_writtenScene1 = Read<const void*>(renderer, kRendererScenes);
     Write(renderer, kRendererScenes + 8, g_writtenScene1);
     SyncEffectorCenter();
-    // View 1 draws view 0's HUD list: the cockpit dashboard is a 3D HUD registered in camera 0's list only
-    // (TTDashboardHUD via GetHudItemList(0)->Add3DList; frame trace 13970: its quads drawn in view 0 only), and
-    // DeferredRenderLoop::Render takes each view's list from ViewContext+0x5e8 (0x1408485de). Nothing rewrites the
-    // field per frame (OnRender clears view 0's only during an Ansel session). Caveat: lens flares are added per view
-    // into that view's list, so eye 1 shows eye 0's flares (Phase 7 HUD work).
-    char* vc0 = static_cast<char*>(renderer) + kRendererViewContexts;
-    char* vc1 = vc0 + kViewContextSize;
-    if (const void* hud0 = Read<const void*>(vc0, kViewHudList)) {
-        const void* current = Read<const void*>(vc1, kViewHudList);
-        if (current != g_writtenHud1) {
-            g_savedHud1 = current; // first frame, or the game changed it
-        }
-        Write(vc1, kViewHudList, hud0);
-        g_writtenHud1 = hud0;
-    }
     if (void* loop = RenderLoop(renderer); loop && Read<std::uint8_t>(loop, kDeferredLoopSplitBorder) == 1) {
         Write<std::uint8_t>(loop, kDeferredLoopSplitBorder, 0);
         g_borderLoop = loop;
@@ -255,11 +240,6 @@ void Stop(void* renderer)
     if (Read<const void*>(renderer, kRendererScenes + 8) == g_writtenScene1) {
         Write(renderer, kRendererScenes + 8, g_savedScene1);
     }
-    char* vc1 = static_cast<char*>(renderer) + kRendererViewContexts + kViewContextSize;
-    if (g_writtenHud1 && Read<const void*>(vc1, kViewHudList) == g_writtenHud1) {
-        Write(vc1, kViewHudList, g_savedHud1);
-    }
-    g_writtenHud1 = nullptr;
     if (g_borderLoop && g_borderLoop == RenderLoop(renderer)) {
         Write<std::uint8_t>(g_borderLoop, kDeferredLoopSplitBorder, 1);
     }
@@ -364,6 +344,39 @@ void ApplySplitView(void* renderer, const void* camera, bool twoViews, const voi
 bool SplitViewActive()
 {
     return g_active;
+}
+
+// View 1 draws view 0's HUD list: the cockpit dashboard is a 3D HUD registered in camera 0's list only
+// (TTDashboardHUD via GetHudItemList(0)->Add3DList; frame trace 13970: its quads drawn in view 0 only), and
+// DeferredRenderLoop::Render takes each view's list from ViewContext+0x5e8 (0x1408485de). The engine sets that field
+// again every frame after DoUpdate's pre-hook (runtime 2026-10-20: still camera 1's list), so it is swapped only for
+// the duration of Render and put back after. Caveat: lens flares are added per view into that view's list, so eye 1
+// gets eye 0's flares (Phase 7 HUD work).
+void BeginLoopRender(void* renderer)
+{
+    g_hudSwapped = false;
+    if (!g_active || !renderer) {
+        return;
+    }
+    char* vc0 = static_cast<char*>(renderer) + kRendererViewContexts;
+    char* vc1 = vc0 + kViewContextSize;
+    const void* hud0 = Read<const void*>(vc0, kViewHudList);
+    if (!hud0) {
+        return;
+    }
+    g_savedHud1 = Read<const void*>(vc1, kViewHudList);
+    Write(vc1, kViewHudList, hud0);
+    g_hudSwapped = true;
+}
+
+void EndLoopRender(void* renderer)
+{
+    if (!g_hudSwapped || !renderer) {
+        return;
+    }
+    char* vc1 = static_cast<char*>(renderer) + kRendererViewContexts + kViewContextSize;
+    Write(vc1, kViewHudList, g_savedHud1);
+    g_hudSwapped = false;
 }
 
 std::string SplitViewSummary()
