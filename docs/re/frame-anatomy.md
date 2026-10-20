@@ -307,6 +307,15 @@ Why view 1 showed the rider's helmet: the engine hides the local player's own me
 - Mod rule (`SyncOwnerState` in `src/game/split_view.cpp`): every two-view frame, copy index 0 -> 1 for the three meshes' flags, both decal bits, the SSR byte and the probe factor. Only when the rider camera's `+0x10` is the rendered camera and the player is kind 0 with index 0. Index 1 is unused in one-view frames, so nothing is restored. Never set `player+0x794 = 1` (that would move the hiding to view 1).
 - Other per-index player state not mirrored yet (`likely`): wet-surface intensity per index (`FUN_140b4ed70`), WaterDrop 'CameraIndex'.
 
+### 5.3 Shadows in VR two-view frames (RenderDoc `shadows_rider_frame3561` vs flat `f8323`, 2026-10-20)
+
+`confirmed` (capture state + decompile) unless tagged.
+
+- Both views render all 3 cascades (after the split cap lift, 5.1) into the 6144x2048 D16 atlas, each with its own clear; lighting (`Sum Lighting CS`, view 0 ev 34195, view 1 ev 71157) reads its own view's map. `cbPSCascadedShadows`, `cbCameraStd` and the world-position reconstruction (`viewProjToCameraCentered`, checked against the asymmetric eye projection: centre ray (-0.6864, -0.7393, -0.3278) recomputed from the VP's off-centre terms) are consistent. Both eyes are identical in Phase 4a.
+- **Cascade size**: `CascadedShadowMapRenderer::SetupRenderContext` 0x140828320 builds each slice frustum with `MatrixPerspectiveFovRH(Camera+0x78, near, split, vpW/vpH * aspectMul)` (our choke point, so the eye tangents) and `BuildCropViewProjectionMatrix` 0x140823510 takes the **light-space AABB of the 8 slice corners and rounds its width up to a power of two** (doubling loop), then snaps the origin to the texel grid. The VR eye frustum (~95x100 deg, aspect 0.94) gives a c0 box ~46 m (scissor 1472/2048 of 64 m) vs ~24 m flat (1536/2048 of 32 m): `xInvTexelSize` 32/8/4 vs 64/16/8, i.e. **half the shadow texel density in every cascade**. The AABB width depends on the view orientation relative to the sun, so near a threshold the size can flip between powers of two (`guess`: not observed). Split planes 15/60/120 m are the same as flat.
+- **Static (distant, > ~105 m) map**: `CreateStaticShadowMap` 0x140825c20 (run on every split change) makes 2 maps (one per camera index) of `Engine.Renderer.StaticShadow.Size` / 2 when split is on and `EnabledInSplit` is set, else 1 of full size: 1024 per view here vs 2048 flat. `DoUpdate` 0x1405ae4ef sets each view's static flag to 1 in one view, to `EnabledInSplit` in split. No static pass in the stereo frame (the flat frame had one at 20818..21624); its update cadence is not traced.
+- Engine knobs (UserSettings.cfg, serialisable CVars): `Engine.Renderer.Shadow.CascadeShadowMapSize` (`Renderer::s_iCascadeShadowMapSize` 0x1413a7a20, also set by the shadow-quality preset in `PlatformSettings::SwitchPlatformRendering` 0x140561410), `Engine.Renderer.StaticShadow.Size` (0x1413ca990), `Engine.Renderer.StaticShadow.EnabledInSplit` (0x1413ca8e0), `Engine.Renderer.FarShadow.Enabled` (0x1413cacd0, off in both captures). Balazs's file: 2048 / 2048 / true / false.
+
 ---
 
 ## 6. Jitter and projection entry (pointer only)

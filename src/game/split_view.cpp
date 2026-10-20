@@ -23,6 +23,9 @@ using SetCenterWorldPosFn = void (*)(void* effectorMaps, const float* position, 
 void* const* g_rtm = nullptr; // &RenderTargetManager::s_pSingletonInstance
 SetPossibleSplitModeFn g_setPossibleSplitMode = nullptr;
 void* const* g_effectorMaps = nullptr; // &EffectorMapManager::s_pSingletonInstance
+void* g_staticInSplit = nullptr; // CVar<bool> Engine.Renderer.StaticShadow.EnabledInSplit (optional)
+bool g_staticLifted = false;
+std::uint8_t g_savedStaticInSplit = 0;
 SetCenterWorldPosFn g_setCenterWorldPos = nullptr;
 const void* g_deferredVftable = nullptr;
 bool g_available = false;
@@ -191,9 +194,18 @@ int SyncOwnerState(void* renderer, const void* rider)
     }
 }
 
-// Split screen trades quality for two players (fewer CSM cascades per view); two eyes need the one-view quality.
+// Split screen trades quality for two players; two eyes need the one-view quality:
+//   CSM cascade cap (RenderLoop+0x1e88, Lua Engine.Renderer.Split.CascadeCount; runtime 2026-10-20: 2)
+//   static (distant, > ~105 m) shadow map: DoUpdate 0x1405ae4ef sets each view's flag to 1 in one view, to the CVar
+//   Engine.Renderer.StaticShadow.EnabledInSplit in split mode.
 void LiftSplitCaps(void* renderer)
 {
+    if (g_staticInSplit && !g_staticLifted) {
+        g_staticLifted = true;
+        g_savedStaticInSplit = Read<std::uint8_t>(g_staticInSplit, kCVarBoolValue);
+        Write<std::uint8_t>(g_staticInSplit, kCVarBoolValue, 1);
+        TT2VR_LOG_INFO("split view: static shadow map in split {} -> 1", g_savedStaticInSplit);
+    }
     void* loop = RenderLoop(renderer);
     if (!loop || loop == g_cascadeLoop) {
         return;
@@ -207,6 +219,10 @@ void LiftSplitCaps(void* renderer)
 
 void RestoreSplitCaps(void* renderer)
 {
+    if (g_staticLifted) {
+        Write<std::uint8_t>(g_staticInSplit, kCVarBoolValue, g_savedStaticInSplit);
+        g_staticLifted = false;
+    }
     if (g_cascadeLoop && g_cascadeLoop == RenderLoop(renderer)) {
         Write<std::uint32_t>(g_cascadeLoop, kRenderLoopSplitCascadeCount, g_savedCascadeCap);
     }
@@ -252,6 +268,7 @@ void InitSplitView()
     g_effectorMaps = static_cast<void* const*>(SignatureAddress(Sig::EffectorMapManagerInstance));
     g_setCenterWorldPos = reinterpret_cast<SetCenterWorldPosFn>(SignatureAddress(Sig::EffectorMapManagerSetCenterWorldPos));
     g_deferredVftable = SignatureAddress(Sig::DeferredRenderLoopVftable);
+    g_staticInSplit = SignatureAddress(Sig::StaticShadowEnabledInSplit); // optional: distant shadows only
     if (!g_rtm || !g_setPossibleSplitMode || !g_effectorMaps || !g_setCenterWorldPos || !g_deferredVftable) {
         TT2VR_LOG_ERROR("split view: signatures missing; left eye only (Phase 3 mode)");
         return;

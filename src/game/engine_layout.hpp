@@ -77,6 +77,8 @@ inline constexpr std::ptrdiff_t kDeferredLoopSplitBorder = 0x1e71; // byte, 1 = 
 inline constexpr std::ptrdiff_t kRenderLoopSplitCascadeCount = 0x1e88;
 inline constexpr std::ptrdiff_t kRenderLoopSplitFxaa = 0x1e8c;
 inline constexpr std::ptrdiff_t kRenderLoopSplitSsao = 0x1e8d;
+// Core::CVar<bool>: per-camera-index value bytes at +0x80 / +0x81 (slot 0 is what the static getters read).
+inline constexpr std::ptrdiff_t kCVarBoolValue = 0x80;
 
 // RenderTargetManager
 inline constexpr std::ptrdiff_t kRtmPossibleSplitMode = 0x8;

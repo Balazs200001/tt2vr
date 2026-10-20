@@ -45,6 +45,7 @@ enum class Sig {
     EffectorMapManagerSetCenterWorldPos,
     DeferredRenderLoopVftable,
     VideoDeviceUpdateWindowResolution,
+    StaticShadowEnabledInSplit,
     Count,
 };
 
@@ -141,6 +142,11 @@ inline constexpr Signature kSignatures[] = {
         "?UpdateWindowResolution@VideoDeviceDX11Windows@Graphics@PlayAll@@QEAAXPEAUHWND__@@@Z", nullptr, 0,
         "export; 0x14095c270, WM_SIZE in Windowed mode (RenderWindowWin32::DefaultWndProc 0x140709899): reads the "
         "client size (FUN_140959f80) and SetSize 0x14095bc20 -> SetWindowPos to that size",
+        kBuild4989319},
+    {"CascadedShadowMapRenderer::s_bStaticShadowMapEnabledInSplit",
+        "?s_bStaticShadowMapEnabledInSplit@CascadedShadowMapRenderer@Graphics@PlayAll@@1V?$CVar@_N@Core@3@A", nullptr, 0,
+        "data export; 0x1413ca8e0, CVar<bool> Engine.Renderer.StaticShadow.EnabledInSplit (ctor FUN_14008a690); value "
+        "byte +0x80 read by IsStaticShadowMapEnabledInSplit 0x1408261f0, DoUpdate 0x1405ae4fc in split mode",
         kBuild4989319},
 };
 
