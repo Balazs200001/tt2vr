@@ -57,6 +57,8 @@ Verdict: **SteamStub DRM wrapper only; the game code is not packed or encrypted 
 
 Consequences: static analysis of the snapshot is valid for runtime; signature scans match the in-memory image. Run engine scans after the stub has executed (e.g. lazily from the device-creation hook), even though `.text` is plaintext. Never modify, strip or bypass the stub.
 
+Startup deadlock (confirmed 2026-10-20): the proxy's init thread runs while the stub is still starting the game. Hashing the exe there (bcrypt `BCryptOpenAlgorithmProvider` loads a provider DLL) deadlocked with the game's startup thread, which was inside bcrypt as well: three hung launches, stacks from a thread-context read (`TT2.exe` stuck at 45 MB, our log ending at "hashing TT2.exe", the game log never opened). The earlier "only starts on the second try" launches stopped at the same point. Rule: the init thread does only log, config, MinHook init and the import redirect; anything that loads DLLs or uses crypto runs from the device-creation hook (game code running, stub done).
+
 ## Runtime facts from the game log
 
 Snapshot: `C:\dev\tt2vr-re\logs\TT Isle of Man 2.build4989319.2026-10-15T1304.log` (the game overwrites its log every launch).
