@@ -79,6 +79,13 @@ inline constexpr std::ptrdiff_t kRenderLoopSplitFxaa = 0x1e8c;
 inline constexpr std::ptrdiff_t kRenderLoopSplitSsao = 0x1e8d;
 // Core::CVar<bool>: per-camera-index value bytes at +0x80 / +0x81 (slot 0 is what the static getters read).
 inline constexpr std::ptrdiff_t kCVarBoolValue = 0x80;
+// Core::CVar<int/uint>: per-camera-index values +0x80 / +0x84, base value +0x8c, min / max pointers +0xb0 / +0xb8
+// (CheckAndSetValue FUN_140560bf0); vtable slot 12 = per-slot update (cvar, index, notify) FUN_1405aadb0.
+inline constexpr std::ptrdiff_t kCVarIntSlots = 0x80;
+inline constexpr std::ptrdiff_t kCVarIntBase = 0x8c;
+inline constexpr std::ptrdiff_t kCVarIntMin = 0xb0;
+inline constexpr std::ptrdiff_t kCVarIntMax = 0xb8;
+inline constexpr int kCVarUpdateSlot = 12;
 
 // RenderTargetManager
 inline constexpr std::ptrdiff_t kRtmPossibleSplitMode = 0x8;

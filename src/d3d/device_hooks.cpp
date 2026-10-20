@@ -17,6 +17,7 @@
 #include "core/log.hpp"
 #include "core/paths.hpp"
 #include "d3d/present.hpp"
+#include "game/shadow_settings.hpp"
 
 #include <windows.h>
 #include <d3d11.h>
@@ -60,6 +61,11 @@ HRESULT WINAPI HookedCreateDeviceAndSwapChain(IDXGIAdapter* adapter, D3D_DRIVER_
 {
     g_called = true;
     const UINT newFlags = flags & ~kPreventAlteringLayerSettings;
+    try {
+        game::ApplyShadowSettings(); // settings are loaded, the renderer (and its shadow maps) is not created yet
+    }
+    catch (...) {
+    }
     CreateDeviceAndSwapChainFn next = g_next.load();
     // Re-entry guard: if another hook chained back into us, go straight to the real export.
     thread_local int depth = 0;

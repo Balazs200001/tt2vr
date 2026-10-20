@@ -33,6 +33,11 @@ bool PatternMatchesAt(const core::Pattern& p, const std::uint8_t* at, std::span<
 
 int ResolveSignatures()
 {
+    // Once per process: the device-creation hook (shadow settings) can need them before the engine hooks go in.
+    static int s_missing = -1;
+    if (s_missing >= 0) {
+        return s_missing;
+    }
     HMODULE exe = GetModuleHandleW(nullptr);
     const std::span<const std::uint8_t> text = core::ModuleSection(exe, ".text");
     const auto base = reinterpret_cast<std::uintptr_t>(exe);
@@ -78,6 +83,7 @@ int ResolveSignatures()
             TT2VR_LOG_ERROR("signature {}: NOT FOUND (export and pattern); dependent hooks stay off", sig.name);
         }
     }
+    s_missing = missing;
     return missing;
 }
 

@@ -46,6 +46,8 @@ enum class Sig {
     DeferredRenderLoopVftable,
     VideoDeviceUpdateWindowResolution,
     StaticShadowEnabledInSplit,
+    CascadeShadowMapSize,
+    StaticShadowMapSize,
     Count,
 };
 
@@ -148,12 +150,22 @@ inline constexpr Signature kSignatures[] = {
         "data export; 0x1413ca8e0, CVar<bool> Engine.Renderer.StaticShadow.EnabledInSplit (ctor FUN_14008a690); value "
         "byte +0x80 read by IsStaticShadowMapEnabledInSplit 0x1408261f0, DoUpdate 0x1405ae4fc in split mode",
         kBuild4989319},
+    {"Renderer::s_iCascadeShadowMapSize", "?s_iCascadeShadowMapSize@Renderer@Game@PlayAll@@2V?$CVar@H@Core@3@A", nullptr,
+        0,
+        "data export; 0x1413a7a20, CVar<int> Engine.Renderer.Shadow.CascadeShadowMapSize (ctor FUN_14007ab40), read "
+        "when the renderer creates the CSM ('ShadowMap size: N*3'); set like PlatformSettings 0x140561d90",
+        kBuild4989319},
+    {"CascadedShadowMapRenderer::s_iStaticShadowMapSize",
+        "?s_iStaticShadowMapSize@CascadedShadowMapRenderer@Graphics@PlayAll@@1V?$CVar@I@Core@3@A", nullptr, 0,
+        "data export; 0x1413ca990, CVar<uint> Engine.Renderer.StaticShadow.Size (ctor FUN_14008ade0), slot 0 read "
+        "by CreateStaticShadowMap 0x140825c20 (halved per view in split)",
+        kBuild4989319},
 };
 
 static_assert(std::size(kSignatures) == static_cast<std::size_t>(Sig::Count), "kSignatures must match Sig");
 
-// Resolves every signature once (logs one line each). Call after the exe version is known, before installing
-// engine hooks. Returns the number of unresolved entries.
+// Resolves every signature (logs one line each) on the first call; later calls return the same count. Call after
+// the exe version is known, before installing engine hooks. Returns the number of unresolved entries.
 int ResolveSignatures();
 // Address of a resolved signature, or nullptr.
 void* SignatureAddress(Sig id);
