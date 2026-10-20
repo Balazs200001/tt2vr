@@ -9,4 +9,9 @@ namespace d3d {
 // While neither a trace nor a dump is active every hook is a single atomic load and a forward.
 void InstallContextHooks(ID3D11Device* device, ID3D11DeviceContext* immediate);
 
+// Called before every ID3D11DeviceContext::Draw on any context (immediate or deferred, any thread) while set; must
+// be thread-safe and cheap. nullptr = none (one atomic load per draw).
+using PreDrawCallback = void (*)(ID3D11DeviceContext* context);
+void SetPreDrawCallback(PreDrawCallback callback);
+
 } // namespace d3d

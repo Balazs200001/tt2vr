@@ -72,7 +72,9 @@ inline constexpr std::ptrdiff_t kRendererScenes = 0xd80; // Scene*[2], per view 
 inline constexpr std::ptrdiff_t kRenderLoopDeferredLighting = 0x1e78; // DeferredLighting* (GetDeferredLighting)
 inline constexpr std::ptrdiff_t kRenderLoopMainContext = 0x1f00; // RenderContext re-prepared for every view
 inline constexpr std::ptrdiff_t kRenderLoopTaaReset = 0xd08; // byte, TAA history reset (shared; cleared per RenderTAA)
-inline constexpr std::ptrdiff_t kRenderLoopPostProcess = 0x3d0; // PostProcessManager*
+inline constexpr std::ptrdiff_t kRenderLoopTaaHistory = 0xce8; // RenderTarget* pair per slot (+idx*0x10); slot 0 at +0
+inline constexpr int kRenderTargetTextureSlot = 8; // vtable +0x40: BaseTexture* (int index)
+inline constexpr std::ptrdiff_t kTexture2DDeviceTexture = 0x68; // Texture2DDX11: ID3D11Texture2D* (GetDeviceTexture)
 inline constexpr std::ptrdiff_t kRenderContextCameraIndex = 0x594; // ushort (= its ViewContext+0x464)
 // DeferredLighting, per camera index (set by FUN_1403aec70 on view changes)
 inline constexpr std::ptrdiff_t kLightingFrontPassSsr = 0x1e; // byte[2], 0 in first person

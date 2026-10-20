@@ -61,8 +61,6 @@ enum class Sig {
     DeferredRenderLoopRender,
     TonemapRender,
     RenderLoopRenderTaa,
-    RenderLayerClearRt,
-    PostProcessCurrentRt,
     Count,
 };
 
@@ -226,11 +224,6 @@ inline constexpr Signature kSignatures[] = {
     {"RenderLoop::RenderTAA", "?RenderTAA@RenderLoop@Graphics@PlayAll@@IEAAXAEAVRenderContext@23@@Z", nullptr, 0,
         "export; 0x1408ddf70, per view at record time (call 0x140848c03); clears the reset flag RenderLoop+0xd08",
         kBuild4989319},
-    {"RenderLayer::ClearRT", "?ClearRT@RenderLayer@Graphics@PlayAll@@SAXPEAVRenderTarget@23@IUColor32@Core@3@@Z", nullptr,
-        0, "export; 0x1408d49d0, static: queues a clear pass (RenderTarget*, flags, Color32 ARGB)", kBuild4989319},
-    {"PostProcessManager::GetCurrentRenderTarget",
-        "?GetCurrentRenderTarget@PostProcessManager@Graphics@PlayAll@@QEBAPEAVRenderTarget@23@XZ", nullptr, 0,
-        "export; 0x1408bdf60, the post-process chain's current RT (TAA's FrameBuffer input)", kBuild4989319},
 };
 
 static_assert(std::size(kSignatures) == static_cast<std::size_t>(Sig::Count), "kSignatures must match Sig");

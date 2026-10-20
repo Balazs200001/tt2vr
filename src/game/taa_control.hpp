@@ -6,9 +6,11 @@
 //     a reset is written before every view's call while pending (docs/re/temporal.md N6). Triggers: recenter (the
 //     view jumps) and the remote "taareset" command; split-mode changes already recreate the history
 //     (OnSplitChanged).
-//   Leak test (remote "leaktest", PLAN Temporal design tests): one frame, before eye 0's RenderTAA, queue the
-//     engine's own RenderLayer::ClearRT(PostProcessManager current RT = TAA's FrameBuffer input, red), so eye 0's
-//     TAA blends a red frame into its history. At Present (before the desktop mirror redraws it) the back buffer is
+//   Leak test (remote "leaktest", PLAN Temporal design tests): for one frame, eye 0's TAA history texture is found
+//     at record time (RenderLoop+0xce8 -> RenderTarget vtbl+0x40 -> Texture2DDX11+0x68), and a pre-draw callback
+//     clears the FrameBuffer input (t1) of the draw that reads that history (t2) to red, on the same context right
+//     before the draw. (RenderLayer::ClearRT queues into a pass queue that executes before the frame's main queue,
+//     so an engine-queued clear was overwritten; runtime 2026-10-20.) At Present (before the mirror redraws it) the back buffer is
 //     read back for a baseline frame, the tint frame and 6 frames after, counting red-dominant pixels in each half.
 //     Pass: the left half jumps on the tint frame and decays; the right half stays at its baseline (no history of
 //     eye 0 reaches eye 1, invariant T2).

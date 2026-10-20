@@ -18,6 +18,7 @@
 #include <spdlog/fmt/fmt.h>
 #include <wrl/client.h>
 
+#include <atomic>
 #include <string>
 
 namespace d3d {
@@ -25,6 +26,15 @@ namespace {
 
 using Ctx = ID3D11DeviceContext;
 using shaders::Stage;
+
+std::atomic<PreDrawCallback> g_preDraw{nullptr};
+
+void PreDraw(Ctx* c)
+{
+    if (const PreDrawCallback pre = g_preDraw.load(std::memory_order_acquire); pre && !InInternalCall()) {
+        pre(c);
+    }
+}
 
 bool Tracing()
 {
@@ -226,6 +236,7 @@ struct H {
 
     static void STDMETHODCALLTYPE DrawIndexed(Ctx* c, UINT count, UINT start, INT base)
     {
+        PreDraw(c);
         if (Tracing() || Dumping()) {
             Drew(c, fmt::format("DrawIndexed idx={} start={} base={}", count, start, base));
         }
@@ -234,6 +245,7 @@ struct H {
 
     static void STDMETHODCALLTYPE Draw(Ctx* c, UINT count, UINT start)
     {
+        PreDraw(c);
         if (Tracing() || Dumping()) {
             Drew(c, fmt::format("Draw v={} start={}", count, start));
         }
@@ -242,6 +254,7 @@ struct H {
 
     static void STDMETHODCALLTYPE DrawIndexedInstanced(Ctx* c, UINT count, UINT inst, UINT start, INT base, UINT startInst)
     {
+        PreDraw(c);
         if (Tracing() || Dumping()) {
             Drew(c, fmt::format("DrawIndexedInstanced idx={} inst={} start={} base={} startInst={}", count, inst,
                 start, base, startInst));
@@ -251,6 +264,7 @@ struct H {
 
     static void STDMETHODCALLTYPE DrawInstanced(Ctx* c, UINT count, UINT inst, UINT start, UINT startInst)
     {
+        PreDraw(c);
         if (Tracing() || Dumping()) {
             Drew(c, fmt::format("DrawInstanced v={} inst={} start={} startInst={}", count, inst, start, startInst));
         }
@@ -259,6 +273,7 @@ struct H {
 
     static void STDMETHODCALLTYPE DrawAuto(Ctx* c)
     {
+        PreDraw(c);
         if (Tracing() || Dumping()) {
             Drew(c, "DrawAuto");
         }
@@ -267,6 +282,7 @@ struct H {
 
     static void STDMETHODCALLTYPE DrawIndexedInstancedIndirect(Ctx* c, ID3D11Buffer* args, UINT offset)
     {
+        PreDraw(c);
         if (Tracing() || Dumping()) {
             Drew(c, fmt::format("DrawIndexedInstancedIndirect args={}+{}", Tracing() ? trace::Res(args) : "", offset));
         }
@@ -275,6 +291,7 @@ struct H {
 
     static void STDMETHODCALLTYPE DrawInstancedIndirect(Ctx* c, ID3D11Buffer* args, UINT offset)
     {
+        PreDraw(c);
         if (Tracing() || Dumping()) {
             Drew(c, fmt::format("DrawInstancedIndirect args={}+{}", Tracing() ? trace::Res(args) : "", offset));
         }
@@ -560,6 +577,11 @@ bool HasContext1(ID3D11DeviceContext* ctx)
 }
 
 } // namespace
+
+void SetPreDrawCallback(PreDrawCallback callback)
+{
+    g_preDraw.store(callback, std::memory_order_release);
+}
 
 void InstallContextHooks(ID3D11Device* device, ID3D11DeviceContext* immediate)
 {

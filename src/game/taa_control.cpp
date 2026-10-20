@@ -2,6 +2,8 @@
 
 #include "core/hooks.hpp"
 #include "core/log.hpp"
+#include "d3d/blit.hpp"
+#include "d3d/context_hooks.hpp"
 #include "d3d/internal.hpp"
 #include "game/engine_layout.hpp"
 #include "game/signatures.hpp"
@@ -10,6 +12,9 @@
 #include <spdlog/fmt/fmt.h>
 #include <wrl/client.h>
 
+#include <windows.h>
+
+#include <atomic>
 #include <cstdint>
 #include <vector>
 
@@ -20,13 +25,15 @@ using namespace layout;
 using Microsoft::WRL::ComPtr;
 
 using RenderTaaFn = void (*)(void* renderLoop, void* renderContext);
-using ClearRtFn = void (*)(void* renderTarget, unsigned flags, std::uint32_t color);
-using CurrentRtFn = void* (*)(const void* postProcessManager);
+using GetTextureFn = void* (*)(void* renderTarget, int index); // RenderTarget vtable slot 8 (+0x40): BaseTexture*
 
 RenderTaaFn g_renderTaa = nullptr;
-ClearRtFn g_clearRt = nullptr;
-CurrentRtFn g_currentRt = nullptr;
 bool g_active = false;
+
+// Leak-test tint: eye 0's TAA history texture this frame (set at record time); the pre-draw callback clears the
+// FrameBuffer input (slot t1) of the one draw whose LastFrameBuffer (t2) is this texture, i.e. eye 0's TAA resolve.
+std::atomic<ID3D11Texture2D*> g_tintHistory{nullptr};
+std::atomic<bool> g_tintApplied{false};
 
 // Main thread state.
 bool g_resetPending = false; // this frame: reset both eyes' TAA history
@@ -38,7 +45,6 @@ bool g_recenterInit = false;
 enum class Leak { Idle, Baseline, Tint, After };
 Leak g_leak = Leak::Idle;
 bool g_tintThisFrame = false; // armed for the coming frame's recording
-bool g_tinted = false; // the tint was queued in this frame
 int g_afterFrames = 0;
 std::vector<std::string> g_leakLines;
 double g_baseLeft = 0, g_baseRight = 0, g_tintLeft = 0, g_maxRightDelta = 0;
@@ -46,9 +52,70 @@ std::function<void(const std::string&)> g_leakDone;
 ComPtr<ID3D11Texture2D> g_staging;
 D3D11_TEXTURE2D_DESC g_stagingDesc{};
 
-constexpr unsigned kClearColor = 1; // RenderLayer::ClearRT flags: colour (CopySplitRT passes 0xd = colour|depth|stencil)
-constexpr std::uint32_t kRed = 0xffff0000; // Color32 ARGB
 constexpr int kAfterFrames = 6;
+
+// Eye 0's TAA history RT (RenderLoop+0xce8, read by RenderTAA as LastFrameBuffer) as a D3D texture:
+// RenderTarget vtbl+0x40(0) -> Texture2DDX11, GetDeviceTexture = +0x68. SEH: engine objects.
+ID3D11Texture2D* Eye0History(void* renderLoop)
+{
+    __try {
+        void* rt = Read<void*>(renderLoop, kRenderLoopTaaHistory);
+        if (!rt) {
+            return nullptr;
+        }
+        const auto get = reinterpret_cast<GetTextureFn>((*static_cast<void* const* const*>(rt))[kRenderTargetTextureSlot]);
+        void* texture = get(rt, 0);
+        return texture ? Read<ID3D11Texture2D*>(texture, kTexture2DDeviceTexture) : nullptr;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return nullptr;
+    }
+}
+
+// Thread: any context's Draw (deferred contexts record on job threads). Set only while a leak test runs.
+void TintPreDraw(ID3D11DeviceContext* c)
+{
+    ID3D11Texture2D* target = g_tintHistory.load(std::memory_order_acquire);
+    if (!target) {
+        return;
+    }
+    d3d::InternalScope internal; // our own calls on the hooked context are not traced
+    ID3D11ShaderResourceView* srv[2] = {}; // t1 FrameBuffer, t2 LastFrameBuffer
+    c->PSGetShaderResources(1, 2, srv);
+    ComPtr<ID3D11ShaderResourceView> input(srv[0]), history(srv[1]);
+    if (srv[0]) srv[0]->Release();
+    if (srv[1]) srv[1]->Release();
+    if (!input || !history) {
+        return;
+    }
+    ComPtr<ID3D11Resource> historyRes;
+    history->GetResource(&historyRes);
+    if (historyRes.Get() != target || !g_tintHistory.compare_exchange_strong(target, nullptr)) {
+        return;
+    }
+    ComPtr<ID3D11Resource> inputRes;
+    input->GetResource(&inputRes);
+    ComPtr<ID3D11Texture2D> inputTex;
+    if (!inputRes || FAILED(inputRes.As(&inputTex))) {
+        return;
+    }
+    D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
+    input->GetDesc(&sd); // typed, also when the texture is typeless
+    D3D11_TEXTURE2D_DESC d{};
+    inputTex->GetDesc(&d);
+    D3D11_RENDER_TARGET_VIEW_DESC rd{};
+    rd.Format = sd.Format != DXGI_FORMAT_UNKNOWN ? sd.Format : d3d::LinearViewOf(d.Format);
+    rd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+    ComPtr<ID3D11Device> device;
+    c->GetDevice(&device);
+    ComPtr<ID3D11RenderTargetView> rtv;
+    if (!device || FAILED(device->CreateRenderTargetView(inputTex.Get(), &rd, &rtv))) {
+        return;
+    }
+    constexpr float kRed[4] = {1.0f, 0.0f, 0.0f, 1.0f};
+    c->ClearRenderTargetView(rtv.Get(), kRed); // recorded right before eye 0's TAA resolve on this context
+    g_tintApplied = true;
+}
 
 // Thread: game main thread (per-view chain of DeferredRenderLoop::Render, record time).
 void HookedRenderTaa(void* renderLoop, void* renderContext)
@@ -58,12 +125,7 @@ void HookedRenderTaa(void* renderLoop, void* renderContext)
             Write<std::uint8_t>(renderLoop, kRenderLoopTaaReset, 1); // cleared again at the end of this view's TAA
         }
         if (g_tintThisFrame && Read<std::uint16_t>(renderContext, kRenderContextCameraIndex) == 0) {
-            if (const void* ppm = Read<const void*>(renderLoop, kRenderLoopPostProcess)) {
-                if (void* input = g_currentRt(ppm)) {
-                    g_clearRt(input, kClearColor, kRed); // queued before this view's TAA passes
-                    g_tinted = true;
-                }
-            }
+            g_tintHistory = Eye0History(renderLoop); // before RenderTAA swaps the pair
             g_tintThisFrame = false;
         }
     }
@@ -132,6 +194,8 @@ void FinishLeak(const std::string& result)
     }
     g_leak = Leak::Idle;
     g_tintThisFrame = false;
+    g_tintHistory = nullptr;
+    d3d::SetPreDrawCallback(nullptr);
     if (g_leakDone) {
         auto done = std::move(g_leakDone);
         g_leakDone = nullptr;
@@ -149,10 +213,7 @@ void InstallTaaControl()
     }
     s_done = true;
     void* taa = SignatureAddress(Sig::RenderLoopRenderTaa);
-    g_clearRt = reinterpret_cast<ClearRtFn>(SignatureAddress(Sig::RenderLayerClearRt));
-    g_currentRt = reinterpret_cast<CurrentRtFn>(SignatureAddress(Sig::PostProcessCurrentRt));
-    if (!taa || !g_clearRt || !g_currentRt ||
-        core::hooks::Create("RenderLoop::RenderTAA", taa, &HookedRenderTaa, &g_renderTaa) != core::hooks::Result::Ok) {
+    if (!taa || core::hooks::Create("RenderLoop::RenderTAA", taa, &HookedRenderTaa, &g_renderTaa) != core::hooks::Result::Ok) {
         TT2VR_LOG_WARN("taa: RenderTAA hook not installed; no per-eye TAA reset or leak test");
         return;
     }
@@ -172,7 +233,6 @@ void OnTaaFrame(unsigned recenterCount)
     }
     g_resetPending = g_resetNext;
     g_resetNext = false;
-    g_tinted = false;
 }
 
 void RequestTaaReset(const char* reason)
@@ -196,6 +256,7 @@ void RequestLeakTest(std::function<void(const std::string&)> done)
     g_leakDone = std::move(done);
     g_leakLines.clear();
     g_maxRightDelta = 0;
+    g_tintApplied = false;
     g_leak = Leak::Baseline;
 }
 
@@ -219,11 +280,15 @@ void OnTaaPresent(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceC
         g_baseRight = right;
         g_leakLines.push_back(fmt::format("baseline: left {:.2f}% right {:.2f}% red", left, right));
         g_tintThisFrame = true; // the next frame's eye-0 TAA input becomes red
+        g_tintApplied = false;
+        d3d::SetPreDrawCallback(&TintPreDraw);
         g_leak = Leak::Tint;
         break;
     case Leak::Tint:
-        if (!g_tinted) {
-            FinishLeak("FAILED: the tint was not queued (no eye-0 RenderTAA this frame; TAA off?)");
+        d3d::SetPreDrawCallback(nullptr);
+        if (!g_tintApplied) {
+            FinishLeak(g_tintHistory.load() ? "FAILED: eye 0's TAA draw was not found (history texture not bound)"
+                                            : "FAILED: no eye-0 RenderTAA this frame (TAA off?)");
             return;
         }
         g_tintLeft = left;
