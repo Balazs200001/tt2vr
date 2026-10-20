@@ -48,6 +48,7 @@ struct CameraInfo {
     float proj[4][4] = {}; // main ViewContext projection as installed (after override and jitter)
     float jitter[2] = {};
     std::uint32_t projOverrides = 0; // MatrixPerspectiveFovRH calls reshaped in the last frame
+    std::uint32_t projUnion = 0; // of those, with the union of both eye frusta (no current eye)
     std::uint32_t helmetMoves = 0; // helmet placements adjusted in the last frame (0 while physics is paused)
     bool headTracked = false; // the last main view was rendered from the headset's left eye (Phase 3)
 };

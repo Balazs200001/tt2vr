@@ -55,6 +55,10 @@ enum class Sig {
     RenderLayerInstance,
     SsaoEnable,
     MotionBlurEnable,
+    RenderContextPrepareView,
+    RenderLoopPrepareForCulling,
+    RenderLoopRestoreAfterCulling,
+    DeferredRenderLoopRender,
     Count,
 };
 
@@ -194,6 +198,20 @@ inline constexpr Signature kSignatures[] = {
         0,
         "data export; 0x1414077b0, CVar<bool> Engine.Renderer.MotionBlur.Enable; per-slot bytes 0x141407830[idx] gate "
         "RenderMotionBlur and (with TAA off) the MV pass (docs/re/temporal.md P6)",
+        kBuild4989319},
+    {"RenderContext::Prepare(const ViewContext&)", "?Prepare@RenderContext@Graphics@PlayAll@@QEAAXAEBVViewContext@23@@Z",
+        nullptr, 0,
+        "export; 0x1408cfad0, 12 bytes (add rcx,0x130; jmp ViewContext::operator=); per view on "
+        "DeferredRenderLoop+0x1f00 at the start of each view's chain",
+        kBuild4989319},
+    {"RenderLoop::PrepareForCulling", "?PrepareForCulling@RenderLoop@Graphics@PlayAll@@QEAAXAEAVViewContext@23@@Z",
+        nullptr, 0, "export; 0x1408dc850, widened projection for culling (front pass on), per view",
+        kBuild4989319},
+    {"RenderLoop::RestoreAfterCulling", "?RestoreAfterCulling@RenderLoop@Graphics@PlayAll@@QEAAXAEAVViewContext@23@@Z",
+        nullptr, 0, "export; 0x1408ded00, re-installs the view projection after culling (MatrixPerspectiveFovRH)",
+        kBuild4989319},
+    {"DeferredRenderLoop::Render", "?Render@DeferredRenderLoop@Graphics@PlayAll@@UEAAXAEAURenderDesc@RenderLoop@23@@Z",
+        nullptr, 0, "export; 0x1408469c0, all views in one call (scene phase, then the per-view loop)",
         kBuild4989319},
 };
 

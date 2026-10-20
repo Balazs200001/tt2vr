@@ -1,5 +1,6 @@
 #include "stereo/math/projection.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace stereo {
@@ -54,6 +55,11 @@ FovTangents OffsetTangents(const FovTangents& t, float fx, float fy)
     const float dx = fx * (t.right - t.left);
     const float dy = fy * (t.up - t.down);
     return {t.left + dx, t.right + dx, t.up + dy, t.down + dy};
+}
+
+FovTangents UnionTangents(const FovTangents& a, const FovTangents& b)
+{
+    return {std::min(a.left, b.left), std::max(a.right, b.right), std::max(a.up, b.up), std::min(a.down, b.down)};
 }
 
 } // namespace stereo

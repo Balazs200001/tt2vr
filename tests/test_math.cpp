@@ -144,6 +144,17 @@ TEST_CASE("OffsetTangents shifts the window without resizing it")
     CHECK(axis.x / axis.w == doctest::Approx(-0.4));
 }
 
+TEST_CASE("UnionTangents contains both mirrored eye frusta")
+{
+    const FovTangents left{-1.38f, 0.84f, 0.97f, -1.43f};
+    const FovTangents right{-0.84f, 1.38f, 0.97f, -1.43f};
+    const FovTangents u = UnionTangents(left, right);
+    CHECK(u.left == doctest::Approx(-1.38f));
+    CHECK(u.right == doctest::Approx(1.38f));
+    CHECK(u.up == doctest::Approx(0.97f));
+    CHECK(u.down == doctest::Approx(-1.43f));
+}
+
 TEST_CASE("TangentsFromXrFov (Quest 3-like left eye)")
 {
     const FovTangents t = TangentsFromXrFov(-0.9076f, 0.7505f, 0.8203f, -0.8901f);

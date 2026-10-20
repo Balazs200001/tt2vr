@@ -39,4 +39,8 @@ FovTangents TangentsFromXrFov(float angleLeft, float angleRight, float angleUp, 
 // Example: fx = 0.2 shows 20% more on the right; objects move left in the image. m[0][2] grows by 2 * fx.
 FovTangents OffsetTangents(const FovTangents& t, float fx, float fy);
 
+// Smallest frustum containing both (same apex and axis): for passes that serve both eyes (cascade fitting, culling
+// outside a per-eye context).
+FovTangents UnionTangents(const FovTangents& a, const FovTangents& b);
+
 } // namespace stereo

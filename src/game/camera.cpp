@@ -36,6 +36,9 @@ using SetViewProjectionFn = void (*)(void* transformMatrix, const float* view, c
 using RebuildFrustumFn = void (*)(void* viewContext);
 using AfterPhysicsStepFn = int (*)(void* ttCamera, void* gameContext);
 using ActorSetWorldMatrixFn = void (*)(void* actor, const float* matrix34);
+using PrepareViewFn = void (*)(void* renderContext, const void* viewContext);
+using CullingFn = void (*)(void* renderLoop, void* viewContext);
+using LoopRenderFn = void (*)(void* renderLoop, void* renderDesc);
 
 DoUpdateFn g_doUpdate = nullptr;
 InitFromCameraFn g_initFromCamera = nullptr;
@@ -44,7 +47,12 @@ SetViewProjectionFn g_setViewProjection = nullptr;
 RebuildFrustumFn g_rebuildFrustum = nullptr;
 AfterPhysicsStepFn g_afterPhysicsStep = nullptr;
 ActorSetWorldMatrixFn g_actorSetWorldMatrix = nullptr;
+PrepareViewFn g_prepareView = nullptr;
+CullingFn g_prepareForCulling = nullptr;
+CullingFn g_restoreAfterCulling = nullptr;
+LoopRenderFn g_loopRender = nullptr;
 bool g_active = false;
+bool g_eyeHooks = false; // the four per-view context hooks above are in (Phase 4b)
 bool g_helmetActive = false;
 
 // Main thread state.
@@ -54,9 +62,11 @@ const void* g_mainCamera = nullptr; // this frame's main view camera, set in DoU
 void* g_renderer = nullptr; // DoUpdate's Renderer (views 0 and 1 are its ViewContexts)
 const void* g_loggedCamera = nullptr;
 bool g_inDoUpdate = false;
-// Head tracking (Phase 3): this frame's eye 0 transform in camera-local axes, valid while g_head.
+// Head tracking: this frame's eye transforms in camera-local axes (valid while g_head) and the head (eye midpoint,
+// left eye orientation) for the helmet mesh.
 bool g_head = false;
-Mat34 g_eyeLocal = stereo::Identity34();
+Mat34 g_eyeLocal[2] = {stereo::Identity34(), stereo::Identity34()};
+Mat34 g_headLocal = stereo::Identity34();
 
 // Read by MatrixPerspectiveFovRH, which may also run on render job threads.
 std::atomic<bool> g_projActive{false};
@@ -64,9 +74,32 @@ std::atomic<std::uint32_t> g_mainFovBits{0};
 std::atomic<std::uint32_t> g_frontFovBits{0};
 std::atomic<float> g_shiftX{0};
 std::atomic<float> g_shiftY{0};
-std::atomic<bool> g_headProj{false}; // reshape to the eye's XrFovf tangents instead of shifting the engine's
-std::atomic<float> g_tanL{0}, g_tanR{0}, g_tanU{0}, g_tanD{0};
+std::atomic<bool> g_headProj{false}; // reshape to the eyes' XrFovf tangents instead of shifting the engine's
+// Phase 4b: the two views are the two eyes. MatrixPerspectiveFovRH then takes the current eye's tangents (t_eye),
+// or the union of both frusta where no single eye applies (cascade fitting in the scene phase, job threads).
+std::atomic<bool> g_perEye{false};
+struct AtomicTangents {
+    std::atomic<float> l{0}, r{0}, u{0}, d{0};
+    void Store(const stereo::FovTangents& t)
+    {
+        l = t.left;
+        r = t.right;
+        u = t.up;
+        d = t.down;
+    }
+    stereo::FovTangents Load() const
+    {
+        return {l.load(std::memory_order_relaxed), r.load(std::memory_order_relaxed), u.load(std::memory_order_relaxed),
+            d.load(std::memory_order_relaxed)};
+    }
+};
+AtomicTangents g_tan[3]; // eye 0, eye 1, union
 std::atomic<std::uint32_t> g_projCount{0};
+std::atomic<std::uint32_t> g_projUnion{0}; // reshaped with the union (no current eye) in the last frame
+// Current eye of this thread's projection work: set while InitFromCamera builds view k, while culling prepares or
+// restores a view, and from RenderContext::Prepare(view) on the render loop's main context until the next view or
+// the end of DeferredRenderLoop::Render. -1 = none.
+thread_local int t_eye = -1;
 
 // Helmet: snapshot of the camera-local transform, published at Present (main thread) and read in the physics
 // step (main thread as far as known; the mutex keeps it safe if the physics step ever runs elsewhere).
@@ -95,19 +128,25 @@ bool BeginMainView(const void* camera)
     g_frontFovBits = std::bit_cast<std::uint32_t>(Read<float>(camera, kCameraFrontFov));
     g_shiftX = g_settings.projEnabled ? g_settings.shiftX : 0.0f;
     g_shiftY = g_settings.projEnabled ? g_settings.shiftY : 0.0f;
-    // Phase 3: left eye only. Pose and FOV come from xrLocateViews at this frame's predicted display time.
-    // Menus and the pause screen are not head-tracked: xr shows the flat frame on a world-fixed screen instead.
+    // Pose and FOV of both eyes from xrLocateViews at this frame's predicted display time. Menus and the pause screen
+    // are not head-tracked: xr shows the flat frame on a world-fixed screen instead.
     const bool menu = core::GetConfig().xr.menu_screen && ReadMenuState(camera).Active();
     xr::FrameViews views;
     g_head = !menu && xr::LocateViews(views);
     if (g_head) {
-        const xr::EyeView& eye = views.eye[0];
-        g_eyeLocal = stereo::EyeLocal(views.recenter, eye.pose);
-        const stereo::FovTangents t = stereo::TangentsFromXrFov(eye.angleLeft, eye.angleRight, eye.angleUp, eye.angleDown);
-        g_tanL = t.left;
-        g_tanR = t.right;
-        g_tanU = t.up;
-        g_tanD = t.down;
+        stereo::FovTangents t[2];
+        for (int i = 0; i < 2; ++i) {
+            const xr::EyeView& eye = views.eye[i];
+            g_eyeLocal[i] = stereo::EyeLocal(views.recenter, eye.pose);
+            t[i] = stereo::TangentsFromXrFov(eye.angleLeft, eye.angleRight, eye.angleUp, eye.angleDown);
+            g_tan[i].Store(t[i]);
+        }
+        g_tan[2].Store(stereo::UnionTangents(t[0], t[1]));
+        const stereo::Pose& l = views.eye[0].pose;
+        const stereo::Pose& r = views.eye[1].pose;
+        const stereo::Pose head{l.orientation, {(l.position.x + r.position.x) * 0.5f, (l.position.y + r.position.y) * 0.5f,
+                                                   (l.position.z + r.position.z) * 0.5f}};
+        g_headLocal = stereo::EyeLocal(views.recenter, head);
     }
     g_headProj = g_head;
     g_projActive.store(g_settings.projEnabled || g_head, std::memory_order_release);
@@ -128,6 +167,9 @@ void BeginFrame(void* renderer)
     }
     ApplySplitView(renderer, camera, twoViews, g_riderCamera.load(std::memory_order_relaxed));
     xr::SetSideBySide(SplitViewActive());
+    // Per-eye views need every projection rebuild to know its eye (the context hooks); without them both views keep
+    // eye 0 (Phase 4a behaviour).
+    g_perEye = g_head && SplitViewActive() && g_eyeHooks;
     UpdateVrEffects(xr::SessionRunning());
 }
 
@@ -152,11 +194,27 @@ Mat34 LocalFromSettings(const CameraSettings& s)
         {s.offset[0], s.offset[1], s.offset[2]});
 }
 
-// Camera-local transform of the rendered view: overlay sliders (if on), then the eye (if head-tracked).
-Mat34 ViewLocal()
+// Camera-local transform of the rendered view: overlay sliders (if on), then the eye (if head-tracked). eye -1 =
+// the head (eye midpoint), for the helmet mesh.
+Mat34 ViewLocal(int eye)
 {
     const Mat34 sliders = g_settings.viewEnabled ? LocalFromSettings(g_settings) : stereo::Identity34();
-    return g_head ? stereo::Mul(sliders, g_eyeLocal) : sliders;
+    if (!g_head) {
+        return sliders;
+    }
+    return stereo::Mul(sliders, eye == 0 || eye == 1 ? g_eyeLocal[eye] : g_headLocal);
+}
+
+// Eye rendered by DoUpdate view `view` this frame.
+int EyeOfView(int view)
+{
+    return g_perEye.load(std::memory_order_relaxed) && view == 1 ? 1 : 0;
+}
+
+int EyeOfCameraIndex(const void* viewContext)
+{
+    const auto index = Read<std::uint16_t>(viewContext, kViewCameraIndex);
+    return index < 2 ? static_cast<int>(index) : -1;
 }
 
 void RecordCamera(void* viewContext, const void* camera)
@@ -192,10 +250,10 @@ void RecordCamera(void* viewContext, const void* camera)
 
 // Rebuilds the main ViewContext from world * local (CameraSettings). Same steps as the tail of InitFromCamera:
 // camera position, view (= inverse world), SetViewProjection with the projection already built, RebuildFrustum.
-void ApplyViewOverride(void* viewContext)
+void ApplyViewOverride(void* viewContext, int eye)
 {
     const Mat34 world = stereo::ToMat34(Read<Mat44>(viewContext, kViewTransform + kTmWorld));
-    const Mat34 moved = stereo::ComposeCameraLocal(world, ViewLocal());
+    const Mat34 moved = stereo::ComposeCameraLocal(world, ViewLocal(eye));
     alignas(16) const Mat44 view = stereo::ViewFromWorld(moved);
     alignas(16) const Mat44 proj = Read<Mat44>(viewContext, kViewTransform + kTmProj);
     const Vec3 oldPos = Read<Vec3>(viewContext, kViewCamPos);
@@ -228,19 +286,26 @@ int HookedDoUpdate(void* renderer, void* gameContext, unsigned arg)
 // Thread: game main thread (DoUpdate, UpdateShift, OnRender external scenes, probes, picking).
 void HookedInitFromCamera(void* viewContext, const void* camera, const void* viewport, const void* offset)
 {
+    const bool main = g_inDoUpdate && camera && camera == g_mainCamera;
+    const int view = main ? std::max(ViewIndex(viewContext), 0) : 0;
+    const int eye = EyeOfView(view);
+    const int savedEye = t_eye;
+    if (main) {
+        t_eye = eye; // the projection InitFromCamera builds is this eye's
+    }
     g_initFromCamera(viewContext, camera, viewport, offset);
-    if (!g_inDoUpdate || !camera || camera != g_mainCamera) {
+    t_eye = savedEye;
+    if (!main) {
         return;
     }
     try {
         RecordCamera(viewContext, camera);
         if (g_settings.viewEnabled || g_head) {
-            ApplyViewOverride(viewContext);
+            ApplyViewOverride(viewContext, eye);
         }
         if (g_head) {
-            // The headset gets this view's image with the pose it was rendered from: eye 0 for both views until
-            // per-eye poses (Phase 4b).
-            xr::MarkRendered(std::max(ViewIndex(viewContext), 0), 0);
+            // The headset gets this view's image with the pose and FOV it was rendered from.
+            xr::MarkRendered(view, eye);
         }
         g_info.headTracked = g_head;
         std::memcpy(g_info.proj, At(viewContext, kViewTransform + kTmProj), sizeof(g_info.proj));
@@ -295,7 +360,7 @@ void HookedActorSetWorldMatrix(void* actor, const float* matrix)
     }
 }
 
-// Thread: any (main thread; render jobs such as CSM setup may call it too). Only atomics are read.
+// Thread: any (main thread; render jobs such as CSM setup may call it too). Only atomics and thread-locals are read.
 float* HookedPerspective(float* out, float hfov, float nearZ, float farZ, float aspect)
 {
     float* result = g_perspective(out, hfov, nearZ, farZ, aspect);
@@ -308,11 +373,15 @@ float* HookedPerspective(float* out, float hfov, float nearZ, float farZ, float 
     }
     Mat44 m;
     std::memcpy(&m, result, sizeof(m));
-    const stereo::FovTangents base = g_headProj.load(std::memory_order_relaxed)
-                                         ? stereo::FovTangents{g_tanL.load(std::memory_order_relaxed),
-                                               g_tanR.load(std::memory_order_relaxed), g_tanU.load(std::memory_order_relaxed),
-                                               g_tanD.load(std::memory_order_relaxed)}
-                                         : stereo::TangentsFromProjection(m);
+    int which = 0; // one view: eye 0 (or the only rendered view)
+    if (g_perEye.load(std::memory_order_relaxed)) {
+        which = t_eye == 0 || t_eye == 1 ? t_eye : 2;
+        if (which == 2) {
+            g_projUnion.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+    const stereo::FovTangents base =
+        g_headProj.load(std::memory_order_relaxed) ? g_tan[which].Load() : stereo::TangentsFromProjection(m);
     const stereo::FovTangents t = stereo::OffsetTangents(base, g_shiftX.load(std::memory_order_relaxed),
         g_shiftY.load(std::memory_order_relaxed));
     stereo::ApplyTangents(m, t);
@@ -328,6 +397,44 @@ std::string Row(const float* r, int n)
         s += fmt::format("{}{:.6g}", i ? " " : "", r[i]);
     }
     return s + "]";
+}
+
+// Thread: game main thread (DeferredRenderLoop::Render, per view on the main RenderContext; also every other
+// ViewContext copy into a RenderContext, which is ignored).
+void HookedPrepareView(void* renderContext, const void* viewContext)
+{
+    if (g_renderer && viewContext) {
+        const void* loop = Read<const void*>(g_renderer, kRendererRenderLoop);
+        if (loop && renderContext == static_cast<const char*>(loop) + kRenderLoopMainContext) {
+            t_eye = EyeOfCameraIndex(viewContext);
+        }
+    }
+    g_prepareView(renderContext, viewContext);
+}
+
+// Thread: game main thread (scene phase of DeferredRenderLoop::Render, per view, front pass on).
+void HookedPrepareForCulling(void* renderLoop, void* viewContext)
+{
+    const int saved = t_eye;
+    t_eye = viewContext ? EyeOfCameraIndex(viewContext) : -1;
+    g_prepareForCulling(renderLoop, viewContext);
+    t_eye = saved;
+}
+
+void HookedRestoreAfterCulling(void* renderLoop, void* viewContext)
+{
+    const int saved = t_eye;
+    t_eye = viewContext ? EyeOfCameraIndex(viewContext) : -1;
+    g_restoreAfterCulling(renderLoop, viewContext);
+    t_eye = saved;
+}
+
+// Thread: game main thread (Renderer::OnRender, also the external-scene loop).
+void HookedLoopRender(void* renderLoop, void* renderDesc)
+{
+    t_eye = -1; // the scene phase (culling, cascade fitting) serves both eyes
+    g_loopRender(renderLoop, renderDesc);
+    t_eye = -1;
 }
 
 } // namespace
@@ -391,6 +498,27 @@ bool InstallCameraHooks()
     else {
         TT2VR_LOG_WARN("camera: helmet hooks not installed; the helmet mesh keeps the game's placement");
     }
+    // Phase 4b: per-eye projections need to know the eye of every projection rebuild. All four or none.
+    void* prepare = SignatureAddress(Sig::RenderContextPrepareView);
+    void* cull = SignatureAddress(Sig::RenderLoopPrepareForCulling);
+    void* restore = SignatureAddress(Sig::RenderLoopRestoreAfterCulling);
+    void* render = SignatureAddress(Sig::DeferredRenderLoopRender);
+    if (prepare && cull && restore && render) {
+        g_eyeHooks =
+            core::hooks::Create("RenderContext::Prepare(ViewContext)", prepare, &HookedPrepareView, &g_prepareView) ==
+                Result::Ok &&
+            core::hooks::Create("RenderLoop::PrepareForCulling", cull, &HookedPrepareForCulling, &g_prepareForCulling) ==
+                Result::Ok &&
+            core::hooks::Create("RenderLoop::RestoreAfterCulling", restore, &HookedRestoreAfterCulling,
+                &g_restoreAfterCulling) == Result::Ok &&
+            core::hooks::Create("DeferredRenderLoop::Render", render, &HookedLoopRender, &g_loopRender) == Result::Ok;
+    }
+    if (g_eyeHooks) {
+        TT2VR_LOG_INFO("camera: per-eye context hooks installed (two views = two eyes)");
+    }
+    else {
+        TT2VR_LOG_WARN("camera: per-eye context hooks missing; both views use the left eye");
+    }
     return ok;
 }
 
@@ -408,10 +536,11 @@ void OnPresent()
 {
     g_projActive = false;
     g_info.projOverrides = g_projCount.exchange(0);
+    g_info.projUnion = g_projUnion.exchange(0);
     g_info.helmetMoves = g_helmetCount.exchange(0);
     std::lock_guard lock(g_helmetMutex);
     g_helmetApply = g_helmetActive && (g_settings.viewEnabled || g_head) && g_settings.helmetFollows;
-    g_helmetLocal = ViewLocal(); // this frame's view, applied at the next physics step
+    g_helmetLocal = ViewLocal(-1); // this frame's head, applied at the next physics step
     g_head = false;
 }
 
@@ -439,7 +568,8 @@ std::string DescribeCamera()
     const float vfov = 2.0f * std::atan(1.0f / i.proj[1][1]) * kRadToDeg;
     out += fmt::format("  proj hfov {:.2f} deg, vfov {:.2f} deg, jitter [{:.6g} {:.6g}]\n", hfov, vfov, i.jitter[0],
         i.jitter[1]);
-    out += fmt::format("  head tracked {} (left eye, Phase 3)\n", i.headTracked);
+    out += fmt::format("  head tracked {}, per-eye views {} ({} projections with the union frustum last frame)\n",
+        i.headTracked, g_perEye.load(), i.projUnion);
     out += fmt::format("  override: view {} (yaw {} pitch {} roll {} deg, offset [{} {} {}] m), proj {} (shift {} "
                        "{}), {} projection calls reshaped last frame; helmet follows {} (hooks {}), {} helmet "
                        "placements adjusted last frame",
