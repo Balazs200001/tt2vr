@@ -74,6 +74,10 @@ desktop_view = "left"
 # the distant shadow map is split per eye in VR, so 2 gives each eye the full size. Follows the in-game shadow
 # quality option and never changes your saved settings. Cascades are capped at 4096. Costs VRAM and GPU time.
 shadow_scale = 2
+# Screen-space ambient occlusion while the headset session runs. It only sees what is on screen, so in the wide eye
+# views it stretches and moves with your head; false = off in VR (your in-game setting is kept for flat play and is
+# never changed).
+ssao = false
 
 [capture]
 # Folder for frame traces and texture dumps; relative to <game>\tt2vr\ unless absolute.

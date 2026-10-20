@@ -18,4 +18,12 @@ namespace game {
 // missing signatures leave the AO pass as the game made it.
 void InstallSsaoFix();
 
+// SSAO off while the headset session runs ([xr] ssao = false, default): screen-space AO only sees what is on screen
+// and swims with the head in the wide, off-centre eye views (Balazs 2026-10-20, after the constants fix). Each frame
+// the per-camera-index value bytes of Engine.Renderer.SSAO.Enable (IntelSSAO::s_bSSAOEnable +0x80/+0x81, read by
+// DeferredRenderLoop::Render 0x140847c91 per view) are cleared; when the session stops the CVar's own per-slot
+// update recomputes them from its value. The CVar value itself is never changed, so nothing is saved.
+// Thread: game main thread (Renderer::DoUpdate pre-hook).
+void UpdateSsaoOverride(bool vrActive);
+
 } // namespace game

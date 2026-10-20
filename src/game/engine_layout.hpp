@@ -89,7 +89,7 @@ inline constexpr std::ptrdiff_t kCVarIntSlots = 0x80;
 inline constexpr std::ptrdiff_t kCVarIntBase = 0x8c;
 inline constexpr std::ptrdiff_t kCVarIntMin = 0xb0;
 inline constexpr std::ptrdiff_t kCVarIntMax = 0xb8;
-inline constexpr int kCVarUpdateSlot = 12;
+inline constexpr int kCVarUpdateSlot = 12; // also the CVar<bool> per-slot update (same template layout)
 
 // RenderTargetManager
 inline constexpr std::ptrdiff_t kRtmPossibleSplitMode = 0x8;

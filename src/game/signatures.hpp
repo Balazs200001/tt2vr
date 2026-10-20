@@ -53,6 +53,7 @@ enum class Sig {
     CsmCreateStaticShadowMap,
     IntelSsaoUpdateConstants,
     RenderLayerInstance,
+    SsaoEnable,
     Count,
 };
 
@@ -183,6 +184,10 @@ inline constexpr Signature kSignatures[] = {
         kBuild4989319},
     {"RenderLayer::s_pInstance", "?s_pInstance@RenderLayer@Graphics@PlayAll@@2PEAV123@EA", nullptr, 0,
         "data export; 0x141407290, RenderLayerDX11*; its vtable slot +0x70 allocates constant buffer data",
+        kBuild4989319},
+    {"IntelSSAO::s_bSSAOEnable", "?s_bSSAOEnable@IntelSSAO@Graphics@PlayAll@@2V?$CVar@_N@Core@3@A", nullptr, 0,
+        "data export; 0x14140c730, CVar<bool> Engine.Renderer.SSAO.Enable; value bytes +0x80/+0x81 per camera index "
+        "checked per view in DeferredRenderLoop::Render (0x140847c91)",
         kBuild4989319},
 };
 

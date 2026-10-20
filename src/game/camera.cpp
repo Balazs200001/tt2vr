@@ -7,6 +7,7 @@
 #include "game/menu_state.hpp"
 #include "game/signatures.hpp"
 #include "game/split_view.hpp"
+#include "game/ssao_fix.hpp"
 #include "stereo/math/projection.hpp"
 #include "stereo/math/xr_to_engine.hpp"
 #include "xr/session.hpp"
@@ -127,6 +128,7 @@ void BeginFrame(void* renderer)
     }
     ApplySplitView(renderer, camera, twoViews, g_riderCamera.load(std::memory_order_relaxed));
     xr::SetSideBySide(SplitViewActive());
+    UpdateSsaoOverride(xr::SessionRunning());
 }
 
 // View index of a DoUpdate ViewContext: 0 (Renderer+0x30), 1 (Renderer+0x650), or -1.

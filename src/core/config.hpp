@@ -62,6 +62,7 @@ struct Config {
         bool stereo = true; // both eyes as the engine's two split-screen views (Phase 4); false = left eye only
         std::string desktop_view = "left"; // window while the session runs: "left" eye, "both" eyes, "game" (raw)
         int shadow_scale = 2; // shadow maps created at this multiple of the game's shadow quality size (1 = off)
+        bool ssao = false; // keep the game's SSAO while the headset session runs (screen-space AO swims in VR)
     } xr;
     struct Capture {
         std::string dir = "captures"; // relative to <game>\tt2vr\ unless absolute
