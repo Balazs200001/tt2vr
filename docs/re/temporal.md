@@ -465,3 +465,5 @@ Split mode 1 through the mod (Phase 4a: both views from eye 0's pose, 1770x1892 
 | P10 CSM | 6144x2048 map cleared and rendered **per view**, with only 2 cascades (viewports x = 0 and 2048, none at 4096): the split `CascadeCount` cap (`frame-anatomy.md` 5.1); lifted by the mod from the next build. Cascade constants differ per view (fitted per view). | 016157, 039196 |
 | P2 jitter | Not visible in the first 16 floats of the TAA constant buffer (trace records 16 floats); open. | |
 | HUD | After view 1: 80 draws at 3540x1892 into the back buffer with view 1's camera buffer (the global HUD list across both eyes). | 046411..047417 |
+
+- 2026-10-20, Phase 4c (`game::SharedExposure`): frame trace 4400 (stereo, riding) shows both views' `HDR_FinalCompose` (ps `c654fff3722b5843`) binding the same luminance texture `srv1718` at t2; view 1 no longer runs `HDR_Luminance*`. **P8 shared exposure: confirmed (runtime, two views).**
