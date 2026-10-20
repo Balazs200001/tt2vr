@@ -59,6 +59,7 @@ enum class Sig {
     RenderLoopPrepareForCulling,
     RenderLoopRestoreAfterCulling,
     DeferredRenderLoopRender,
+    TonemapRender,
     Count,
 };
 
@@ -212,6 +213,12 @@ inline constexpr Signature kSignatures[] = {
         kBuild4989319},
     {"DeferredRenderLoop::Render", "?Render@DeferredRenderLoop@Graphics@PlayAll@@UEAAXAEAURenderDesc@RenderLoop@23@@Z",
         nullptr, 0, "export; 0x1408469c0, all views in one call (scene phase, then the per-view loop)",
+        kBuild4989319},
+    {"Tonemap (FUN_140914680)", nullptr,
+        "4C 8B DC 55 53 56 57 41 56 41 57 49 8D AB C8 FA FF FF 48 81 EC 08 06 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 "
+        "48 89 85 70 04 00 00 44 0F B7 BD 60 05 00 00 48 8B F1",
+        0, "not exported; 0x140914680 (tm, sceneHdr, dst, ctx, u16 camIdx, vc), per view from "
+           "DeferredRenderLoop::Render 0x140848768; prologue unique in .text",
         kBuild4989319},
 };
 

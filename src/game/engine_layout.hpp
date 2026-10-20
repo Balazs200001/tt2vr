@@ -75,6 +75,11 @@ inline constexpr std::ptrdiff_t kRenderLoopMainContext = 0x1f00; // RenderContex
 inline constexpr std::ptrdiff_t kLightingFrontPassSsr = 0x1e; // byte[2], 0 in first person
 inline constexpr std::ptrdiff_t kLightingProbeFactor = 0x34; // float[2], 0.35 in first person, else 1.0
 
+// Tonemap object (*(RenderLoop+0x1ed0), FUN_140914680 / FUN_1409120b0 / FUN_1409131d0)
+inline constexpr std::ptrdiff_t kTonemapOutput = 0x130; // RT* the luminance chain writes and HDR_FinalCompose reads
+inline constexpr std::ptrdiff_t kTonemapPrevious = 0x138; // RT*[2] previous luminance per camera index
+inline constexpr std::ptrdiff_t kTonemapLuminanceGate = 0x150; // byte, 1 = run HDR_Luminance* (FUN_1409120b0)
+
 // RenderLayer (RenderLayerDX11 instance): vtable slot 14 (+0x70) = constant buffer data allocation
 // (layer, flags, buffer, -1, 0) -> CPU memory, uploaded when the recorded pass executes.
 inline constexpr int kRenderLayerAllocateCbSlot = 14;
