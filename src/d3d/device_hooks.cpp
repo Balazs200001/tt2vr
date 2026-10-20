@@ -18,6 +18,7 @@
 #include "core/paths.hpp"
 #include "d3d/present.hpp"
 #include "game/shadow_settings.hpp"
+#include "game/version.hpp"
 
 #include <windows.h>
 #include <d3d11.h>
@@ -62,7 +63,11 @@ HRESULT WINAPI HookedCreateDeviceAndSwapChain(IDXGIAdapter* adapter, D3D_DRIVER_
     g_called = true;
     const UINT newFlags = flags & ~kPreventAlteringLayerSettings;
     try {
-        game::ApplyShadowSettings(); // settings are loaded, the renderer (and its shadow maps) is not created yet
+        // Here the SteamStub has finished and game code is running: hashing the exe (bcrypt) can no longer
+        // deadlock with the stub, which it did from the startup thread (2026-10-20, docs/re/README.md). The
+        // renderer is created later, so the shadow scale hooks are in place for its shadow maps.
+        game::CheckExeVersion();
+        game::InstallShadowScaleHooks();
     }
     catch (...) {
     }

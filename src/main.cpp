@@ -4,7 +4,6 @@
 #include "core/log.hpp"
 #include "core/paths.hpp"
 #include "d3d/device_hooks.hpp"
-#include "game/version.hpp"
 
 #include <windows.h>
 #include <tlhelp32.h>
@@ -92,8 +91,9 @@ void LoadConfiguration()
 extern "C" __declspec(dllexport) void __cdecl tt2vr_start()
 {
     // Thread: proxy init thread (game process startup, before the game creates its D3D11 device).
-    // Order matters: config first (the device hook reads it), then the device hook as early as possible,
-    // then the slow exe hash. Engine hooks (Phase 2+) are only allowed when the hash is a known build.
+    // Order matters: config first (the device hook reads it), then the device hook as early as possible. Nothing
+    // slow or loader-heavy here: this runs while the SteamStub is still starting the game. Engine hooks (Phase 2+)
+    // are only allowed once the device hook has hashed the exe and found a known build.
     try {
         QueryPerformanceCounter(&g_startCounter);
         core::InitLog();
@@ -106,8 +106,10 @@ extern "C" __declspec(dllexport) void __cdecl tt2vr_start()
             TT2VR_LOG_ERROR("MinHook unavailable: overlay, traces and dumps disabled");
         }
         d3d::InstallDeviceHooks();
-        TT2VR_LOG_INFO("startup: hashing TT2.exe");
-        game::CheckExeVersion();
+        // The exe hash (bcrypt) runs in the device-creation hook instead: here it ran while the SteamStub was still
+        // starting the game, and bcrypt's provider loading deadlocked with it (2026-10-20: three hung launches,
+        // stacks in bcrypt / ntdll loader on both threads).
+        TT2VR_LOG_INFO("startup: done; exe check at device creation");
     }
     catch (...) {
         // Never let an exception escape into the game; the game keeps running flat.
