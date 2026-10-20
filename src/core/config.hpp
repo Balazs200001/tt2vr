@@ -61,8 +61,7 @@ struct Config {
         bool force_render_size = true; // render the game at the eye swapchain size while a headset is connected
         bool stereo = true; // both eyes as the engine's two split-screen views (Phase 4); false = left eye only
         std::string desktop_view = "left"; // window while the session runs: "left" eye, "both" eyes, "game" (raw)
-        int shadow_map_size = 4096; // minimum CSM cascade size (Engine.Renderer.Shadow.CascadeShadowMapSize); 0 = game
-        int static_shadow_map_size = 4096; // minimum Engine.Renderer.StaticShadow.Size (halved per eye); 0 = game
+        int shadow_scale = 2; // shadow maps created at this multiple of the game's shadow quality size (1 = off)
     } xr;
     struct Capture {
         std::string dir = "captures"; // relative to <game>\tt2vr\ unless absolute

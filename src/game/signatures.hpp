@@ -48,6 +48,9 @@ enum class Sig {
     StaticShadowEnabledInSplit,
     CascadeShadowMapSize,
     StaticShadowMapSize,
+    GameEngineConfigureRenderer,
+    RendererUpdateShadowQuality,
+    CsmCreateStaticShadowMap,
     Count,
 };
 
@@ -159,6 +162,17 @@ inline constexpr Signature kSignatures[] = {
         "?s_iStaticShadowMapSize@CascadedShadowMapRenderer@Graphics@PlayAll@@1V?$CVar@I@Core@3@A", nullptr, 0,
         "data export; 0x1413ca990, CVar<uint> Engine.Renderer.StaticShadow.Size (ctor FUN_14008ade0), slot 0 read "
         "by CreateStaticShadowMap 0x140825c20 (halved per view in split)",
+        kBuild4989319},
+    {"GameEngine::ConfigureRenderer",
+        "?ConfigureRenderer@GameEngine@Game@PlayAll@@UEBAHPEAURendererDesc@23@AEBUGraphicsDescWIN@Graphics@3@@Z", nullptr,
+        0, "export; 0x1404a9e30, startup: reads CascadeShadowMapSize slot 0 (0x1404a9f1b) into the renderer desc",
+        kBuild4989319},
+    {"Renderer::UpdateShadowQuality", "?UpdateShadowQuality@Renderer@Game@PlayAll@@QEAAHXZ", nullptr, 0,
+        "export; 0x1405b1780, shadow quality change: reads CascadeShadowMapSize slot 0 (0x1405b1803), "
+        "SetupCascadedShadowMap",
+        kBuild4989319},
+    {"CascadedShadowMapRenderer::CreateStaticShadowMap", "?CreateStaticShadowMap@CascadedShadowMapRenderer@Graphics@PlayAll@@QEAAHXZ",
+        nullptr, 0, "export; 0x140825c20, reads StaticShadow.Size slot 0 (DAT_1413caa10), / 2 per view in split",
         kBuild4989319},
 };
 

@@ -69,13 +69,11 @@ stereo = true
 # window would show stretched): "left" = left eye, "both" = both eyes side by side, each letterboxed to the window's
 # shape; "game" = the raw rendered image, stretched.
 desktop_view = "left"
-# Shadow resolution for VR (applied at game start, before the renderer creates its shadow maps; only ever raised).
-# The headset's wide view makes the game's shadow cascades cover twice the area, so the same map size gives half the
-# shadow detail of the flat game; 4096 brings it back. Static = the distant shadow map, split per eye. 0 = keep the
-# game's setting. Costs VRAM (~100 MB at 4096) and GPU time. Note: applying the in-game Options saves these values
-# into your UserSettings.cfg.
-shadow_map_size = 4096
-static_shadow_map_size = 4096
+# Shadow maps are created at this multiple of the size the game's shadow quality setting asks for (1..4, 1 = off).
+# The headset's wide view makes each shadow cascade cover twice the area, so 2 gives the flat game's shadow detail;
+# the distant shadow map is split per eye in VR, so 2 gives each eye the full size. Follows the in-game shadow
+# quality option and never changes your saved settings. Cascades are capped at 4096. Costs VRAM and GPU time.
+shadow_scale = 2
 
 [capture]
 # Folder for frame traces and texture dumps; relative to <game>\tt2vr\ unless absolute.

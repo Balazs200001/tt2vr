@@ -264,8 +264,7 @@ void ReadXr(const toml::table& t, Config::Xr& out, Warnings& w)
         else if (key == "screen_width") s.Float(key, node, out.screen_width, 0.25, 10.0);
         else if (key == "force_render_size") s.Bool(key, node, out.force_render_size);
         else if (key == "stereo") s.Bool(key, node, out.stereo);
-        else if (key == "shadow_map_size") s.Int(key, node, out.shadow_map_size, 0, 8192);
-        else if (key == "static_shadow_map_size") s.Int(key, node, out.static_shadow_map_size, 0, 8192);
+        else if (key == "shadow_scale") s.Int(key, node, out.shadow_scale, 1, 4);
         else if (key == "desktop_view") {
             s.String(key, node, out.desktop_view);
             if (out.desktop_view != "left" && out.desktop_view != "both" && out.desktop_view != "game") {

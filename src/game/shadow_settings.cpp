@@ -1,12 +1,11 @@
 #include "game/shadow_settings.hpp"
 
 #include "core/config.hpp"
+#include "core/hooks.hpp"
 #include "core/log.hpp"
 #include "game/engine_layout.hpp"
 #include "game/signatures.hpp"
 #include "game/version.hpp"
-
-#include <windows.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -16,51 +15,70 @@ namespace {
 
 using namespace layout;
 
-using UpdateSlotFn = void (*)(void* cvar, unsigned short index, char notify);
+using ConfigureRendererFn = int (*)(const void* engine, void* rendererDesc, const void* graphicsDesc);
+using MemberIntFn = int (*)(void* self);
 
-// Raises an int CVar's base value to `wanted` (clamped to its min/max) and recomputes both camera-index slots.
-// Returns the slot-0 value before and after, or false on an access fault.
-bool RaiseIntCVar(void* cvar, int wanted, int& before, int& after)
+ConfigureRendererFn g_configureRenderer = nullptr;
+MemberIntFn g_updateShadowQuality = nullptr;
+MemberIntFn g_createStaticShadowMap = nullptr;
+void* g_cascadeSize = nullptr; // CVar<int>
+void* g_staticSize = nullptr; // CVar<uint>
+int g_scale = 1;
+
+constexpr int kMaxCascadeSize = 4096; // 3 cascades side by side: 3 * 4096 <= 16384 (D3D11 texture width limit)
+
+// Multiplies the CVar's slot-0 value for the lifetime of the scope (main thread; the engine reads slot 0 there).
+class ScaledSlot {
+public:
+    ScaledSlot(void* cvar, int cap, const char* name) : m_cvar(cvar)
+    {
+        if (!m_cvar || g_scale <= 1) {
+            m_cvar = nullptr;
+            return;
+        }
+        m_saved = Read<int>(m_cvar, kCVarIntSlots);
+        const int scaled = std::min(m_saved * g_scale, cap);
+        Write(m_cvar, kCVarIntSlots, scaled);
+        TT2VR_LOG_INFO("shadows: {} {} x{} -> {} for map creation", name, m_saved, g_scale, scaled);
+    }
+    ~ScaledSlot()
+    {
+        if (m_cvar) {
+            Write(m_cvar, kCVarIntSlots, m_saved);
+        }
+    }
+    ScaledSlot(const ScaledSlot&) = delete;
+    ScaledSlot& operator=(const ScaledSlot&) = delete;
+
+private:
+    void* m_cvar;
+    int m_saved = 0;
+};
+
+// Thread: game main thread (GameEngine::CreateApplication, before "Creating renderer").
+int HookedConfigureRenderer(const void* engine, void* rendererDesc, const void* graphicsDesc)
 {
-    __try {
-        before = Read<int>(cvar, kCVarIntSlots);
-        int value = std::max(wanted, Read<int>(cvar, kCVarIntBase));
-        if (const int* lo = Read<const int*>(cvar, kCVarIntMin)) {
-            value = std::max(value, *lo);
-        }
-        if (const int* hi = Read<const int*>(cvar, kCVarIntMax)) {
-            value = std::min(value, *hi);
-        }
-        Write(cvar, kCVarIntBase, value);
-        const auto update = reinterpret_cast<UpdateSlotFn>((*static_cast<void* const* const*>(cvar))[kCVarUpdateSlot]);
-        for (unsigned short i = 0; i < 2; ++i) {
-            update(cvar, i, 0);
-        }
-        after = Read<int>(cvar, kCVarIntSlots);
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) {
-        return false;
-    }
+    ScaledSlot scale(g_cascadeSize, kMaxCascadeSize, "CascadeShadowMapSize");
+    return g_configureRenderer(engine, rendererDesc, graphicsDesc);
 }
 
-void Apply(Sig sig, const char* name, int wanted)
+// Thread: game main thread (shadow quality option applied).
+int HookedUpdateShadowQuality(void* renderer)
 {
-    if (wanted <= 0) {
-        return;
-    }
-    void* cvar = SignatureAddress(sig);
-    int before = 0, after = 0;
-    if (!cvar || !RaiseIntCVar(cvar, wanted, before, after)) {
-        TT2VR_LOG_WARN("shadows: {} not applied (CVar missing or unreadable)", name);
-        return;
-    }
-    TT2VR_LOG_INFO("shadows: {} {} -> {} (wanted {})", name, before, after, wanted);
+    ScaledSlot scale(g_cascadeSize, kMaxCascadeSize, "CascadeShadowMapSize");
+    return g_updateShadowQuality(renderer);
+}
+
+// Thread: game main thread (Renderer::OnRender resize block, on every split change).
+int HookedCreateStaticShadowMap(void* csm)
+{
+    ScaledSlot scale(g_staticSize, 16384, "StaticShadow.Size");
+    return g_createStaticShadowMap(csm);
 }
 
 } // namespace
 
-void ApplyShadowSettings()
+void InstallShadowScaleHooks()
 {
     static bool s_done = false;
     if (s_done) {
@@ -68,12 +86,32 @@ void ApplyShadowSettings()
     }
     s_done = true;
     const auto& xc = core::GetConfig().xr;
-    if (!xc.enabled || !EngineHooksAllowed()) {
+    g_scale = xc.shadow_scale;
+    if (!xc.enabled || g_scale <= 1 || !EngineHooksAllowed()) {
         return;
     }
     ResolveSignatures();
-    Apply(Sig::CascadeShadowMapSize, "Engine.Renderer.Shadow.CascadeShadowMapSize", xc.shadow_map_size);
-    Apply(Sig::StaticShadowMapSize, "Engine.Renderer.StaticShadow.Size", xc.static_shadow_map_size);
+    g_cascadeSize = SignatureAddress(Sig::CascadeShadowMapSize);
+    g_staticSize = SignatureAddress(Sig::StaticShadowMapSize);
+    using core::hooks::Result;
+    int installed = 0;
+    if (g_cascadeSize && SignatureAddress(Sig::GameEngineConfigureRenderer) &&
+        core::hooks::Create("GameEngine::ConfigureRenderer", SignatureAddress(Sig::GameEngineConfigureRenderer),
+            &HookedConfigureRenderer, &g_configureRenderer) == Result::Ok) {
+        ++installed;
+    }
+    if (g_cascadeSize && SignatureAddress(Sig::RendererUpdateShadowQuality) &&
+        core::hooks::Create("Renderer::UpdateShadowQuality", SignatureAddress(Sig::RendererUpdateShadowQuality),
+            &HookedUpdateShadowQuality, &g_updateShadowQuality) == Result::Ok) {
+        ++installed;
+    }
+    if (g_staticSize && SignatureAddress(Sig::CsmCreateStaticShadowMap) &&
+        core::hooks::Create("CascadedShadowMapRenderer::CreateStaticShadowMap",
+            SignatureAddress(Sig::CsmCreateStaticShadowMap), &HookedCreateStaticShadowMap,
+            &g_createStaticShadowMap) == Result::Ok) {
+        ++installed;
+    }
+    TT2VR_LOG_INFO("shadows: x{} shadow map scale for VR, {} of 3 hooks installed", g_scale, installed);
 }
 
 } // namespace game
