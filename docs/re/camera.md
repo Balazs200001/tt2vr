@@ -109,3 +109,13 @@ Consequence: the helmet is placed in the scene graph by game code, separately fr
 | 5 | Depth still correct | texture dump of depth with yaw 90 deg | not separately dumped; no depth artefacts reported |
 
 Note: the helmet camera of f8323 had near 1.0; this session's helmet camera has near 0.01. Near differs per camera view (`GameViewCameras.cfg` data), so never hard-code it.
+
+## 9. Automatic look into corners ("Dynamic View" / look to apex) and stick look (static, 2026-10-20)
+
+`confirmed (static)` unless tagged. Helmet views (enum 2 Helmet, 3 HelmetNoMesh, 4 Dash) in `TTSpringCameraMode`.
+
+- Physics step `PhysicsStepTarget` 0x1401a23e0 builds the look-at frame from the bike (horizon-level, yaw follows the bike), pre-multiplies `Q_lean * Q_tuck` (`LeanHead` 0x14019b880, `TuckInOut` 0x1401a50e0), smooths into quat `mode+0x3d4`, and stores the result at both `mode+0x8` and **`mode+0x3e4` (the pre-look frame)**.
+- Every frame `ComputeView` 0x1401a11c0 copies `+0x3e4` to `+0x8` and calls `LookAroundInput` 0x1401a0a70, which (a) post-multiplies `Ry(theta)`, theta = `TTDriverAnim+0x120` (component `*(mode+0x430)`, updated by `FUN_1401738b0` toward a racing-line point ahead; max 0.25 / 0.20 / 0.15 / 0 rad for the profile option Anticipated / Normal / Delayed / Off, drift rate 0.3 rad/s), and (b) pre-multiplies the stick look `mode+0x2c0` (pad or look left/right/back; max angles CockpitSettings `+0xb4/+0xb8`). `HelmetSprings` then builds the helmet matrix from the post-look `+0x8`; `KTUCamera::Update` adds shakes and writes the pool.
+- Game option: profile enum `eCameraDynamicView` (Anticipated/Normal/Delayed/Off; `FUN_14030f520`), probably the menu's "look to apex" setting (`likely`, Scaleform labels); also drives the rider's head-look IK (visual).
+- Mod rule (`[camera] remove_auto_look`, default on, head-tracked only): `D = R(mode+0x8)^T * R(mode+0x3e4)` (camera-local, translation zeroed) is put before the head pose: view = W * D * sliders * eye; helmet local = D * head. Removes the auto yaw and the stick look, keeps lean/tuck and shakes; the pool, audio and the game option are untouched. Mode reached via the player-0 `KTUCamera` (`+0x48` mode with the `TTSpringCameraMode::Manage` vtable check, `+0x68` override mode null, `+0x10` = rendered camera). The removed yaw is shown by the `camera` command (`game look rotation removed: N deg`).
+- Not removed: `LeanHead`'s own yaw/roll into the corner (CockpitSettings `LeanHeadRotationOffset` +0xc8, applied with the lean angle, baked into `+0x3e4`); separable only with hooks on `LeanHead` / `TuckInOut` (their output quats, call sites 0x1401a2c24 / 0x1401a2c7e).

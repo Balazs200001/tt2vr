@@ -246,6 +246,7 @@ void ReadCamera(const toml::table& t, Config::Camera& out, Warnings& w)
     for (const auto& [k, node] : t) {
         const std::string_view key = k.str();
         if (key == "helmet_follows_view") s.Bool(key, node, out.helmet_follows_view);
+        else if (key == "remove_auto_look") s.Bool(key, node, out.remove_auto_look);
         else s.Warn(key, "unknown key, ignored", node);
     }
 }

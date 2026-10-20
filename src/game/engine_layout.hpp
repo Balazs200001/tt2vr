@@ -51,10 +51,12 @@ inline constexpr std::ptrdiff_t kVolumeOwnerVisibility = 0x48;
 inline constexpr std::ptrdiff_t kVolumeIndex = 0x64; // int, this volume's byte; bit i = visible in camera index i
 inline constexpr std::ptrdiff_t kModeCameraMatrix = 0x8; // Matrix34 the mode outputs
 inline constexpr std::ptrdiff_t kModeHelmetMatrix = 0x4c4; // Matrix34 from HelmetSprings (built from +0x8)
+inline constexpr std::ptrdiff_t kModePreLookMatrix = 0x3e4; // Matrix34: +0x8 before LookAroundInput (auto + stick look)
 
 // KTUCamera / KTUCameraMode (game side; read only, never written)
 inline constexpr std::ptrdiff_t kKTUCameraCamera = 0x10; // Graphics::Camera* it drives (SetFov/SetClips target)
 inline constexpr std::ptrdiff_t kKTUCameraMode = 0x48; // active KTUCameraMode*; KTUCamera::Update calls its Manage
+inline constexpr std::ptrdiff_t kKTUCameraOverrideMode = 0x68; // Ansel / free camera mode; non-null replaces +0x48
 inline constexpr int kModeManageSlot = 6; // vtable slot (+0x30): Manage, called at 0x1409d9125
 
 // PlayAll::Game::Renderer

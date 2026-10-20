@@ -67,6 +67,10 @@ bool g_inDoUpdate = false;
 bool g_head = false;
 Mat34 g_eyeLocal[2] = {stereo::Identity34(), stereo::Identity34()};
 Mat34 g_headLocal = stereo::Identity34();
+// Camera-local rotation that undoes the camera mode's look rotations this frame (identity when not removing them):
+// D = R(mode+0x8)^T * R(mode+0x3e4). docs/re/camera.md section 9.
+Mat34 g_autoLookFix = stereo::Identity34();
+const void* g_springManage = nullptr; // TTSpringCameraMode::Manage, identifies the helmet camera mode
 
 // Read by MatrixPerspectiveFovRH, which may also run on render job threads.
 std::atomic<bool> g_projActive{false};
@@ -120,6 +124,36 @@ void* At(void* base, std::ptrdiff_t offset)
     return static_cast<char*>(base) + offset;
 }
 
+// The helmet camera mode turns its view after building it: LookAroundInput 0x1401a0a70 post-multiplies the
+// Dynamic View yaw (TTDriverAnim+0x120, toward a racing-line point ahead, |yaw| <= 0.25 rad) and pre-multiplies the
+// stick look, mode+0x3e4 -> mode+0x8. D = R(+0x8)^T R(+0x3e4) in camera-local axes removes both; translation, lean,
+// tuck and shakes stay. Read-only; false if the player camera is not the rendered helmet mode. SEH: game objects.
+bool ReadAutoLookFix(const void* ktuCamera, const void* renderedCamera, Mat34& d)
+{
+    __try {
+        if (!ktuCamera || !g_springManage || Read<const void*>(ktuCamera, kKTUCameraCamera) != renderedCamera ||
+            Read<const void*>(ktuCamera, kKTUCameraOverrideMode)) {
+            return false;
+        }
+        const void* mode = Read<const void*>(ktuCamera, kKTUCameraMode);
+        const void* const* vtable = mode ? *static_cast<const void* const* const*>(mode) : nullptr;
+        if (!vtable || vtable[kModeManageSlot] != g_springManage) {
+            return false;
+        }
+        Mat34 post = Read<Mat34>(mode, kModeCameraMatrix);
+        Mat34 pre = Read<Mat34>(mode, kModePreLookMatrix);
+        for (int r = 0; r < 3; ++r) {
+            post.m[r][3] = 0.0f;
+            pre.m[r][3] = 0.0f;
+        }
+        d = stereo::Mul(stereo::RigidInverse(post), pre);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 // Sets up this frame's main view from `camera`. Returns true when it should be rendered as two views (Phase 4).
 bool BeginMainView(const void* camera)
 {
@@ -147,6 +181,11 @@ bool BeginMainView(const void* camera)
         const stereo::Pose head{l.orientation, {(l.position.x + r.position.x) * 0.5f, (l.position.y + r.position.y) * 0.5f,
                                                    (l.position.z + r.position.z) * 0.5f}};
         g_headLocal = stereo::EyeLocal(views.recenter, head);
+        Mat34 fix;
+        if (core::GetConfig().camera.remove_auto_look && ReadAutoLookFix(LastPlayerCamera(), camera, fix)) {
+            g_autoLookFix = fix;
+            g_info.autoLookYawDeg = std::atan2(fix.m[0][2], fix.m[0][0]) * kRadToDeg;
+        }
     }
     g_headProj = g_head;
     g_projActive.store(g_settings.projEnabled || g_head, std::memory_order_release);
@@ -158,6 +197,8 @@ void BeginFrame(void* renderer)
     g_mainCamera = nullptr;
     g_projActive = false;
     g_head = false;
+    g_autoLookFix = stereo::Identity34();
+    g_info.autoLookYawDeg = 0.0f;
     g_renderer = renderer;
     // The game's own CameraDesc, not the Renderer fields: while two views run those hold our desc.
     const void* camera = GameMainCamera(renderer);
@@ -253,7 +294,7 @@ void RecordCamera(void* viewContext, const void* camera)
 void ApplyViewOverride(void* viewContext, int eye)
 {
     const Mat34 world = stereo::ToMat34(Read<Mat44>(viewContext, kViewTransform + kTmWorld));
-    const Mat34 moved = stereo::ComposeCameraLocal(world, ViewLocal(eye));
+    const Mat34 moved = stereo::ComposeCameraLocal(world, stereo::Mul(g_autoLookFix, ViewLocal(eye)));
     alignas(16) const Mat44 view = stereo::ViewFromWorld(moved);
     alignas(16) const Mat44 proj = Read<Mat44>(viewContext, kViewTransform + kTmProj);
     const Vec3 oldPos = Read<Vec3>(viewContext, kViewCamPos);
@@ -461,6 +502,7 @@ bool InstallCameraHooks()
     s_done = true;
     g_settings.helmetFollows = core::GetConfig().camera.helmet_follows_view;
     ResolveSignatures();
+    g_springManage = SignatureAddress(Sig::SpringCameraModeManage);
     for (const Sig required : {Sig::RendererDoUpdate, Sig::ViewContextInitFromCamera, Sig::MatrixPerspectiveFovRH,
              Sig::TransformMatrixSetViewProjection, Sig::ViewContextRebuildFrustum}) {
         if (!SignatureAddress(required)) {
@@ -543,7 +585,7 @@ void OnPresent()
     g_info.helmetMoves = g_helmetCount.exchange(0);
     std::lock_guard lock(g_helmetMutex);
     g_helmetApply = g_helmetActive && (g_settings.viewEnabled || g_head) && g_settings.helmetFollows;
-    g_helmetLocal = ViewLocal(-1); // this frame's head, applied at the next physics step
+    g_helmetLocal = stereo::Mul(g_autoLookFix, ViewLocal(-1)); // this frame's head, applied at the next physics step
     g_head = false;
 }
 
@@ -573,6 +615,7 @@ std::string DescribeCamera()
         i.jitter[1]);
     out += fmt::format("  head tracked {}, per-eye views {} ({} projections with the union frustum last frame)\n",
         i.headTracked, g_perEye.load(), i.projUnion);
+    out += fmt::format("  game look rotation removed: {:.2f} deg yaw\n", i.autoLookYawDeg);
     out += fmt::format("  override: view {} (yaw {} pitch {} roll {} deg, offset [{} {} {}] m), proj {} (shift {} "
                        "{}), {} projection calls reshaped last frame; helmet follows {} (hooks {}), {} helmet "
                        "placements adjusted last frame",

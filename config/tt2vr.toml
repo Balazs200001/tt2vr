@@ -38,6 +38,10 @@ show_cursor = false
 # Move the helmet mesh with the camera override (overlay sliders now, head tracking later). Off = the helmet stays
 # where the game puts it. Also switchable in the overlay. The game's "Helmet No Mesh" view has no helmet either way.
 helmet_follows_view = true
+# While head-tracked, remove the game's automatic look into corners ("Dynamic View" / look to apex) and the
+# controller look from the view, so only your head turns it. Visual only; the game's option itself is untouched
+# (setting it to Off in the game menu does the same).
+remove_auto_look = true
 
 [xr]
 # Start OpenXR (headset) when a runtime and a connected headset are available. Off = the game stays flat.
