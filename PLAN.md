@@ -282,8 +282,9 @@ Implementation steps (proposed 2026-10-16, **waiting for Balazs's OK**; each ste
 - [x] Per-object previous transforms: confirm `Mesh::UpdateRenderData` advances once per frame with two views (frame-id guard); check skinned meshes (`SkinMesh` per-camera-index validity).
   - 2026-10-21 (`renderer.md` 4): `Mesh` is right (frameId = `RenderLayer+0x30`, one increment per frame, guard holds). **`SkinMesh` is wrong:** one cur/prev bone palette per mesh, latched again by view 1's call, so both views draw skinned meshes (bike, rider) with prev == cur: zero object motion in the motion vectors and TAA. Trace evidence: skinned MV CB pairs differ in flat trace 10866 (5/5), identical in two-view traces 12770/9191/13970/4400 (41/44). This plausibly caused the 2026-10-20 "smear on bike and rider" that led to the motion-blur exception (Decisions log); revisit after 5a. Fix: 5a.
   - 2026-10-21: **5a done** (`src/game/skin_motion.*`). Test mode, two views, standing on the Time Attack start line: log "skin motion: second view's palette latch skipped"; frame trace 12270: all 10 skinned MV draws (5 per view) have prev != cur (idle-animation deltas around 1e-4), identical between the views. Open for Balazs: bike/rider sharpness under TAA while riding in the headset, and whether motion blur can come back on (Decisions log 2026-10-20).
-- [ ] Re-entrancy/state audit for slot 1 (globals and RenderLoop fields that only assumed split-screen use).
+- [x] Re-entrancy/state audit for slot 1 (globals and RenderLoop fields that only assumed split-screen use).
   - 2026-10-21, static (`renderer.md` 6): environment (fog, ambient, bloom, grading, wind, weather, sky), per-slot CVars and post-process lists are fed for both slots every frame. Gaps: (A) PopcornFX medium 2 (per-camera effect pairs) stays disabled without `GameEngine+0x184`; (B) water-drop camera speed/acceleration slot 1 (rain only); (C) DOF focus slot 1 (cutscenes with a mask-1 DOF target). Fix: 5d.
+  - 2026-10-21: **5d.** (A) fixed (`src/game/particle_medium.*`): a disabled medium skips PopcornFX spawn and evolve (`UpdateSpawn` / `UpdateEvolve`), but view 1 still renders collection 2, so "Update Per Split" effects (`HHParticlesComponent+0x4a`, data-driven) showed in the left eye only; the `EnableMedium` hook keeps medium 2 on while two views run (collections are allocated unconditionally, pairs exist from actor init, `GameContext+0x23` is an editor-like flag, 0 in a normal session). Test mode: log "medium 2 on", no errors; no per-split effect was on screen at the start line, so the visible A/B is left for a ride. (B) not patched: water drops are a per-slot screen-space visor effect with their own particles, so the eyes show different drops whatever the speed; VR visor drops need a decision (shared, per eye, or off): moved to Phase 8. (C) DOF slot 1 matters only for cutscene/replay DOF with a mask-1 target: check in Phase 7 (replays, menus).
 - [x] GPU timestamp queries per eye, shown in the overlay.
   - 2026-10-21, static (`renderer.md` 7): the engine's exported, never-called `RenderLayer::Begin/EndProfilingEvent` queue a timestamp + marker pass at the current point of the record queue, executed on whichever context runs that job. Design: 5b.
   - 2026-10-21: **5b done** (`src/game/gpu_timers.*`; overlay line "GPU: view 0 / view 1 / frame", perf log line every 10 s). Test mode, Debug DLL, scale 0.7 (eye 1770x1892), Time Attack start line, bike idle: **view 0 9.90 ms, view 1 9.60 ms, frame 19.76 ms GPU** (the views plus 0.26 ms of per-frame work make the frame total) at 49.6 fps / 20.2 ms: GPU-bound. Baseline for 5c.
@@ -298,6 +299,8 @@ Implementation steps (proposed 2026-10-21, **waiting for Balazs's OK**; each ste
   - 2026-10-21, test mode with 5a-5c: **leak test PASS** (left 0.0% -> 74.2% red on the tint frame, right +0.00% over its 0.01% baseline); **head shake** (simulated ±45° yaw, 1 s period): no ghost of the other eye's view in either eye in two mid-shake frames (`shake3`, `shake4`); per-frame passes once: section 1 above (trace 4400) and 12870 (one shadow render). The headset check (trails vs flat, comfort) is Balazs's.
 
 **Done when:** the leak and head-shake tests pass; per-frame passes appear once per frame in the trace; no visible seams or popping between eyes (shadows, culling, particles).
+
+**Status 2026-10-21:** all five tasks done (5a-5d); leak and head-shake tests pass in test mode; per-frame passes once in the trace (trace 4400, shadows once since 5c, trace 12870). **Open for Balazs in the headset:** shadows, particles and culling look the same in both eyes while riding (no seams or popping), bike/rider sharp under TAA (5a), head-shake trails comparable to flat. Phase 5 closes on that report.
 
 ## Phase 6 — Temporal completeness
 
@@ -327,6 +330,7 @@ Implementation steps (proposed 2026-10-21, **waiting for Balazs's OK**; each ste
 - [ ] Seated calibration: recenter aligns my head with the rider's eye point; the offset is saved.
 - [ ] World scale and IPD scale options (history reset on change).
 - [ ] Chase cam: decide whether to support it as an offset seat or disable it in VR.
+- [ ] Visor water drops in VR (Phase 5 audit, `docs/re/renderer.md` 6 B): the engine's per-camera-index screen-space drops differ between the eyes (own particles per slot, slot 1 gets no camera speed): decide shared, per eye, or off.
 
 **Done when:** a 10-minute ride on the TT course with horizon lock on is comfortable for me.
 
