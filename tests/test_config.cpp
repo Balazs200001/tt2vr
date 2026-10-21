@@ -44,7 +44,7 @@ bool SameConfig(const Config& a, const Config& b)
            a.xr.desktop_vsync_off == b.xr.desktop_vsync_off && a.xr.desktop_mirror == b.xr.desktop_mirror &&
            a.xr.menu_screen == b.xr.menu_screen && a.xr.screen_distance == b.xr.screen_distance &&
            a.xr.screen_width == b.xr.screen_width && a.xr.force_render_size == b.xr.force_render_size && a.overlay.show_cursor == b.overlay.show_cursor &&
-           a.overlay.visible == b.overlay.visible &&
+           a.overlay.visible == b.overlay.visible && a.overlay.options_tab == b.overlay.options_tab &&
            a.camera.helmet_follows_view == b.camera.helmet_follows_view &&
            a.camera.remove_auto_look == b.camera.remove_auto_look && a.camera.horizon_lock == b.camera.horizon_lock &&
            a.camera.shake == b.camera.shake && a.camera.seat_forward == b.camera.seat_forward &&

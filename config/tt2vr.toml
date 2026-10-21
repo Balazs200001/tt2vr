@@ -41,6 +41,10 @@ seat_reset = "Num5"
 visible = true
 # Draw the overlay's mouse cursor at startup (toggle with the cursor hotkey).
 show_cursor = false
+# Add a "VR" tab to the game's Options > Display page with the settings that can change while the game runs (horizon
+# lock, camera shake, world and IPD scale, seat position, HUD distance and height). Changes there are saved to
+# tt2vr\user.toml. Read at game start.
+options_tab = true
 
 [camera]
 # Move the helmet mesh with the camera override (overlay sliders now, head tracking later). Off = the helmet stays

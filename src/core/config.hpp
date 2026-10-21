@@ -48,6 +48,7 @@ struct Config {
     struct Overlay {
         bool visible = true;
         bool show_cursor = false; // draw the overlay's mouse cursor at startup (the game hides the OS cursor)
+        bool options_tab = true; // PLAN 8i: a VR tab in the game's Options > Display with the runtime settings
     } overlay;
     struct Camera {
         bool helmet_follows_view = true; // move the helmet mesh with the view/head override (Phase 2)

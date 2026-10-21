@@ -241,6 +241,7 @@ void ReadOverlay(const toml::table& t, Config::Overlay& out, Warnings& w)
         const std::string_view key = k.str();
         if (key == "visible") s.Bool(key, node, out.visible);
         else if (key == "show_cursor") s.Bool(key, node, out.show_cursor);
+        else if (key == "options_tab") s.Bool(key, node, out.options_tab);
         else s.Warn(key, "unknown key, ignored", node);
     }
 }

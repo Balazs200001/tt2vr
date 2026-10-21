@@ -27,6 +27,7 @@
 #include "game/gpu_timers.hpp"
 #include "game/hud_capture.hpp"
 #include "game/menu_state.hpp"
+#include "game/options_tab.hpp"
 #include "game/particle_medium.hpp"
 #include "game/render_size.hpp"
 #include "game/rider_view.hpp"
@@ -363,6 +364,7 @@ void InstallEngineHooksOnce()
         game::InstallParticleMedium();
         game::InstallHudCapture();
         game::InstallSlotMirror();
+        game::InstallOptionsTab();
     }
     else {
         TT2VR_LOG_WARN("engine hooks skipped: unknown game version");
