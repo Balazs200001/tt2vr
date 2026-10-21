@@ -88,10 +88,12 @@ constexpr const char* kTargetNames[2] = {"tt2vr HUD black", "tt2vr HUD white"};
 bool g_createTried = false;
 bool g_ready = false;
 std::uint32_t g_width = 0, g_height = 0; // target pixels
-int g_layoutW = 0, g_layoutH = 0; // HudRenderer layout during the capture
+int g_layoutW = 0, g_layoutH = 0; // HudRenderer layout of the riding HUD; the pause UI keeps 1080 high
+float g_capturedAspect = 0.0f; // layout width / height of this frame's capture (the shape it is shown at)
 bool g_viewDrawn = false; // this frame recorded a view's HUD call (a 3D frame; loading screens have none)
 bool g_captured = false; // this frame's global call drew into the targets
 bool g_capturedMenu = false; // ... during the riding pause
+constexpr int kBaseLayoutHeight = 1080; // the game's 2D layout height (HudNode::GetTargetInfo)
 std::uint64_t g_capturedFrames = 0;
 ID3D11Device* g_device = nullptr; // the game's; not owned
 d3d::Blitter g_blitter;
@@ -190,7 +192,11 @@ void HookedHudRender(void* hud, void* rt, void* list, void* loop, void* ctx, con
         }
     }
     int old[2] = {-1, -1};
-    if (!call.captured || !SetHudSize(hud, g_layoutW, g_layoutH, old)) {
+    // [hud] spread is for the riding HUD; the pause UI keeps the game's 1080-high layout. The engine stretches either
+    // over the whole target, and the panel takes the layout's shape (HudImage::aspect), which undoes the stretch.
+    const bool menu = call.captured && LastMenuState().RidingPause();
+    const int layoutH = menu ? kBaseLayoutHeight : g_layoutH;
+    if (!call.captured || !SetHudSize(hud, g_layoutW, layoutH, old)) {
         g_render(hud, rt, list, loop, ctx, cameraDesc, flags, flag);
         return;
     }
@@ -199,7 +205,8 @@ void HookedHudRender(void* hud, void* rt, void* list, void* loop, void* ctx, con
     g_render(hud, g_targets[1].rt, list, loop, ctx, cameraDesc, flags, flag);
     SetHudSize(hud, old[0], old[1], nullptr);
     g_captured = true;
-    g_capturedMenu = LastMenuState().RidingPause();
+    g_capturedMenu = menu;
+    g_capturedAspect = static_cast<float>(g_layoutW) / static_cast<float>(layoutH);
 }
 
 std::string KindName(const Call& c)
@@ -331,9 +338,12 @@ void CreateTargets()
     }
     const auto& cfg = core::GetConfig().hud;
     g_width = static_cast<std::uint32_t>(cfg.pixels);
-    g_height = std::max<std::uint32_t>(64, static_cast<std::uint32_t>(std::lround(cfg.pixels / cfg.aspect)));
-    g_layoutH = 1080;
-    g_layoutW = static_cast<int>(std::lround(1080.0f * cfg.aspect));
+    // [hud] spread adds layout height: the game anchors its HUD elements to the layout edges, so the top and bottom
+    // elements move apart at their own size; the targets (and so the panel) get the layout's shape.
+    g_layoutH = static_cast<int>(std::lround(kBaseLayoutHeight * cfg.spread));
+    g_layoutW = static_cast<int>(std::lround(kBaseLayoutHeight * cfg.aspect));
+    g_height = std::max<std::uint32_t>(64,
+        static_cast<std::uint32_t>(std::lround(static_cast<double>(cfg.pixels) * g_layoutH / g_layoutW)));
     for (int i = 0; i < 2; ++i) {
         if (!CreateEngineTarget(rtm, kTargetNames[i], g_width, g_height, g_targets[i].rt)) {
             TT2VR_LOG_ERROR("hud: RenderTargetManager::CreateRenderTarget failed for '{}'; HUD stays in the eye "
@@ -506,7 +516,8 @@ void OnHudFramePresent(ID3D11DeviceContext* context)
     if (++g_capturedFrames == 1) {
         TT2VR_LOG_INFO("hud: first HUD frame captured; the eye images carry no 2D HUD while two views ride");
     }
-    g_current = {g_targets[0].srv.Get(), g_targets[1].srv.Get(), g_resolvedSrv.Get(), g_width, g_height, g_capturedMenu};
+    g_current = {g_targets[0].srv.Get(), g_targets[1].srv.Get(), g_resolvedSrv.Get(), g_width, g_height,
+        g_capturedMenu, g_capturedAspect};
     if (!g_saves.empty()) {
         const std::string result = SaveResolved(context);
         TT2VR_LOG_INFO("{}", result);

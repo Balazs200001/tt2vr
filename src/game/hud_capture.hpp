@@ -6,7 +6,8 @@
 // 7a probe: records every HudRenderer::Render call of a frame (kind of list, flags, target size, layout size).
 // 7b capture, while two views ride in the headset session ([hud] enabled): the global call is drawn twice, into two
 // engine render targets of the mod ('tt2vr HUD black' / 'white', RenderTargetManager::CreateRenderTarget, sRGB RGBA,
-// [hud] pixels), with the 2D layout set to 1080 x [hud] aspect (HudRenderer+4/+8, restored after the call), so the
+// [hud] pixels), with the 2D layout set to (1080 x [hud] aspect) x (1080 x [hud] spread) (HudRenderer+4/+8, restored
+// after the call), so the
 // back buffer and both eye images get no 2D HUD. The minimap is masked through the destination alpha, so one render
 // cannot give the HUD's alpha; over black and over white it can: alpha = 1 - (white - black), colour = black
 // (premultiplied, d3d::Blitter::Matte). The targets are cleared to transparent black / white after use, for the next
@@ -38,6 +39,7 @@ struct HudImage {
     ID3D11ShaderResourceView* resolved = nullptr; // premultiplied colour and alpha, sRGB-encoded (desktop mirror)
     std::uint32_t width = 0, height = 0; // pixels
     bool menu = false; // captured during the riding pause: the pause UI (shown at the menu screen's place and size)
+    float aspect = 0.0f; // width / height to show it at: its layout's shape (the engine stretches it over the target)
     explicit operator bool() const { return resolved != nullptr; }
 };
 // The capture targets exist and [hud] enabled: while two views ride, the global list goes onto the panel.

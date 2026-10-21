@@ -106,6 +106,10 @@ pixels = 1920
 # The HUD's layout shape, width / height (1.0..2.4). 1.78 = the game's 16:9 layout; a narrower panel pulls the corner
 # gauges toward the middle of your view.
 aspect = 1.78
+# Vertical spread of the HUD (1.0..2.0): the layout gets this much more height, so the elements at the top and at the
+# bottom move apart (up and down from the panel's centre) while keeping their size and their place left to right.
+# 1.0 = the game's layout. The panel gets taller by the same factor.
+spread = 1.3
 # Panel distance in front of your recentered head (metres, 0.3..5), its width (metres, 0.2..4), its centre above (+)
 # or below (-) your eye height (metres, -1..1), and how far its top leans away from you (degrees, -60..60).
 distance = 1.0

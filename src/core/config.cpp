@@ -290,6 +290,7 @@ void ReadHud(const toml::table& t, Config::Hud& out, Warnings& w)
         if (key == "enabled") s.Bool(key, node, out.enabled);
         else if (key == "pixels") s.Int(key, node, out.pixels, 512, 4096);
         else if (key == "aspect") s.Float(key, node, out.aspect, 1.0, 2.4);
+        else if (key == "spread") s.Float(key, node, out.spread, 1.0, 2.0);
         else if (key == "distance") s.Float(key, node, out.distance, 0.3, 5.0);
         else if (key == "width") s.Float(key, node, out.width, 0.2, 4.0);
         else if (key == "height") s.Float(key, node, out.height, -1.0, 1.0);

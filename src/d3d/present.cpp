@@ -452,9 +452,8 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
             game::OnHudFramePresent(g_immediate); // this frame's captured HUD, for the headset and the mirror
             const game::HudImage hud = game::CurrentHud();
             // Before the overlay, so the overlay stays on the desktop.
-            xr::OnFrameEnd(self, g_immediate, {hud.black, hud.white, hud.width, hud.height, hud.menu});
-            xr::DrawDesktopMirror(self, g_immediate, g_window, hud.resolved,
-                hud.height ? static_cast<float>(hud.width) / static_cast<float>(hud.height) : 0.0f);
+            xr::OnFrameEnd(self, g_immediate, {hud.black, hud.white, hud.width, hud.height, hud.menu, hud.aspect});
+            xr::DrawDesktopMirror(self, g_immediate, g_window, hud.resolved, hud.aspect);
             game::EndHudFrame(g_immediate); // capture targets cleared for the next frame
             if (!renderdoc::Busy()) {
                 ui::Render(self, g_device, g_immediate);

@@ -955,7 +955,8 @@ bool WriteHud(ID3D11DeviceContext* context, const HudSource& hud, XrCompositionL
     quad.subImage.imageRect.extent = {static_cast<std::int32_t>(hud.width), static_cast<std::int32_t>(hud.height)};
     quad.pose.orientation = {pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w};
     quad.pose.position = {pose.position.x, pose.position.y, pose.position.z};
-    quad.size = {width, width * static_cast<float>(hud.height) / static_cast<float>(hud.width)};
+    const float aspect = hud.aspect > 0.0f ? hud.aspect : static_cast<float>(hud.width) / static_cast<float>(hud.height);
+    quad.size = {width, width / aspect};
     return true;
 }
 
