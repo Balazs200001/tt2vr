@@ -66,6 +66,7 @@ struct Config {
         int shadow_scale = 2; // shadow maps created at this multiple of the game's shadow quality size (1 = off)
         bool ssao = false; // keep the game's SSAO while the headset session runs (screen-space AO swims in VR)
         bool motion_blur = false; // keep the game's motion blur while the headset session runs (smears in VR)
+        bool shared_shadows = true; // one cascaded shadow render per frame for both eyes (read at startup)
     } xr;
     struct Capture {
         std::string dir = "captures"; // relative to <game>\tt2vr\ unless absolute

@@ -88,6 +88,10 @@ ssao = false
 # Motion blur while the headset session runs. At VR frame rates the game's camera motion blur smears the bike and
 # rider heavily; false = off in VR (your in-game setting is kept for flat play and is never changed). TAA stays on.
 motion_blur = false
+# Both eyes use one set of cascaded (sun) shadow maps per frame, fitted from the centre of your head to the view of
+# both eyes, instead of rendering them again for the right eye. Saves GPU time and keeps the shadow edges identical
+# in both eyes. false = each eye renders its own (read at game start).
+shared_shadows = true
 
 [capture]
 # Folder for frame traces and texture dumps; relative to <game>\tt2vr\ unless absolute.

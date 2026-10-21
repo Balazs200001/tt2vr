@@ -63,6 +63,9 @@ enum class Sig {
     RenderLoopRenderTaa,
     SkinMeshUpdateRenderData,
     RenderLayerAddProfilingEvent,
+    CsmSetupRenderContext,
+    CsmRender,
+    RenderContextSetCascadedShadowContext,
     Count,
 };
 
@@ -237,6 +240,26 @@ inline constexpr Signature kSignatures[] = {
         "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 80 B9 68 02 00 00 00 49 8B F0 4C 63 4A 0C 48 8B FA 48 8B D9 74",
         0, "export; 0x1408d3aa0 (layer, query, name), queues a kind-5 pass: End(query) + Begin/EndEvent when its job "
            "executes (Begin/EndProfilingEvent are jmp thunks to it); pattern unique in .text (docs/re/renderer.md 7)",
+        kBuild4989319},
+    {"CascadedShadowMapRenderer::SetupRenderContext",
+        "?SetupRenderContext@CascadedShadowMapRenderer@Graphics@PlayAll@@QEAAXAEBV?$Array@PEAUCameraRenderDesc@Graphics@"
+        "PlayAll@@$0A@$08@3@PEAULightRenderInstanceCollection@23@AEBUShiftInfo@23@@Z",
+        "4C 8B DC 55 56 41 56 49 8D AB D8 FB FF FF 48 81 EC 10 05 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 85 40 03 00 "
+        "00 80 B9 C2 25 00 00 00 4C 8B F2",
+        0, "export; 0x140828320 (csm, views, lights, shift), once per scene from DeferredLighting::SetupLights "
+           "(call 0x14083d427): fits each camera index's cascades from that view; pattern unique (renderer.md 3)",
+        kBuild4989319},
+    {"CascadedShadowMapRenderer::Render",
+        "?Render@CascadedShadowMapRenderer@Graphics@PlayAll@@QEAAXAEAVRenderContext@23@AEBUCascadedShadowRenderDesc@23@@Z",
+        "40 55 56 41 55 41 56 48 8D AC 24 48 F5 FF FF 48 81 EC B8 0B 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 85 80 0A "
+        "00 00 41 83 78 6C 00 4D 8B F0",
+        0, "export; 0x140826230 (csm, rc, desc), per view (only caller DeferredLighting::RenderDirectionalCascadedShadow"
+           "Map 0x14083a7df): atlas clear, static map, cascades, SetCascadedShadowContext; pattern unique",
+        kBuild4989319},
+    {"RenderContext::SetCascadedShadowContext",
+        "?SetCascadedShadowContext@RenderContext@Graphics@PlayAll@@QEAAXAEBUCascadedShadowContext@23@@Z",
+        "48 89 5C 24 08 57 48 83 EC 40 48 8B D9 48 8B FA 48 81 C1 D0 05 00 00 E8 ?? ?? ?? ?? 48 8B 4B 10",
+        0, "export; 0x1408cfb00 (rc, ctx): ctx (0x228 bytes) -> rc+0x5d0, builds cbPSCascadedShadows; pattern unique",
         kBuild4989319},
 };
 

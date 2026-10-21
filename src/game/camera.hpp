@@ -64,6 +64,12 @@ bool HelmetHooksActive();
 // Present post-hook (main thread): closes the render window and rolls the per-frame counters.
 void OnPresent();
 
+// Thread: game main thread, scene phase of DeferredRenderLoop::Render (CSM::SetupRenderContext). While head tracking
+// runs, gives `viewContext` (a main view built this frame) the head's view (eye midpoint) and returns true;
+// EndHeadCenterView puts the saved view back. False = nothing changed.
+bool BeginHeadCenterView(void* viewContext);
+void EndHeadCenterView(void* viewContext);
+
 // Multi-line description of LastCameraInfo for the log, and a one-line summary for remote requests.
 std::string DescribeCamera();
 std::string CameraSummary();

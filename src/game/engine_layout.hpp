@@ -22,7 +22,8 @@ inline constexpr std::ptrdiff_t kCameraFrontPass = 0x98; // byte
 // ViewContext (size 0x620)
 inline constexpr std::ptrdiff_t kViewCamPos = 0x00; // float3, camera world position
 inline constexpr std::ptrdiff_t kViewCullPos = 0x0c; // float3, frozen while g_bLockCullingQuery
-inline constexpr std::ptrdiff_t kViewTransform = 0x18; // TransformMatrix (size 0x190)
+inline constexpr std::ptrdiff_t kViewTransform = 0x18; // TransformMatrix (size kTransformMatrixSize)
+inline constexpr std::size_t kTransformMatrixSize = 0x190;
 inline constexpr std::ptrdiff_t kViewViewportW = 0x340; // int
 inline constexpr std::ptrdiff_t kViewViewportH = 0x344; // int
 inline constexpr std::ptrdiff_t kViewProjOffset = 0x448; // float2, TAA jitter / Ansel offset
@@ -85,6 +86,12 @@ inline constexpr std::ptrdiff_t kRenderLoopTaaHistory = 0xce8; // RenderTarget* 
 inline constexpr int kRenderTargetTextureSlot = 8; // vtable +0x40: BaseTexture* (int index)
 inline constexpr std::ptrdiff_t kTexture2DDeviceTexture = 0x68; // Texture2DDX11: ID3D11Texture2D* (GetDeviceTexture)
 inline constexpr std::ptrdiff_t kRenderContextCameraIndex = 0x594; // ushort (= its ViewContext+0x464)
+// CascadedShadowContext (built at the end of CascadedShadowMapRenderer::Render, copied whole into RenderContext+0x5d0
+// by SetCascadedShadowContext through FUN_1404a10b0): atlas texture, cascade crop matrices, splits, static map.
+inline constexpr std::size_t kCascadedShadowContextSize = 0x228;
+// PlayAll::Array<T*>: count at +4, element pointer at +8 (CSM::SetupRenderContext's view array).
+inline constexpr std::ptrdiff_t kArrayCount = 0x4;
+inline constexpr std::ptrdiff_t kArrayData = 0x8;
 // DeferredLighting, per camera index (set by FUN_1403aec70 on view changes)
 inline constexpr std::ptrdiff_t kLightingFrontPassSsr = 0x1e; // byte[2], 0 in first person
 inline constexpr std::ptrdiff_t kLightingProbeFactor = 0x34; // float[2], 0.35 in first person, else 1.0
@@ -97,6 +104,7 @@ inline constexpr std::ptrdiff_t kTonemapLuminanceGate = 0x150; // byte, 1 = run 
 // RenderLayer (RenderLayerDX11 instance): vtable slot 14 (+0x70) = constant buffer data allocation
 // (layer, flags, buffer, -1, 0) -> CPU memory, uploaded when the recorded pass executes.
 inline constexpr int kRenderLayerAllocateCbSlot = 14;
+inline constexpr std::ptrdiff_t kRenderLayerRenderId = 0x30; // uint32, +1 per BeginRender (the fill jobs' frameId)
 
 // DeferredRenderLoop
 inline constexpr std::ptrdiff_t kDeferredLoopSplitBorder = 0x1e71; // byte, 1 = draw 'Split border' (0x140849344)

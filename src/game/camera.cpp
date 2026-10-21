@@ -504,6 +504,37 @@ CameraInfo LastCameraInfo()
     return g_info;
 }
 
+namespace {
+// The view BeginHeadCenterView replaced: camera and cull positions, then the TransformMatrix.
+unsigned char g_savedView[kViewTransform + kTransformMatrixSize];
+} // namespace
+
+bool BeginHeadCenterView(void* viewContext)
+{
+    if (!viewContext || !g_head || !g_info.valid) {
+        return false;
+    }
+    std::memcpy(g_savedView, viewContext, sizeof(g_savedView));
+    // g_info.world is the engine camera before our override (RecordCamera), the same for both views.
+    Mat34 world;
+    std::memcpy(world.m, g_info.world, sizeof(world.m));
+    const Mat34 head = stereo::ComposeCameraLocal(world, stereo::Mul(g_autoLookFix, ViewLocal(-1)));
+    alignas(16) const Mat44 view = stereo::ViewFromWorld(head);
+    alignas(16) const Mat44 proj = Read<Mat44>(viewContext, kViewTransform + kTmProj);
+    const Vec3 pos = stereo::Translation(head);
+    Write(viewContext, kViewCamPos, pos);
+    Write(viewContext, kViewCullPos, pos);
+    g_setViewProjection(At(viewContext, kViewTransform), &view.m[0][0], &proj.m[0][0]);
+    return true;
+}
+
+void EndHeadCenterView(void* viewContext)
+{
+    if (viewContext) {
+        std::memcpy(viewContext, g_savedView, sizeof(g_savedView));
+    }
+}
+
 bool InstallCameraHooks()
 {
     static bool s_done = false;
