@@ -4,6 +4,7 @@
 #include "core/hooks.hpp"
 #include "core/log.hpp"
 #include "d3d/present.hpp"
+#include "game/camera_noise.hpp"
 #include "game/engine_layout.hpp"
 #include "game/gpu_timers.hpp"
 #include "game/hud_capture.hpp"
@@ -84,6 +85,12 @@ Mat34 g_autoLookFix = stereo::Identity34();
 // (g_baseReady), the same for both eyes, the helmet and the cascade-fitting head view.
 Mat34 g_baseFix = stereo::Identity34();
 bool g_baseReady = false;
+// The same frame relative to the mode matrix M (mode+0x8), which the helmet is placed from: S^k * D * lock, so the
+// helmet stays on the head through the shake the view shows (PLAN 8c).
+Mat34 g_helmetFix = stereo::Identity34();
+// This frame's mode matrix (rotation only), read in DoUpdate after KTUCamera::Update: W = M * S, S = the shakes.
+Mat34 g_modeMatrix = stereo::Identity34();
+bool g_haveModeMatrix = false;
 // Largest roll magnitude (degrees) in the current and the previous 10 s window.
 struct RollWindow {
     float current = 0, previous = 0;
@@ -99,7 +106,7 @@ struct RollWindow {
     }
     float Max() const { return std::max(current, previous); }
 };
-RollWindow g_gameRoll, g_shownRoll;
+RollWindow g_gameRoll, g_shownRoll, g_shake;
 
 // Read by MatrixPerspectiveFovRH, which may also run on render job threads.
 std::atomic<bool> g_projActive{false};
@@ -175,6 +182,24 @@ bool ReadAutoLookFix(const void* mode, Mat34& d)
     }
 }
 
+// The mode's output matrix (before KTUCamera::Update's shakes; translation dropped) and the last physics step's speed
+// noise values, for the shake scale (PLAN 8c). SEH: game object, read only.
+bool ReadModeState(const void* mode, Mat34& matrix, float& speedNoise, float& rollNoise)
+{
+    __try {
+        matrix = Read<Mat34>(mode, kModeCameraMatrix);
+        for (int r = 0; r < 3; ++r) {
+            matrix.m[r][3] = 0.0f;
+        }
+        speedNoise = Read<float>(mode, kModeSpeedNoise);
+        rollNoise = Read<float>(mode, kModeSpeedRollNoise);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 // The player camera's active mode (the override mode if one is set, e.g. Ansel or free camera): a change is a camera
 // cut for the history reset. SEH: game objects, read only.
 const void* CameraModeKey(const void* ktuCamera)
@@ -204,6 +229,9 @@ bool BeginMainView(const void* camera)
     // view stays head-tracked in two views while the HUD capture takes its UI onto a panel (PLAN 7d).
     const MenuState state = ReadMenuState(camera);
     const RiderView rider = ReadRiderView(LastPlayerCamera(), camera);
+    // Speed noise at its source while the headset session runs; outside it the game's values are put back (PLAN 8c).
+    ApplyCameraNoise(rider.settings, xr::SessionRunning() ? g_settings.shake / 100.0f : 1.0f);
+    g_haveModeMatrix = rider.valid && ReadModeState(rider.mode, g_modeMatrix, g_info.speedNoise, g_info.rollNoise);
     const bool menu = core::GetConfig().xr.menu_screen && state.Active() && !(state.RidingPause() && HudCaptureReady());
     xr::FrameViews views;
     g_head = !menu && xr::LocateViews(views);
@@ -243,7 +271,9 @@ void BeginFrame(void* renderer)
     g_head = false;
     g_autoLookFix = stereo::Identity34();
     g_baseFix = stereo::Identity34();
+    g_helmetFix = stereo::Identity34();
     g_baseReady = false;
+    g_haveModeMatrix = false;
     g_info.autoLookYawDeg = 0.0f;
     OnSharedExposureFrame();
     OnTaaFrame(renderer, xr::RecenterCount());
@@ -341,15 +371,38 @@ void RecordCamera(void* viewContext, const void* camera)
 // Horizon lock (PLAN 8b), once per frame at the first main view: g_baseFix = D * HorizonLock(W * D), so the head pose
 // goes onto a frame with (100 - horizonLock)% of the game camera's roll. W = the game camera (pool matrix, shakes
 // included); the roll is measured, not rebuilt from the game's lean and noise fields (docs/re/camera.md 10.1).
+// Shake scale (PLAN 8c): S = R(M)^T R(W) is the pure KTUCamera shake rotation (docs/re/camera.md 10.2);
+// K = S^(k-1) in W's axes turns W into M * S^k. Rotations over 10 deg are not a shake (a mismatch): left alone.
 void UpdateBaseFix(const Mat34& world)
 {
     g_baseFix = g_autoLookFix;
+    g_helmetFix = g_autoLookFix;
+    g_info.shakeDeg = 0.0f;
     if (g_head) {
-        const Mat34 base = stereo::Mul(world, g_autoLookFix);
-        g_baseFix = stereo::Mul(g_autoLookFix, stereo::HorizonLock(base, g_settings.horizonLock / 100.0f));
+        const float k = g_settings.shake / 100.0f;
+        Mat34 shake = stereo::Identity34(), keep = stereo::Identity34(), fix = stereo::Identity34();
+        if (g_haveModeMatrix) {
+            Mat34 rendered = world;
+            for (int r = 0; r < 3; ++r) {
+                rendered.m[r][3] = 0.0f;
+            }
+            shake = stereo::Mul(stereo::RigidInverse(g_modeMatrix), rendered);
+            const float angle = stereo::RotationAngle(shake);
+            if (angle < 10.0f / kRadToDeg) {
+                g_info.shakeDeg = angle * kRadToDeg;
+                keep = stereo::ScaleRotation(shake, k);
+                fix = stereo::ScaleRotation(shake, k - 1.0f);
+            }
+        }
+        const Mat34 look = stereo::Mul(fix, g_autoLookFix);
+        const Mat34 lock = stereo::HorizonLock(stereo::Mul(world, look), g_settings.horizonLock / 100.0f);
+        g_baseFix = stereo::Mul(look, lock);
+        g_helmetFix = stereo::Mul(keep, stereo::Mul(g_autoLookFix, lock));
     }
     g_baseReady = true;
     const auto now = std::chrono::steady_clock::now();
+    g_shake.Add(g_info.shakeDeg * std::clamp(g_settings.shake / 100.0f, 0.0f, 1.0f), now);
+    g_info.shakeShownMaxDeg = g_shake.Max();
     g_info.gameRollDeg = stereo::HorizonRoll(world) * kRadToDeg;
     g_info.shownRollDeg = stereo::HorizonRoll(stereo::Mul(world, g_baseFix)) * kRadToDeg;
     g_gameRoll.Add(g_info.gameRollDeg, now);
@@ -626,6 +679,7 @@ bool InstallCameraHooks()
     s_done = true;
     g_settings.helmetFollows = core::GetConfig().camera.helmet_follows_view;
     g_settings.horizonLock = core::GetConfig().camera.horizon_lock;
+    g_settings.shake = core::GetConfig().camera.shake;
     ResolveSignatures();
     for (const Sig required : {Sig::RendererDoUpdate, Sig::ViewContextInitFromCamera, Sig::MatrixPerspectiveFovRH,
              Sig::TransformMatrixSetViewProjection, Sig::ViewContextRebuildFrustum}) {
@@ -709,7 +763,7 @@ void OnPresent()
     g_info.helmetMoves = g_helmetCount.exchange(0);
     std::lock_guard lock(g_helmetMutex);
     g_helmetApply = g_helmetActive && (g_settings.viewEnabled || g_head) && g_settings.helmetFollows;
-    g_helmetLocal = stereo::Mul(g_baseFix, ViewLocal(-1)); // this frame's head, applied at the next physics step
+    g_helmetLocal = stereo::Mul(g_helmetFix, ViewLocal(-1)); // this frame's head, applied at the next physics step
     g_head = false;
 }
 
@@ -725,11 +779,14 @@ std::string ComfortCommand(const std::string& arg)
         if (name == "lock") {
             g_settings.horizonLock = std::clamp(value, 0.0f, 100.0f);
         }
+        else if (name == "shake") {
+            g_settings.shake = std::clamp(value, 0.0f, 100.0f);
+        }
         else {
-            return fmt::format("comfort FAILED: unknown setting '{}' (lock)", name);
+            return fmt::format("comfort FAILED: unknown setting '{}' (lock, shake)", name);
         }
     }
-    return fmt::format("comfort lock {:.0f}%", g_settings.horizonLock);
+    return fmt::format("comfort lock {:.0f}% shake {:.0f}%", g_settings.horizonLock, g_settings.shake);
 }
 
 std::string DescribeCamera()
@@ -762,6 +819,8 @@ std::string DescribeCamera()
     out += fmt::format("  game look rotation removed: {:.2f} deg yaw\n", i.autoLookYawDeg);
     out += fmt::format("  horizon lock {:.0f}%: roll game {:.2f} deg (max {:.2f}), shown {:.2f} deg (max {:.2f})\n",
         s.horizonLock, i.gameRollDeg, i.gameRollMaxDeg, i.shownRollDeg, i.shownRollMaxDeg);
+    out += fmt::format("  shake {:.0f}%: game shake {:.3f} deg, shown max {:.3f} deg; noise bob {:.4g} roll {:.4g}; {}\n",
+        s.shake, i.shakeDeg, i.shakeShownMaxDeg, i.speedNoise, i.rollNoise, DescribeCameraNoise());
     out += fmt::format("  override: view {} (yaw {} pitch {} roll {} deg, offset [{} {} {}] m), proj {} (shift {} "
                        "{}), {} projection calls reshaped last frame; helmet follows {} (hooks {}), {} helmet "
                        "placements adjusted last frame",
@@ -778,11 +837,13 @@ std::string CameraSummary()
     }
     return fmt::format("camera ok hfov {:.2f} deg near {} far {} pos [{:.3f} {:.3f} {:.3f}] fwd [{:.3f} {:.3f} {:.3f}] "
                        "proj m00 {:.5g} m02 {:.5g} m11 {:.5g} m12 {:.5g} reshaped {}; {}; look removed {:.2f} deg; "
-                       "roll game {:.2f} (max {:.2f}) shown {:.2f} (max {:.2f}) deg, lock {:.0f}%",
+                       "roll game {:.2f} (max {:.2f}) shown {:.2f} (max {:.2f}) deg, lock {:.0f}%; shake {:.0f}% game "
+                       "{:.3f} shown max {:.3f} deg, noise bob {:.4g} roll {:.4g}, {}",
         i.fov * kRadToDeg, i.nearZ, i.farZ, i.world[0][3], i.world[1][3], i.world[2][3], -i.world[0][2],
         -i.world[1][2], -i.world[2][2], i.proj[0][0], i.proj[0][2], i.proj[1][1], i.proj[1][2], i.projOverrides,
         DescribeRiderView(LastRiderView()), i.autoLookYawDeg, i.gameRollDeg, i.gameRollMaxDeg, i.shownRollDeg,
-        i.shownRollMaxDeg, g_settings.horizonLock);
+        i.shownRollMaxDeg, g_settings.horizonLock, g_settings.shake, i.shakeDeg, i.shakeShownMaxDeg, i.speedNoise,
+        i.rollNoise, DescribeCameraNoise());
 }
 
 } // namespace game

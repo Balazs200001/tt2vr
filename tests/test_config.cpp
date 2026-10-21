@@ -46,6 +46,7 @@ bool SameConfig(const Config& a, const Config& b)
            a.overlay.visible == b.overlay.visible &&
            a.camera.helmet_follows_view == b.camera.helmet_follows_view &&
            a.camera.remove_auto_look == b.camera.remove_auto_look && a.camera.horizon_lock == b.camera.horizon_lock &&
+           a.camera.shake == b.camera.shake &&
            a.capture.dir == b.capture.dir &&
            a.capture.renderdoc_dir == b.capture.renderdoc_dir && a.capture.max_textures == b.capture.max_textures &&
            a.capture.include_depth == b.capture.include_depth && a.capture.cb_floats == b.capture.cb_floats &&
@@ -241,6 +242,7 @@ show_cursor = true
 [camera]
 helmet_follows_view = false
 horizon_lock = 40
+shake = 25
 
 [xr]
 enabled = false
@@ -281,6 +283,7 @@ input_log = true
     CHECK_FALSE(c.overlay.visible);
     CHECK_FALSE(c.camera.helmet_follows_view);
     CHECK(c.camera.horizon_lock == doctest::Approx(40.0));
+    CHECK(c.camera.shake == doctest::Approx(25.0));
     CHECK(SameHotkey(c.hotkeys.recenter, Hotkey{0x24}));
     CHECK_FALSE(c.xr.enabled);
     CHECK(c.xr.resolution_scale == doctest::Approx(1.25));

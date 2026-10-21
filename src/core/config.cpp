@@ -248,6 +248,7 @@ void ReadCamera(const toml::table& t, Config::Camera& out, Warnings& w)
         if (key == "helmet_follows_view") s.Bool(key, node, out.helmet_follows_view);
         else if (key == "remove_auto_look") s.Bool(key, node, out.remove_auto_look);
         else if (key == "horizon_lock") s.Float(key, node, out.horizon_lock, 0.0, 100.0);
+        else if (key == "shake") s.Float(key, node, out.shake, 0.0, 100.0);
         else s.Warn(key, "unknown key, ignored", node);
     }
 }

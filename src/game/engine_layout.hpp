@@ -100,6 +100,12 @@ inline constexpr std::ptrdiff_t kCameraDataSize = 0x108;
 inline constexpr std::ptrdiff_t kCameraDataView = 0xa8; // int, GameCameraViews
 inline constexpr std::ptrdiff_t kCameraDataType = 0xb8; // int, TTCameraType (0 Fixed, 1 Spring, 2 Cockpit, 3 Heli, 4 Photo)
 inline constexpr std::ptrdiff_t kCameraDataSettings = 0xc0; // CockpitSettings* (valid for types 0 and 2)
+// CockpitSettings speed noise (PhysicsStepTarget; docs/re/camera.md 10.2), floats; gate byte +0x18
+inline constexpr std::ptrdiff_t kCockpitSpeedNoiseAmp = 0x1c; // vertical bob (and the little pitch with it)
+inline constexpr std::ptrdiff_t kCockpitSpeedRollNoiseAmp = 0x20; // roll
+// TTSpringCameraMode: the noise values of the last physics step (written only while their amplitude is > 0)
+inline constexpr std::ptrdiff_t kModeSpeedNoise = 0x250;
+inline constexpr std::ptrdiff_t kModeSpeedRollNoise = 0x254;
 
 // KTUCamera / KTUCameraMode (game side; read only, never written)
 inline constexpr std::ptrdiff_t kKTUCameraCamera = 0x10; // Graphics::Camera* it drives (SetFov/SetClips target)

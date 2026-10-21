@@ -32,6 +32,7 @@ struct CameraSettings {
     float offset[3] = {0, 0, 0}; // metres, camera-local (x right, y up, z back)
     bool helmetFollows = true; // helmet mesh follows the view override (init from [camera] helmet_follows_view)
     float horizonLock = 100.0f; // percent of the camera's roll removed while head-tracked ([camera] horizon_lock)
+    float shake = 100.0f; // percent of the game's camera shake and speed noise kept in VR ([camera] shake)
     bool projEnabled = false;
     float shiftX = 0, shiftY = 0; // window shift as a fraction of width / height (0.2 = 20% to the right)
 };
@@ -54,6 +55,9 @@ struct CameraInfo {
     // Horizon lock (PLAN 8b): roll against the horizon of the game camera and of the frame the head pose was put on
     // (after look removal and lock), this frame and the largest magnitude over the last 10-20 s. Degrees.
     float gameRollDeg = 0, shownRollDeg = 0, gameRollMaxDeg = 0, shownRollMaxDeg = 0;
+    // Shake scale (PLAN 8c): the game's KTUCamera shake rotation this frame, the largest shown share over the last
+    // 10-20 s (degrees), and the mode's last speed noise values (bob in metres-ish units, roll in radians).
+    float shakeDeg = 0, shakeShownMaxDeg = 0, speedNoise = 0, rollNoise = 0;
     std::uint32_t helmetMoves = 0; // helmet placements adjusted in the last frame (0 while physics is paused)
     bool headTracked = false; // the last main view was rendered from the headset's left eye (Phase 3)
 };
@@ -75,7 +79,7 @@ bool BeginHeadCenterView(void* viewContext);
 void EndHeadCenterView(void* viewContext);
 
 // Remote "comfort [<setting> <value>]" (main thread): with no argument, the current comfort settings; "lock <0..100>"
-// sets the horizon lock. Returns the result line.
+// sets the horizon lock, "shake <0..100>" the shake and speed noise share. Returns the result line.
 std::string ComfortCommand(const std::string& arg);
 
 // Multi-line description of LastCameraInfo for the log, and a one-line summary for remote requests.

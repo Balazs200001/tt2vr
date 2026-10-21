@@ -46,6 +46,10 @@ remove_auto_look = true
 # game tilts its riding camera into corners and with speed noise, and the fork view rolls with the bike; your own
 # head roll is never removed. 100 = the horizon stays level, 0 = the game's roll. Also in the overlay (Comfort).
 horizon_lock = 100
+# While the headset session runs, how much of the game's camera shake is kept, in percent (0..100): the speed noise
+# (a vertical bob and roll that grow with speed) and the shake after a collision. 100 = the game's, 0 = none. Your
+# own head movement is never touched; the game's values come back when the session stops. Also in the overlay.
+shake = 100
 
 [xr]
 # Start OpenXR (headset) when a runtime and a connected headset are available. Off = the game stays flat.

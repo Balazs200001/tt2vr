@@ -268,6 +268,9 @@ void ComfortSection()
     ImGui::SliderFloat("horizon lock", &s.horizonLock, 0.0f, 100.0f, "%.0f %%");
     ImGui::Text("roll: game %.1f deg (max %.1f), shown %.1f deg (max %.1f)", info.gameRollDeg, info.gameRollMaxDeg,
         info.shownRollDeg, info.shownRollMaxDeg);
+    ImGui::SliderFloat("shake", &s.shake, 0.0f, 100.0f, "%.0f %%");
+    ImGui::Text("shake: game %.2f deg, shown max %.2f deg; noise bob %.3f roll %.4f", info.shakeDeg,
+        info.shakeShownMaxDeg, info.speedNoise, info.rollNoise);
     ImGui::TextDisabled("%s", game::DescribeRiderView(game::LastRiderView()).c_str());
 }
 
