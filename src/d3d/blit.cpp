@@ -232,13 +232,23 @@ bool Blitter::Init(ID3D11Device* device)
     bd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
     D3D11_BLEND_DESC ad{};
     ad.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALPHA;
+    D3D11_BLEND_DESC od{};
+    od.RenderTarget[0].BlendEnable = TRUE;
+    od.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
+    od.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+    od.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+    od.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ZERO;
+    od.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ONE;
+    od.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+    od.RenderTarget[0].RenderTargetWriteMask =
+        D3D11_COLOR_WRITE_ENABLE_RED | D3D11_COLOR_WRITE_ENABLE_GREEN | D3D11_COLOR_WRITE_ENABLE_BLUE;
     D3D11_DEPTH_STENCIL_DESC dd{};
     dd.DepthFunc = D3D11_COMPARISON_ALWAYS;
     if (FAILED(device->CreateVertexShader(vs->GetBufferPointer(), vs->GetBufferSize(), nullptr, &m_vs)) ||
         FAILED(device->CreatePixelShader(psRaw->GetBufferPointer(), psRaw->GetBufferSize(), nullptr, &m_psRaw)) ||
         FAILED(device->CreatePixelShader(psDecode->GetBufferPointer(), psDecode->GetBufferSize(), nullptr, &m_psDecode)) ||
         FAILED(device->CreatePixelShader(psOpaque->GetBufferPointer(), psOpaque->GetBufferSize(), nullptr, &m_psOpaque)) ||
-        FAILED(device->CreateBlendState(&ad, &m_blendAlpha)) ||
+        FAILED(device->CreateBlendState(&ad, &m_blendAlpha)) || FAILED(device->CreateBlendState(&od, &m_blendOver)) ||
         FAILED(device->CreateSamplerState(&sd, &m_sampler)) || FAILED(device->CreateRasterizerState(&rd, &m_raster)) ||
         FAILED(device->CreateBlendState(&bd, &m_blend)) || FAILED(device->CreateDepthStencilState(&dd, &m_depth))) {
         TT2VR_LOG_ERROR("blit: creating shaders or states failed");
@@ -337,6 +347,38 @@ bool Blitter::BlitRect(ID3D11DeviceContext* context, ID3D11Texture2D* source, ID
     return true;
 }
 
+bool Blitter::Composite(ID3D11DeviceContext* context, ID3D11ShaderResourceView* source, ID3D11RenderTargetView* target,
+    const D3D11_VIEWPORT& dst)
+{
+    if (!m_ready || !context || !source || !target || dst.Width <= 0.0f || dst.Height <= 0.0f) {
+        return false;
+    }
+    InternalScope internal;
+    StateBackup backup(context);
+    const D3D11_VIEWPORT vp{dst.TopLeftX, dst.TopLeftY, dst.Width, dst.Height, 0.0f, 1.0f};
+    const D3D11_RECT scissor{static_cast<LONG>(dst.TopLeftX), static_cast<LONG>(dst.TopLeftY),
+        static_cast<LONG>(dst.TopLeftX + dst.Width), static_cast<LONG>(dst.TopLeftY + dst.Height)};
+    context->IASetInputLayout(nullptr);
+    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    context->VSSetShader(m_vs.Get(), nullptr, 0);
+    context->PSSetShader(m_psRaw.Get(), nullptr, 0);
+    context->GSSetShader(nullptr, nullptr, 0);
+    context->HSSetShader(nullptr, nullptr, 0);
+    context->DSSetShader(nullptr, nullptr, 0);
+    context->RSSetState(m_raster.Get());
+    context->RSSetViewports(1, &vp);
+    context->RSSetScissorRects(1, &scissor);
+    context->OMSetRenderTargets(1, &target, nullptr);
+    context->OMSetBlendState(m_blendOver.Get(), nullptr, 0xffffffff);
+    context->OMSetDepthStencilState(m_depth.Get(), 0);
+    context->PSSetShaderResources(0, 1, &source);
+    context->PSSetSamplers(0, 1, m_sampler.GetAddressOf());
+    context->Draw(3, 0);
+    ID3D11ShaderResourceView* none = nullptr;
+    context->PSSetShaderResources(0, 1, &none);
+    return true;
+}
+
 bool Blitter::FillAlpha(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, UINT width, UINT height)
 {
     if (!m_ready || !context || !target) {
@@ -366,6 +408,7 @@ bool Blitter::FillAlpha(ID3D11DeviceContext* context, ID3D11RenderTargetView* ta
 void Blitter::Release()
 {
     m_ready = false;
+    m_blendOver.Reset();
     m_blendAlpha.Reset();
     m_psOpaque.Reset();
     m_copySrv.Reset();

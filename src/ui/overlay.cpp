@@ -1,4 +1,5 @@
-// overlay.cpp - ImGui overlay drawn into the game's back buffer just before Present.
+// overlay.cpp - ImGui overlay drawn into the game's back buffer just before Present, after the eye images were handed
+// to the headset (d3d::present: xr::OnFrameEnd, mirror, then ui::Render), so it only ever shows on the desktop.
 //
 // Input rules (CLAUDE.md hard rule 5): the overlay never blocks or changes game input. We don't
 // subclass the game window; ImGui reads the cursor position (imgui_impl_win32) and we poll the mouse
@@ -9,6 +10,7 @@
 #include "core/config.hpp"
 #include "core/hooks.hpp"
 #include "core/log.hpp"
+#include "d3d/blit.hpp"
 #include "d3d/internal.hpp"
 #include "d3d/present.hpp"
 #include "d3d/renderdoc.hpp"
@@ -25,6 +27,8 @@
 #include <imgui_impl_win32.h>
 #include <spdlog/fmt/fmt.h>
 #include <wrl/client.h>
+
+#include <cmath>
 
 namespace ui {
 namespace {
@@ -53,28 +57,100 @@ void PollMouseButtons()
     }
 }
 
-// The game may render at a size other than its window (game::RenderSize): draw in back-buffer pixels and map the
-// mouse from window client coordinates onto them, so the panel stays readable and clickable on the stretched window.
-void MatchBackBuffer(IDXGISwapChain* swapChain)
+// The game may render at a size other than its window (game::RenderSize); the window then stretches the back buffer
+// (bw x bh) onto its client area (cw x ch). Panel text drawn in back-buffer pixels came out about half size and
+// unevenly squashed (3540x1892 on 1920x1080, runtime 2026-10-21). So then the panel is drawn off-screen at
+// kSupersample x the client size (style and fonts scaled to match; ImGui 1.92 rasterises glyphs at the scaled size)
+// and composited over the whole back buffer: after the window's stretch it lands at client resolution, shape intact.
+// Same size: drawn straight into the back buffer.
+constexpr float kSupersample = 2.0f;
+
+struct Target {
+    bool offscreen = false;
+    float bw = 0, bh = 0;
+};
+
+ComPtr<ID3D11Texture2D> g_uiTex;
+ComPtr<ID3D11RenderTargetView> g_uiRtv;
+ComPtr<ID3D11ShaderResourceView> g_uiSrv;
+UINT g_uiW = 0, g_uiH = 0;
+float g_scale = 1.0f;
+d3d::Blitter g_blitter;
+
+void ApplyScale(float scale)
 {
+    if (scale == g_scale) {
+        return;
+    }
+    g_scale = scale;
+    ImGuiStyle& style = ImGui::GetStyle();
+    style = ImGuiStyle();
+    ImGui::StyleColorsDark(&style);
+    style.Alpha = 0.92f;
+    style.ScaleAllSizes(scale);
+    style.FontScaleDpi = scale;
+}
+
+bool EnsureUiTarget(ID3D11Device* device, UINT w, UINT h)
+{
+    if (g_uiTex && g_uiW == w && g_uiH == h) {
+        return true;
+    }
+    g_uiSrv.Reset();
+    g_uiRtv.Reset();
+    g_uiTex.Reset();
+    D3D11_TEXTURE2D_DESC d{};
+    d.Width = w;
+    d.Height = h;
+    d.MipLevels = 1;
+    d.ArraySize = 1;
+    d.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    d.SampleDesc.Count = 1;
+    d.Usage = D3D11_USAGE_DEFAULT;
+    d.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    if (FAILED(device->CreateTexture2D(&d, nullptr, &g_uiTex)) ||
+        FAILED(device->CreateRenderTargetView(g_uiTex.Get(), nullptr, &g_uiRtv)) ||
+        FAILED(device->CreateShaderResourceView(g_uiTex.Get(), nullptr, &g_uiSrv))) {
+        g_uiSrv.Reset();
+        g_uiRtv.Reset();
+        g_uiTex.Reset();
+        TT2VR_LOG_ERROR("overlay: cannot create the {}x{} off-screen target", w, h);
+        return false;
+    }
+    g_uiW = w;
+    g_uiH = h;
+    TT2VR_LOG_INFO("overlay: drawn off-screen at {}x{} ({}x the window's client size) and composited", w, h,
+        kSupersample);
+    return true;
+}
+
+// Sets the display size and mouse position for this frame's target.
+Target MatchWindow(IDXGISwapChain* swapChain)
+{
+    Target t;
     DXGI_SWAP_CHAIN_DESC desc{};
     RECT client{};
     if (FAILED(swapChain->GetDesc(&desc)) || !GetClientRect(g_window, &client)) {
-        return;
+        ApplyScale(1.0f);
+        return t;
     }
     const float cw = static_cast<float>(client.right - client.left);
     const float ch = static_cast<float>(client.bottom - client.top);
-    const float bw = static_cast<float>(desc.BufferDesc.Width);
-    const float bh = static_cast<float>(desc.BufferDesc.Height);
-    if (cw <= 0 || ch <= 0 || (cw == bw && ch == bh)) {
-        return;
+    t.bw = static_cast<float>(desc.BufferDesc.Width);
+    t.bh = static_cast<float>(desc.BufferDesc.Height);
+    if (cw <= 0 || ch <= 0 || (cw == t.bw && ch == t.bh)) {
+        ApplyScale(1.0f);
+        return t;
     }
+    t.offscreen = true;
+    ApplyScale(kSupersample);
     ImGuiIO& io = ImGui::GetIO();
-    io.DisplaySize = ImVec2(bw, bh);
+    io.DisplaySize = ImVec2(std::round(cw * kSupersample), std::round(ch * kSupersample));
     POINT p{};
     if (GetCursorPos(&p) && ScreenToClient(g_window, &p)) {
-        io.AddMousePosEvent(static_cast<float>(p.x) * bw / cw, static_cast<float>(p.y) * bh / ch);
+        io.AddMousePosEvent(static_cast<float>(p.x) * kSupersample, static_cast<float>(p.y) * kSupersample);
     }
+    return t;
 }
 
 bool Init(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext* context)
@@ -334,7 +410,12 @@ void Render(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext
     }
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
-    MatchBackBuffer(swapChain);
+    const Target target = MatchWindow(swapChain);
+    if (target.offscreen &&
+        !EnsureUiTarget(device, static_cast<UINT>(ImGui::GetIO().DisplaySize.x),
+            static_cast<UINT>(ImGui::GetIO().DisplaySize.y))) {
+        return;
+    }
     PollMouseButtons();
     // NoMouseCursorChange keeps imgui_impl_win32 from calling SetCursor, so this only adds ImGui's own drawing.
     ImGui::GetIO().MouseDrawCursor = g_cursor;
@@ -351,9 +432,19 @@ void Render(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext
     ID3D11RenderTargetView* oldRtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
     ID3D11DepthStencilView* oldDsv = nullptr;
     context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, oldRtvs, &oldDsv);
-    context->OMSetRenderTargets(1, g_rtv.GetAddressOf(), nullptr);
+    if (target.offscreen) {
+        constexpr float kTransparent[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        context->ClearRenderTargetView(g_uiRtv.Get(), kTransparent); // ImGui's blend leaves premultiplied colour
+        context->OMSetRenderTargets(1, g_uiRtv.GetAddressOf(), nullptr);
+    }
+    else {
+        context->OMSetRenderTargets(1, g_rtv.GetAddressOf(), nullptr);
+    }
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
     context->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, oldRtvs, oldDsv);
+    if (target.offscreen && (g_blitter.Ready() || g_blitter.Init(device))) {
+        g_blitter.Composite(context, g_uiSrv.Get(), g_rtv.Get(), {0.0f, 0.0f, target.bw, target.bh, 0.0f, 1.0f});
+    }
     for (auto* rtv : oldRtvs) {
         if (rtv) {
             rtv->Release();
