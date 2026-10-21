@@ -157,6 +157,22 @@ bool ReadAutoLookFix(const void* ktuCamera, const void* renderedCamera, Mat34& d
     }
 }
 
+// The player camera's active mode (the override mode if one is set, e.g. Ansel or free camera): a change is a camera
+// cut for the history reset. SEH: game objects, read only.
+const void* CameraModeKey(const void* ktuCamera)
+{
+    __try {
+        if (!ktuCamera) {
+            return nullptr;
+        }
+        const void* override = Read<const void*>(ktuCamera, kKTUCameraOverrideMode);
+        return override ? override : Read<const void*>(ktuCamera, kKTUCameraMode);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return nullptr;
+    }
+}
+
 // Sets up this frame's main view from `camera`. Returns true when it should be rendered as two views (Phase 4).
 bool BeginMainView(const void* camera)
 {
@@ -184,6 +200,9 @@ bool BeginMainView(const void* camera)
         const stereo::Pose head{l.orientation, {(l.position.x + r.position.x) * 0.5f, (l.position.y + r.position.y) * 0.5f,
                                                    (l.position.z + r.position.z) * 0.5f}};
         g_headLocal = stereo::EyeLocal(views.recenter, head);
+        const float dx = r.position.x - l.position.x, dy = r.position.y - l.position.y;
+        const float dz = r.position.z - l.position.z;
+        OnTaaEyeDistance(std::sqrt(dx * dx + dy * dy + dz * dz));
         Mat34 fix;
         if (core::GetConfig().camera.remove_auto_look && ReadAutoLookFix(LastPlayerCamera(), camera, fix)) {
             g_autoLookFix = fix;
@@ -192,6 +211,7 @@ bool BeginMainView(const void* camera)
     }
     g_headProj = g_head;
     g_projActive.store(g_settings.projEnabled || g_head, std::memory_order_release);
+    OnTaaCameraMode(CameraModeKey(LastPlayerCamera()));
     return !menu && xr::SessionRunning();
 }
 
@@ -203,7 +223,7 @@ void BeginFrame(void* renderer)
     g_autoLookFix = stereo::Identity34();
     g_info.autoLookYawDeg = 0.0f;
     OnSharedExposureFrame();
-    OnTaaFrame(xr::RecenterCount());
+    OnTaaFrame(renderer, xr::RecenterCount());
     g_renderer = renderer;
     // The game's own CameraDesc, not the Renderer fields: while two views run those hold our desc.
     const void* camera = GameMainCamera(renderer);
@@ -212,6 +232,7 @@ void BeginFrame(void* renderer)
         twoViews = BeginMainView(camera);
     }
     ApplySplitView(renderer, camera, twoViews, g_riderCamera.load(std::memory_order_relaxed));
+    OnTaaTwoViews(SplitViewActive());
     xr::SetSideBySide(SplitViewActive());
     // Per-eye views need every projection rebuild to know its eye (the context hooks); without them both views keep
     // eye 0 (Phase 4a behaviour).
@@ -452,14 +473,19 @@ std::string Row(const float* r, int n)
 // ViewContext copy into a RenderContext, which is ignored).
 void HookedPrepareView(void* renderContext, const void* viewContext)
 {
+    void* mainLoop = nullptr;
     if (g_renderer && viewContext) {
-        const void* loop = Read<const void*>(g_renderer, kRendererRenderLoop);
-        if (loop && renderContext == static_cast<const char*>(loop) + kRenderLoopMainContext) {
+        void* loop = Read<void*>(g_renderer, kRendererRenderLoop);
+        if (loop && renderContext == static_cast<char*>(loop) + kRenderLoopMainContext) {
+            mainLoop = loop;
             t_eye = EyeOfCameraIndex(viewContext);
             GpuTimersView(viewContext);
         }
     }
     g_prepareView(renderContext, viewContext);
+    if (mainLoop) {
+        OnTaaViewPrepared(mainLoop, renderContext); // history reset: previous camera = this view's
+    }
 }
 
 // Thread: game main thread (scene phase of DeferredRenderLoop::Render, per view, front pass on).
@@ -487,6 +513,7 @@ void HookedLoopRender(void* renderLoop, void* renderDesc)
     BeginLoopRender(renderer); // the main render only (not external scenes)
     if (renderer) {
         ForceVrResolution(xr::SessionRunning());
+        OnTaaLoopRender(renderLoop); // history reset: froxel index, last-frame buffers
     }
     GpuTimersLoopBegin(renderer);
     g_loopRender(renderLoop, renderDesc);

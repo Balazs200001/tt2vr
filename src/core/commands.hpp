@@ -20,6 +20,7 @@ enum class CommandKind {
     TaaReset,         // "taareset": reset both eyes' TAA history next frame
     Convergence,      // "convergence": per-eye frame-to-frame change over 10 frames (static TAA convergence test)
     CutTest,          // "cuttest [noreset]": frame-to-frame change after the next camera cut (game::RequestCutTest)
+    ShiftTest,        // "shifttest": no reset, rebased previous cameras at the next World Shift (RequestShiftTest)
     Screenshot,       // "screenshot [name]" / "screen [name]": the engine's back buffer as a PNG (next frame)
     Pad,              // "pad <steps>": virtual XInput pad script (test mode only, game::RunPadScript)
     Head,             // "head still | <yaw> [pitch] [roll] | shake <deg> <period s> [seconds]": simulated headset

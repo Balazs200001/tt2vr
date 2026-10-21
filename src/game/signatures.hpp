@@ -69,6 +69,7 @@ enum class Sig {
     HHParticlesManagerEnableMedium,
     ResolutionScaling,
     DynamicResolutionEnabled,
+    RenderLoopPostUpdateLastFrameCamera,
     Count,
 };
 
@@ -274,6 +275,12 @@ inline constexpr Signature kSignatures[] = {
         kBuild4989319},
     {"DrawPass::s_bDynamicResolutionEnabled", "?s_bDynamicResolutionEnabled@DrawPass@Graphics@PlayAll@@2_NA", nullptr, 0,
         "data export; 0x1414082ea, bool; same writer; gates UpscaleDynamicResolution and GetDrawPassViewport",
+        kBuild4989319},
+    {"RenderLoop::PostUpdateLastFrameCamera",
+        "?PostUpdateLastFrameCamera@RenderLoop@Graphics@PlayAll@@IEAAXAEBVRenderContext@23@@Z",
+        nullptr, 0,
+        "export; 0x1408dc2f0 (loop, rc): latches slot rc+0x594's previous VP / camera position / jitter (and the "
+        "front-pass set) from the prepared RenderContext, unless s_bMotionPause (docs/re/temporal.md 10.1)",
         kBuild4989319},
 };
 

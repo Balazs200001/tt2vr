@@ -188,6 +188,9 @@ void RunCommands()
                 game::RequestCutTest(cmd.arg == "noreset",
                     [done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;
+            case core::CommandKind::ShiftTest:
+                game::RequestShiftTest([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
+                break;
             case core::CommandKind::Screenshot:
                 screenshot::Request(cmd.arg, [done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;

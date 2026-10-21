@@ -89,6 +89,9 @@ std::vector<Command> ParseCommands(std::string_view text)
         else if (word == "convergence") {
             c.kind = CommandKind::Convergence;
         }
+        else if (word == "shifttest") {
+            c.kind = CommandKind::ShiftTest;
+        }
         else if (word == "cuttest") {
             c.kind = CommandKind::CutTest;
             c.arg = Lower(arg);

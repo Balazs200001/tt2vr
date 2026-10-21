@@ -36,13 +36,14 @@ TEST_CASE("ParseCommands: screenshot, pad and head arguments")
     CHECK(cmds[2].arg == "shake 30 2");
 }
 
-TEST_CASE("ParseCommands: frame trace count")
+TEST_CASE("ParseCommands: frame trace count, shift test")
 {
-    const auto cmds = core::ParseCommands("frametrace 2\ntrace\n");
-    REQUIRE(cmds.size() == 2);
+    const auto cmds = core::ParseCommands("frametrace 2\ntrace\nshifttest\n");
+    REQUIRE(cmds.size() == 3);
     CHECK(cmds[0].kind == CommandKind::FrameTrace);
     CHECK(cmds[0].arg == "2");
     CHECK(cmds[1].arg.empty());
+    CHECK(cmds[2].kind == CommandKind::ShiftTest);
 }
 
 TEST_CASE("ParseCommands: capture names are sanitized")

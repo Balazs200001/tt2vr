@@ -74,6 +74,10 @@ inline constexpr std::ptrdiff_t kRendererViewContexts = 0x30; // ViewContext[2],
 inline constexpr std::ptrdiff_t kViewContextSize = 0x620;
 inline constexpr std::ptrdiff_t kRendererRenderLoop = 0xd30; // active RenderLoop*
 inline constexpr std::ptrdiff_t kRendererScenes = 0xd80; // Scene*[2], per view (lighting, fog)
+// World Shift (= RenderDesc+0xcec / +0xcf8, the same bytes): written only by GameEngine::UpdateShift, which runs
+// before DoUpdate; the flag is cleared at the start of every call and set with the vector after a shift.
+inline constexpr std::ptrdiff_t kRendererShiftVector = 0xd1c; // float3, world positions -= this
+inline constexpr std::ptrdiff_t kRendererShiftFlag = 0xd28; // byte
 // GPU frame timer: ring of 4 slots of ID3D11Query* {TIMESTAMP start, TIMESTAMP end, TIMESTAMP_DISJOINT}; slot =
 // frame counter & 3 (OnRender 0x1405af5e3: Begin(disjoint), End(start); OnFlushRender: End(end), End(disjoint)).
 inline constexpr std::ptrdiff_t kRendererGpuTimerSlots = 0x1cd * 8;
@@ -83,9 +87,20 @@ inline constexpr std::ptrdiff_t kRenderLoopDeferredLighting = 0x1e78; // Deferre
 inline constexpr std::ptrdiff_t kRenderLoopMainContext = 0x1f00; // RenderContext re-prepared for every view
 inline constexpr std::ptrdiff_t kRenderLoopTaaReset = 0xd08; // byte, TAA history reset (shared; cleared per RenderTAA)
 inline constexpr std::ptrdiff_t kRenderLoopTaaHistory = 0xce8; // RenderTarget* pair per slot (+idx*0x10); slot 0 at +0
+// Previous camera position per slot (float3, +idx*0xc), rebased at a World Shift by PreUpdateLastFrameCamera.
+inline constexpr std::ptrdiff_t kRenderLoopLastCamPos = 0xf58;
+// Front-pass previous camera per slot (PostUpdateLastFrameCamera; from the front ViewContext at RenderLoop+0x1590):
+// VP +0xf80+idx*0x40, camera position +0x1000+idx*0xc, jitter +0x1018+idx*8.
+inline constexpr std::ptrdiff_t kRenderLoopFrontLastVP = 0xf80;
+inline constexpr std::ptrdiff_t kRenderLoopFrontLastCamPos = 0x1000;
+inline constexpr std::ptrdiff_t kRenderLoopFrontLastJitter = 0x1018;
+// 'Last Frame Depth' (R32) / 'Last Frame Buffer' (RGBA16F, 8 mips): RenderTarget* per slot (+idx*8), SSR's history.
+inline constexpr std::ptrdiff_t kRenderLoopLastFrameDepth = 0x10e0;
+inline constexpr std::ptrdiff_t kRenderLoopLastFrameBuffer = 0x10f0;
 inline constexpr int kRenderTargetTextureSlot = 8; // vtable +0x40: BaseTexture* (int index)
 inline constexpr std::ptrdiff_t kTexture2DDeviceTexture = 0x68; // Texture2DDX11: ID3D11Texture2D* (GetDeviceTexture)
 inline constexpr std::ptrdiff_t kRenderContextCameraIndex = 0x594; // ushort (= its ViewContext+0x464)
+inline constexpr std::ptrdiff_t kRenderContextView = 0x130; // ViewContext copy (RenderContext::Prepare)
 // CascadedShadowContext (built at the end of CascadedShadowMapRenderer::Render, copied whole into RenderContext+0x5d0
 // by SetCascadedShadowContext through FUN_1404a10b0): atlas texture, cascade crop matrices, splits, static map.
 inline constexpr std::size_t kCascadedShadowContextSize = 0x228;
@@ -95,6 +110,8 @@ inline constexpr std::ptrdiff_t kArrayData = 0x8;
 // DeferredLighting, per camera index (set by FUN_1403aec70 on view changes)
 inline constexpr std::ptrdiff_t kLightingFrontPassSsr = 0x1e; // byte[2], 0 in first person
 inline constexpr std::ptrdiff_t kLightingProbeFactor = 0x34; // float[2], 0.35 in first person, else 1.0
+// Froxel history ping-pong index per camera index: -1 = no history (one non-temporal frame, then 0), else 0 / 1.
+inline constexpr std::ptrdiff_t kLightingFroxelIndex = 0x780; // int[2]
 
 // Tonemap object (*(RenderLoop+0x1ed0), FUN_140914680 / FUN_1409120b0 / FUN_1409131d0)
 inline constexpr std::ptrdiff_t kTonemapOutput = 0x130; // RT* the luminance chain writes and HDR_FinalCompose reads

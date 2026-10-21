@@ -26,6 +26,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 
 namespace game {
@@ -37,8 +38,12 @@ using Microsoft::WRL::ComPtr;
 using RenderTaaFn = void (*)(void* renderLoop, void* renderContext);
 using GetTextureFn = void* (*)(void* renderTarget, int index); // RenderTarget vtable slot 8 (+0x40): BaseTexture*
 
+using PostUpdateFn = void (*)(void* renderLoop, const void* renderContext); // RenderLoop::PostUpdateLastFrameCamera
+
 RenderTaaFn g_renderTaa = nullptr;
+PostUpdateFn g_postUpdate = nullptr; // null: a reset leaves the previous camera (signature missing)
 bool g_active = false;
+bool g_fullResetLogged = false;
 
 // Leak-test tint: eye 0's TAA history texture this frame (set at record time); the pre-draw callback clears the
 // FrameBuffer input (slot t1) of the one draw whose LastFrameBuffer (t2) is this texture, i.e. eye 0's TAA resolve.
@@ -97,20 +102,49 @@ std::string g_cutWhat; // the detector's line for the cut
 std::function<void(const std::string&)> g_cutDone;
 constexpr int kCutFrames = 12;
 constexpr auto kCutWait = std::chrono::seconds(60);
+// Shift test (remote "shifttest", PLAN 6c): the same frame readings after the next World Shift inside two-view riding
+// instead of a cut; on the shift frame each view's RenderTAA pre-hook checks its slot's rebased previous camera
+// position (RenderLoop+0xf58+idx*0xc, rebased by PreUpdateLastFrameCamera right before) against the view's camera.
+bool g_cutIsShift = false;
+bool g_shiftCheck = false; // this frame is the shift frame: record the per-slot check at RenderTAA
+std::vector<std::string> g_shiftLines;
+int g_resetsDuringTest = 0; // history resets while the frames after the shift are read (expected 0)
+constexpr auto kShiftWait = std::chrono::seconds(300);
 
 // Camera-cut detector (main thread): view 0's game camera last frame (before the head pose).
 bool g_haveLastCamera = false;
 float g_lastCameraPos[3] = {};
 float g_lastCameraFwd[3] = {};
-constexpr float kCutDistance = 15.0f; // m in one frame; a bike at 330 km/h moves under 4 m per frame at 25 fps
-constexpr float kCutCos = 0.7071f; // the camera's z axis turns more than 45 deg in one frame
+std::chrono::steady_clock::time_point g_lastCameraTime{};
+float g_lastCameraSpeed = 0; // m/s over the last frame; 0 after a cut
+bool g_shiftThisFrame = false; // Renderer+0xd28 was set at this frame's DoUpdate: the world moved by -g_shift
+float g_shift[3] = {};
+// A cut moves the camera further than kCutMinDistance + kCutSpeedFactor x (last speed x this frame's dt) or turns its
+// z axis by more than 10 deg in one frame. Riding turns the helmet camera by a few degrees per frame at most; the
+// crash camera and the respawn move it 4 to 8 m and 16 to 26 deg (2026-10-21 test mode, at up to 144 km/h; missed by
+// the earlier 15 m / 45 deg, temporal.md 11.2). A hitch frame can trip it: a harmless extra reset.
+constexpr float kCutMinDistance = 2.0f;
+constexpr float kCutSpeedFactor = 1.5f;
+constexpr float kCutMaxSpeed = 150.0f; // m/s; a faster estimate is a missed cut, not motion
+constexpr float kCutCos = 0.9848f;
+// Other reset triggers (main thread).
+const void* g_lastModeKey = nullptr;
+float g_lastEyeDistance = 0;
+bool g_lastTwoViews = false;
+constexpr float kIpdChange = 0.001f; // m
 
-// Eye 0's TAA history RT (RenderLoop+0xce8, read by RenderTAA as LastFrameBuffer) as a D3D texture:
-// RenderTarget vtbl+0x40(0) -> Texture2DDX11, GetDeviceTexture = +0x68. SEH: engine objects.
-ID3D11Texture2D* Eye0History(void* renderLoop)
+float Distance(const float (&a)[3], const float (&b)[3])
+{
+    const float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+// The D3D texture of the RenderTarget* at renderLoop+offset (RenderLoop+0xce8 TAA history, +0x10e0 / +0x10f0 last-frame
+// depth / colour): RenderTarget vtbl+0x40(0) -> Texture2DDX11, GetDeviceTexture = +0x68. SEH: engine objects.
+ID3D11Texture2D* SlotTexture(void* renderLoop, std::ptrdiff_t offset)
 {
     __try {
-        void* rt = Read<void*>(renderLoop, kRenderLoopTaaHistory);
+        void* rt = Read<void*>(renderLoop, offset);
         if (!rt) {
             return nullptr;
         }
@@ -121,6 +155,62 @@ ID3D11Texture2D* Eye0History(void* renderLoop)
     __except (EXCEPTION_EXECUTE_HANDLER) {
         return nullptr;
     }
+}
+
+// Eye 0's TAA history RT (read by RenderTAA as LastFrameBuffer).
+ID3D11Texture2D* Eye0History(void* renderLoop)
+{
+    return SlotTexture(renderLoop, kRenderLoopTaaHistory);
+}
+
+// Froxel history of both camera indices: -1 makes LightFroxel run its non-temporal technique once (temporal.md 10.1).
+// SEH: engine objects.
+bool ResetFroxelHistory(void* renderLoop)
+{
+    __try {
+        void* lighting = Read<void*>(renderLoop, kRenderLoopDeferredLighting);
+        if (!lighting) {
+            return false;
+        }
+        for (int idx = 0; idx < 2; ++idx) {
+            Write<int>(lighting, kLightingFroxelIndex + idx * 4, -1);
+        }
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+// Clears every mip of a last-frame RT to 0 (far depth for 'Last Frame Depth', black for 'Last Frame Buffer') on the
+// immediate context. Thread: game main thread, before the frame's command lists are executed on that context.
+bool ClearToZero(ID3D11Texture2D* texture)
+{
+    D3D11_TEXTURE2D_DESC d{};
+    texture->GetDesc(&d);
+    if (!(d.BindFlags & D3D11_BIND_RENDER_TARGET)) {
+        return false;
+    }
+    ComPtr<ID3D11Device> device;
+    texture->GetDevice(&device);
+    ComPtr<ID3D11DeviceContext> context;
+    device->GetImmediateContext(&context);
+    D3D11_RENDER_TARGET_VIEW_DESC rd{};
+    rd.Format = d.Format == DXGI_FORMAT_R32_TYPELESS             ? DXGI_FORMAT_R32_FLOAT
+                : d.Format == DXGI_FORMAT_R16G16B16A16_TYPELESS ? DXGI_FORMAT_R16G16B16A16_FLOAT
+                                                                 : d.Format;
+    rd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+    d3d::InternalScope internal;
+    constexpr float kZero[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    for (UINT mip = 0; mip < d.MipLevels; ++mip) {
+        rd.Texture2D.MipSlice = mip;
+        ComPtr<ID3D11RenderTargetView> rtv;
+        if (FAILED(device->CreateRenderTargetView(texture, &rd, &rtv))) {
+            return false;
+        }
+        context->ClearRenderTargetView(rtv.Get(), kZero);
+    }
+    return true;
 }
 
 // Thread: any context's Draw (deferred contexts record on job threads). Set only while a leak test runs.
@@ -178,6 +268,17 @@ void HookedRenderTaa(void* renderLoop, void* renderContext)
         if (g_tintThisFrame && Read<std::uint16_t>(renderContext, kRenderContextCameraIndex) == 0) {
             g_tintHistory = Eye0History(renderLoop); // before RenderTAA swaps the pair
             g_tintThisFrame = false;
+        }
+        if (g_shiftCheck) {
+            // RenderContext+0x130 holds the view's ViewContext copy; its camera position is at +0.
+            const unsigned idx = Read<std::uint16_t>(renderContext, kRenderContextCameraIndex);
+            float last[3], cur[3];
+            for (int i = 0; i < 3; ++i) {
+                last[i] = Read<float>(renderLoop, kRenderLoopLastCamPos + idx * 0xc + i * 4);
+                cur[i] = Read<float>(renderContext, kRenderContextView + kViewCamPos + i * 4);
+            }
+            g_shiftLines.push_back(fmt::format("view {}: previous camera {:.2f} m from the current after the rebase{}",
+                idx, Distance(last, cur), g_resetPending ? " (RESET pending)" : ""));
         }
     }
     g_renderTaa(renderLoop, renderContext);
@@ -393,13 +494,16 @@ void ConvergenceFrame(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11Dev
 
 void FinishCutTest(const std::string& result)
 {
-    TT2VR_LOG_INFO("cuttest: {}", result);
+    const char* name = g_cutIsShift ? "shifttest" : "cuttest";
+    TT2VR_LOG_INFO("{}: {}", name, result);
     g_cutTest = CutTest::Idle;
     g_cutNoReset = false;
+    g_cutIsShift = false;
+    g_shiftCheck = false;
     if (g_cutDone) {
         auto done = std::move(g_cutDone);
         g_cutDone = nullptr;
-        done("cuttest " + result);
+        done(std::string(name) + " " + result);
     }
 }
 
@@ -408,10 +512,12 @@ void CutTestFrame(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceC
 {
     if (g_cutTest == CutTest::Waiting) {
         if (std::chrono::steady_clock::now() > g_cutDeadline) {
-            FinishCutTest("FAILED: no camera cut within 60 s");
+            FinishCutTest(g_cutIsShift ? "FAILED: no World Shift within 5 min (ride more than 2 km)"
+                                       : "FAILED: no camera cut within 60 s");
         }
         return;
     }
+    g_shiftCheck = false; // the shift frame's views have been recorded
     std::vector<std::uint8_t> current[2], full;
     UINT w = 0, h = 0;
     if (!LumaSamples(swapChain, device, context, current, full, w, h)) {
@@ -420,8 +526,10 @@ void CutTestFrame(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceC
     }
     if (g_cutFrame < 2) {
         // Captured at the next Present: frames +1 and +2 after the cut.
-        d3d::screenshot::Request(fmt::format("cut_{}_f{}", g_cutNoReset ? "noreset" : "reset", g_cutFrame + 1),
-            nullptr);
+        const std::string name = g_cutIsShift
+                                     ? fmt::format("shift_f{}", g_cutFrame + 1)
+                                     : fmt::format("cut_{}_f{}", g_cutNoReset ? "noreset" : "reset", g_cutFrame + 1);
+        d3d::screenshot::Request(name, nullptr);
     }
     for (int e = 0; e < 2; ++e) {
         if (g_cutPrev[e].size() == current[e].size() && !current[e].empty()) {
@@ -444,8 +552,52 @@ void CutTestFrame(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceC
             lines += fmt::format(" {:.1f}", d);
         }
     }
+    if (g_cutIsShift) {
+        std::string checks;
+        for (const auto& l : g_shiftLines) {
+            checks += "; " + l;
+        }
+        const bool pass = g_resetsDuringTest == 0 && g_shiftLines.size() == 2;
+        FinishCutTest(fmt::format("{}: {}{}; history resets in the {} frames after: {}; mean |d luma| frame to "
+                                  "frame:{}",
+            pass ? "PASS (no reset, both slots checked; judge the numbers and screenshots for smear)" : "CHECK",
+            g_cutWhat, checks, kCutFrames, g_resetsDuringTest, lines));
+        return;
+    }
     FinishCutTest(fmt::format("{} cut ({}), history {}: mean |d luma| frame to frame after the cut:{}",
         g_cutNoReset ? "B" : "A", g_cutWhat, g_cutNoReset ? "kept (noreset)" : "reset", lines));
+}
+
+// A history reset of both eyes for this frame and the next (the trigger is seen before this frame's views render).
+void ResetNow(const std::string& why)
+{
+    if (!g_active) {
+        return;
+    }
+    g_resetPending = true;
+    g_resetNext = true;
+    if (g_cutTest == CutTest::After) {
+        ++g_resetsDuringTest;
+    }
+    TT2VR_LOG_INFO("taa: history reset for both eyes ({})", why);
+}
+
+// A camera cut (jump or mode change): ResetNow, unless a running "cuttest noreset" keeps the history for this one.
+void OnCut(const std::string& what)
+{
+    // The cut test counts only cuts inside two-view riding (menu and loading cameras jump too).
+    const bool testCut = g_cutTest == CutTest::Waiting && !g_cutIsShift && SplitViewActive();
+    if (testCut && g_cutNoReset) {
+        TT2VR_LOG_INFO("taa: cut test: history KEPT for this cut (noreset) ({})", what);
+    }
+    else {
+        ResetNow(what);
+    }
+    if (testCut) {
+        g_cutTest = CutTest::After;
+        g_cutFrame = 0;
+        g_cutWhat = what;
+    }
 }
 
 void FinishLeak(const std::string& result)
@@ -480,11 +632,19 @@ void InstallTaaControl()
         return;
     }
     g_active = true;
-    TT2VR_LOG_INFO("taa: reset and leak-test hook installed");
+    g_postUpdate = reinterpret_cast<PostUpdateFn>(SignatureAddress(Sig::RenderLoopPostUpdateLastFrameCamera));
+    TT2VR_LOG_INFO("taa: reset and leak-test hook installed{}",
+        g_postUpdate ? "" : "; PostUpdateLastFrameCamera missing: resets keep the previous camera");
 }
 
-void OnTaaFrame(unsigned recenterCount)
+void OnTaaFrame(void* renderer, unsigned recenterCount)
 {
+    g_shiftThisFrame = renderer && Read<std::uint8_t>(renderer, kRendererShiftFlag) != 0;
+    if (g_shiftThisFrame) {
+        for (int i = 0; i < 3; ++i) {
+            g_shift[i] = Read<float>(renderer, kRendererShiftVector + i * 4);
+        }
+    }
     if (!g_recenterInit) {
         g_recenterInit = true;
         g_recenterSeen = recenterCount;
@@ -524,39 +684,125 @@ void RequestLeakTest(std::function<void(const std::string&)> done)
 
 void OnMainCameraWorld(const float (&world)[3][4])
 {
+    const auto now = std::chrono::steady_clock::now();
     const float pos[3] = {world[0][3], world[1][3], world[2][3]};
     const float fwd[3] = {world[0][2], world[1][2], world[2][2]};
     if (g_haveLastCamera && g_active) {
-        const float dx = pos[0] - g_lastCameraPos[0], dy = pos[1] - g_lastCameraPos[1], dz = pos[2] - g_lastCameraPos[2];
-        const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+        float dist = Distance(pos, g_lastCameraPos);
+        if (g_shiftThisFrame) {
+            // UpdateShift ran before this DoUpdate: the camera moved with the world. Only a rebase that shortens the
+            // step is taken (a flag left set without a shift would lengthen it).
+            const float rebased[3] = {g_lastCameraPos[0] - g_shift[0], g_lastCameraPos[1] - g_shift[1],
+                g_lastCameraPos[2] - g_shift[2]};
+            const float step = Distance(pos, rebased);
+            if (step < dist) {
+                TT2VR_LOG_INFO("taa: World Shift ({:.0f} {:.0f} {:.0f}): camera step {:.2f} m after the rebase "
+                               "({:.0f} m without), no cut",
+                    g_shift[0], g_shift[1], g_shift[2], step, dist);
+                if (g_cutTest == CutTest::Waiting && g_cutIsShift && SplitViewActive()) {
+                    g_cutTest = CutTest::After;
+                    g_cutFrame = 0;
+                    g_cutWhat = fmt::format("World Shift ({:.0f} {:.0f} {:.0f}), camera step {:.2f} m after the rebase",
+                        g_shift[0], g_shift[1], g_shift[2], step);
+                    g_shiftCheck = true;
+                }
+                dist = step;
+            }
+        }
+        const float dt = std::clamp(std::chrono::duration<float>(now - g_lastCameraTime).count(), 1.0f / 240.0f, 0.25f);
+        const float limit = kCutMinDistance + kCutSpeedFactor * g_lastCameraSpeed * dt;
         const float cosTurn = fwd[0] * g_lastCameraFwd[0] + fwd[1] * g_lastCameraFwd[1] + fwd[2] * g_lastCameraFwd[2];
+        const float deg = std::acos(std::clamp(cosTurn, -1.0f, 1.0f)) * 57.29578f;
         if (g_convFrames > 0) {
             g_convCamMove = std::max(g_convCamMove, dist);
-            g_convCamTurn = std::max(g_convCamTurn, std::acos(std::clamp(cosTurn, -1.0f, 1.0f)) * 57.29578f);
+            g_convCamTurn = std::max(g_convCamTurn, deg);
         }
-        if (dist > kCutDistance || cosTurn < kCutCos) {
-            const float deg = std::acos(std::clamp(cosTurn, -1.0f, 1.0f)) * 57.29578f;
-            // The cut test counts only cuts inside two-view riding (menu and loading cameras jump too).
-            const bool testCut = g_cutTest == CutTest::Waiting && SplitViewActive();
-            const bool suppress = testCut && g_cutNoReset;
-            if (!suppress) {
-                // The engine has no cut detection (docs/re/temporal.md N6). This frame's views are recorded after
-                // DoUpdate; the next frame is reset too, in case its recording is the first to see the new camera.
-                g_resetPending = true;
-                g_resetNext = true;
-            }
-            TT2VR_LOG_INFO("taa: {} (camera cut: {:.1f} m, {:.0f} deg)",
-                suppress ? "cut test: history KEPT for this cut (noreset)" : "history reset for both eyes", dist, deg);
-            if (testCut) {
-                g_cutTest = CutTest::After;
-                g_cutFrame = 0;
-                g_cutWhat = fmt::format("{:.1f} m, {:.0f} deg", dist, deg);
-            }
+        if (dist > limit || cosTurn < kCutCos) {
+            // The engine has no cut detection (docs/re/temporal.md N6). This frame's views are recorded after
+            // DoUpdate; the next frame is reset too, in case its recording is the first to see the new camera.
+            OnCut(fmt::format("camera cut: {:.1f} m (limit {:.1f}), {:.0f} deg", dist, limit, deg));
+            g_lastCameraSpeed = 0;
+        }
+        else {
+            g_lastCameraSpeed = std::min(dist / dt, kCutMaxSpeed);
         }
     }
     std::copy(pos, pos + 3, g_lastCameraPos);
     std::copy(fwd, fwd + 3, g_lastCameraFwd);
+    g_lastCameraTime = now;
     g_haveLastCamera = true;
+}
+
+void OnTaaCameraMode(const void* modeKey)
+{
+    if (modeKey && g_lastModeKey && modeKey != g_lastModeKey && g_active) {
+        OnCut(fmt::format("camera mode changed {} -> {}", g_lastModeKey, modeKey));
+        g_lastCameraSpeed = 0;
+    }
+    g_lastModeKey = modeKey;
+}
+
+void OnTaaEyeDistance(float eyeDistance)
+{
+    if (eyeDistance <= 0.0f) {
+        return;
+    }
+    if (g_lastEyeDistance > 0.0f && std::abs(eyeDistance - g_lastEyeDistance) > kIpdChange) {
+        ResetNow(fmt::format("IPD {:.1f} -> {:.1f} mm", g_lastEyeDistance * 1000.0f, eyeDistance * 1000.0f));
+    }
+    g_lastEyeDistance = eyeDistance;
+}
+
+void OnTaaTwoViews(bool twoViews)
+{
+    if (twoViews && !g_lastTwoViews) {
+        ResetNow("two views on: new history render targets");
+    }
+    g_lastTwoViews = twoViews;
+}
+
+void OnTaaLoopRender(void* renderLoop)
+{
+    if (!g_resetPending || !renderLoop || !g_active) {
+        return;
+    }
+    const bool froxel = ResetFroxelHistory(renderLoop);
+    int cleared = 0;
+    for (int idx = 0; idx < 2; ++idx) {
+        for (const std::ptrdiff_t slot : {kRenderLoopLastFrameDepth, kRenderLoopLastFrameBuffer}) {
+            if (ID3D11Texture2D* texture = SlotTexture(renderLoop, slot + idx * 8)) {
+                cleared += ClearToZero(texture) ? 1 : 0;
+            }
+        }
+    }
+    if (!g_fullResetLogged) {
+        g_fullResetLogged = true;
+        TT2VR_LOG_INFO("taa: a history reset covers TAA, froxel ({}), previous camera ({}) and SSR's last-frame "
+                       "buffers ({} of 4 cleared); exposure keeps adapting",
+            froxel ? "index -1" : "NOT reset", g_postUpdate ? "latched per view" : "NOT reset", cleared);
+    }
+}
+
+void OnTaaViewPrepared(void* renderLoop, void* renderContext)
+{
+    if (!g_resetPending || !g_postUpdate || !renderLoop || !renderContext) {
+        return;
+    }
+    const unsigned idx = Read<std::uint16_t>(renderContext, kRenderContextCameraIndex);
+    if (idx > 1) {
+        return;
+    }
+    // PostUpdateLastFrameCamera also latches the front-pass set from the front ViewContext (RenderLoop+0x1590), which
+    // this view builds later: it still holds the previous view's (the other eye's) values, so that set is put back.
+    char* loop = static_cast<char*>(renderLoop);
+    std::uint8_t front[0x40 + 0xc + 8];
+    std::memcpy(front, loop + kRenderLoopFrontLastVP + idx * 0x40, 0x40);
+    std::memcpy(front + 0x40, loop + kRenderLoopFrontLastCamPos + idx * 0xc, 0xc);
+    std::memcpy(front + 0x4c, loop + kRenderLoopFrontLastJitter + idx * 8, 8);
+    g_postUpdate(renderLoop, renderContext);
+    std::memcpy(loop + kRenderLoopFrontLastVP + idx * 0x40, front, 0x40);
+    std::memcpy(loop + kRenderLoopFrontLastCamPos + idx * 0xc, front + 0x40, 0xc);
+    std::memcpy(loop + kRenderLoopFrontLastJitter + idx * 8, front + 0x4c, 8);
 }
 
 void RequestCutTest(bool noReset, std::function<void(const std::string&)> done)
@@ -575,8 +821,34 @@ void RequestCutTest(bool noReset, std::function<void(const std::string&)> done)
     g_cutDiff[0].clear();
     g_cutDiff[1].clear();
     g_cutDeadline = std::chrono::steady_clock::now() + kCutWait;
+    g_cutIsShift = false;
+    g_resetsDuringTest = 0;
     g_cutTest = CutTest::Waiting;
     TT2VR_LOG_INFO("cuttest: armed{}; waiting up to 60 s for a camera cut", noReset ? " (noreset)" : "");
+}
+
+void RequestShiftTest(std::function<void(const std::string&)> done)
+{
+    if (!g_active) {
+        done("shifttest FAILED: RenderTAA hook not installed");
+        return;
+    }
+    if (g_cutDone) {
+        g_cutDone(std::string(g_cutIsShift ? "shifttest" : "cuttest") + " FAILED: superseded by a newer request");
+    }
+    g_cutDone = std::move(done);
+    g_cutNoReset = false;
+    g_cutPrev[0].clear();
+    g_cutPrev[1].clear();
+    g_cutDiff[0].clear();
+    g_cutDiff[1].clear();
+    g_shiftLines.clear();
+    g_shiftCheck = false;
+    g_resetsDuringTest = 0;
+    g_cutIsShift = true;
+    g_cutDeadline = std::chrono::steady_clock::now() + kShiftWait;
+    g_cutTest = CutTest::Waiting;
+    TT2VR_LOG_INFO("shifttest: armed; waiting up to 5 min for a World Shift while riding");
 }
 
 void RequestConvergenceTest(std::function<void(const std::string&)> done)
