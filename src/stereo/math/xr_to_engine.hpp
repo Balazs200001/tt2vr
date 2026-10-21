@@ -56,5 +56,9 @@ Mat34 EyeLocal(const Mat34& recenter, const Pose& eye);
 // Pose (XR reference space) of a virtual screen `distance` metres straight ahead of a recenter reference, facing it:
 // same yaw, same height. Used for the menu screen quad layer (Phase 3 interim, PLAN Phase 7).
 Pose ScreenPose(const Mat34& recenter, float distance);
+// Pose of a flat panel (the HUD quad, PLAN Phase 7) relative to a recenter reference: centred `distance` metres
+// straight ahead and `height` metres above it, same yaw, its top leaning `tiltDeg` degrees away (positive = the
+// panel faces up towards the eyes). With an identity reference the pose is relative to the head (XR VIEW space).
+Pose PanelPose(const Mat34& recenter, float distance, float height, float tiltDeg);
 
 } // namespace stereo

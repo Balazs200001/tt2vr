@@ -1,6 +1,7 @@
 #include "stereo/math/xr_to_engine.hpp"
 
 #include <cmath>
+#include <numbers>
 
 namespace stereo {
 
@@ -94,6 +95,17 @@ Pose ScreenPose(const Mat34& recenter, float distance)
     const float yaw = std::atan2(recenter.m[0][2], recenter.m[2][2]);
     const Vec3 center = TransformPoint(recenter, {0.0f, 0.0f, -distance});
     return {{0.0f, std::sin(yaw * 0.5f), 0.0f, std::cos(yaw * 0.5f)}, center};
+}
+
+Pose PanelPose(const Mat34& recenter, float distance, float height, float tiltDeg)
+{
+    const float yaw = std::atan2(recenter.m[0][2], recenter.m[2][2]);
+    const Vec3 center = TransformPoint(recenter, {0.0f, height, -distance});
+    // Ry(yaw) * Rx(-tilt): a positive rotation about +X would turn the panel's normal (+Z) down.
+    const float s1 = std::sin(yaw * 0.5f), c1 = std::cos(yaw * 0.5f);
+    const float pitch = -tiltDeg * std::numbers::pi_v<float> / 180.0f;
+    const float s2 = std::sin(pitch * 0.5f), c2 = std::cos(pitch * 0.5f);
+    return {{c1 * s2, s1 * c2, -s1 * s2, c1 * c2}, center};
 }
 
 } // namespace stereo

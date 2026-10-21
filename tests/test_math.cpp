@@ -295,3 +295,18 @@ TEST_CASE("ScreenPose is straight ahead of the recentered head, facing it")
     CheckVec(screen.position, {0.2f - 2.0f, 1.1f, -0.5f}); // forward is -X after a 90 deg left yaw
     CheckMat(PoseToMatrix(screen), CameraLocalTransform(kPi / 2, 0, 0, screen.position), 1e-5f);
 }
+
+TEST_CASE("PanelPose: ahead, offset in height, top leaning away faces the eyes")
+{
+    const float h = kPi / 4; // head yawed 90 deg left at (0.2, 1.1, -0.5)
+    const Mat34 recenter = RecenterFromHead({{0, std::sin(h), 0, std::cos(h)}, {0.2f, 1.1f, -0.5f}});
+    const Pose panel = PanelPose(recenter, 1.0f, -0.25f, 30.0f);
+    CheckVec(panel.position, {0.2f - 1.0f, 1.1f - 0.25f, -0.5f});
+    CheckMat(PoseToMatrix(panel), CameraLocalTransform(kPi / 2, -kPi / 6, 0, panel.position), 1e-5f);
+    const Mat34 m = PoseToMatrix(panel);
+    CHECK(m.m[1][2] > 0.49f); // normal (column 2) tilted up by 30 deg
+    // Identity reference: relative to the head (VIEW space), no tilt = facing straight back.
+    const Pose view = PanelPose(Identity34(), 0.8f, 0.1f, 0.0f);
+    CheckVec(view.position, {0.0f, 0.1f, -0.8f});
+    CHECK(view.orientation.w == doctest::Approx(1.0f));
+}
