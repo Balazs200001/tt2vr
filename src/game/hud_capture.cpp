@@ -89,6 +89,7 @@ bool g_createTried = false;
 bool g_ready = false;
 std::uint32_t g_width = 0, g_height = 0; // target pixels
 int g_layoutW = 0, g_layoutH = 0; // HudRenderer layout during the capture
+bool g_viewDrawn = false; // this frame recorded a view's HUD call (a 3D frame; loading screens have none)
 bool g_captured = false; // this frame's global call drew into the targets
 bool g_capturedMenu = false; // ... during the riding pause
 std::uint64_t g_capturedFrames = 0;
@@ -177,7 +178,8 @@ void HookedHudRender(void* hud, void* rt, void* list, void* loop, void* ctx, con
     Call call;
     call.flags = flags;
     const bool known = hud && Classify(hud, rt, list, loop, ctx, call);
-    call.captured = known && call.kind == Kind::Global && (flags & 2) && CaptureWanted();
+    g_viewDrawn = g_viewDrawn || (known && call.kind == Kind::View);
+    call.captured = known && call.kind == Kind::Global && (flags & 2) && g_viewDrawn && CaptureWanted();
     if (known) {
         std::lock_guard lock(g_mutex);
         if (g_frame.size() < kMaxCalls) {
@@ -547,6 +549,7 @@ void OnHudPresent()
         }
         g_saves.clear();
     }
+    g_viewDrawn = false;
     std::vector<std::function<void(const std::string&)>> reports;
     std::size_t dropped = 0;
     std::string calls;
