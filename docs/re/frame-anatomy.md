@@ -149,7 +149,7 @@ After the view loop: 'Split border' pass (0x14084935e); global HUD list `RenderD
 
 Other pass names seen in strings, position not established: 'Downscale Linear Depth', 'PostProcess Read', 'Oculus render mirror' (dead, section 7), 'Render Movieplayer', 'SceneRenderer', 'Wait graphics queue' (a GPU fence label only).
 
-**Per-frame vs per-view summary (hypothesis, `runtime-check`):**
+**Per-frame vs per-view summary (hypothesis, `runtime-check`):** (Phase 5 answer with trace evidence and corrections, 2026-10-21: `renderer.md` section 1. Corrections: `CullParticles` culls with the union of both views; `SimpleForwardRenderer::Render` runs once, in the view whose camera index it was registered with; the CSM is fitted per camera index and rendered per view.)
 
 - Shared or once per frame: everything in 2.1 before `Render`, probes, culling (union of views), light and CSM setup call, `FillRenderInstances`/`CopyRenderInstances`, weather, particle `UpdateFence`, `SimpleForwardRenderer::Render` (first view only), `CullParticles`.
 - Per view: GBuffer, SSR, froxel cull/light, SSAO, lighting, sky, fog, transparency, tonemap, FXAA, TAA, motion blur, lens flare, post chain, all HUD lists, upscale.

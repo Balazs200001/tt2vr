@@ -157,7 +157,7 @@ Columns: `Row` maps to the PLAN inventory (P1..P11 in PLAN order) or is new (N1.
 | Scope | **shared** (once per frame) |
 | Candidate mechanism | **C**: one `Render` call; `FillRenderInstances` runs once per scene (culling is the union of views), so the advance happens once and is idempotent per `frameId`. No work. **A / per-eye `Render` calls**: the guard makes a second call with the *same* `frameId` harmless; a second call with a *different* `frameId` advances previous <- current a second time and the second eye sees **zero object motion** (the exact concern in PLAN). Our per-eye call must not change what the engine uses as `frameId`. |
 | Hazards | **The `frameId` source is not traced.** Candidate source: `RenderLayer+0x30` (render id, `GetFrameID` 0x1403d3df0) which increments on every `BeginRender`; the external-scene loop and any per-eye `BeginRender`/`EndRender` cycle would bump it twice per presented frame. `SkinMesh` per-slot validity (`param_2 == last+1`) breaks the same way. World Shift: `Mesh+0xf4` is not rebased (N7). |
-| Status | candidate |
+| Status | candidate. **Phase 5 (2026-10-21, `renderer.md` 4):** frameId = `RenderLayer+0x30`, read by the fill job `FUN_1408d3370`, which calls `FillRenderInstances` once per visible view with the same frameId: `Mesh` advances once per frame (confirmed). **`SkinMesh` is wrong in two-view frames:** one EntityRenderData and one cur/prev palette pair per mesh; view 1's call latches prev <- cur a second time, so both views draw skinned meshes with prev == cur (zero object motion). Trace evidence: skinned MV CB pairs differ in flat trace 10866 (5/5), identical in two-view traces 12770/9191/13970/4400 (41/44). Fix candidate in `renderer.md` 4. |
 | Runtime check | Debugger: breakpoint `Mesh::UpdateRenderData` 0x1408a3f00 and log (this, frameId) in a two-view (split) frame to confirm the second view does not advance `Mesh+0xf4`; find where `frameId` comes from; log `RenderLayer+0x30` per frame. |
 | Confidence | confirmed (mechanism); open (frameId source) |
 
@@ -182,7 +182,7 @@ Columns: `Row` maps to the PLAN inventory (P1..P11 in PLAN order) or is new (N1.
 | Scope | **shared** (once per frame); render-side particle draw is per view and has no history |
 | Candidate mechanism | **C**: engine already does this (`idx == 0` guards). **A**: ensure the sim steps run once per frame, not once per eye (they are in `OnRender`/`RenderOneFrame`, outside `RenderLoop::Render`; a per-eye call of only `Render` does not repeat them, but `UpdateFence`/`UpdatePopCornBound` are inside `Render` guarded by idx == 0, so they would run **twice** if slot 0 is reused for both eyes: guard needed). |
 | Hazards | PopcornFX GPU-sim internals not decompiled; "view-independent" is inferred. Particle sort/cull depends on the view (`CullParticles` on view 0 only); eye 1 reuses eye 0's cull (small error for particle visibility at the periphery; likely acceptable). |
-| Status | candidate |
+| Status | candidate. **Phase 5 (2026-10-21, `renderer.md` 1, 6):** `CullParticles` 0x1409a2a90 culls with the **union** of both views (not view 0; the hazard above is void); `UpdateFence`/`UpdatePopCornBound` run once (idx 0); `SetViewContext` copies last frame's views (engine behaviour). Open: medium 2 (per-camera effect pairs) stays disabled without `GameEngine+0x184` (`renderer.md` 6 A). |
 | Runtime check | Break on `UpdateFence` / `UpdatePopCornBound` per frame in a two-view frame (expect once); RenderDoc: particle compute dispatches appear once per frame. |
 | Confidence | confirmed (call placement); likely (view-independence) |
 
@@ -194,7 +194,7 @@ Columns: `Row` maps to the PLAN inventory (P1..P11 in PLAN order) or is new (N1.
 | Scope | **shared** (PLAN: rendered once, cascades fitted to the combined eye frustum) |
 | Candidate mechanism | **C**: the engine already culls on the union of views and sets lights up once per scene, but keeps per-slot cascade state, so it **may fit and render two cascade sets** (one per camera index). If both views are the two eyes of one head, two sets cost double and can differ by sub-texel amounts between eyes (shadow shimmer rivalry). To share: force slot 1's cascade matrices to slot 0's after `SetupRenderContext`. **A**: slot 0 only; shadows rendered once per frame if `SetupLights` runs once. |
 | Hazards | **Whether cascades are fitted per view or merged is unproven** (`guess`). The static shadow cache is shifted at World Shift per slot. Under split mode the engine may treat the second view as a different player (probes/shadow assumptions, `guess`). |
-| Status | candidate |
+| Status | candidate. **Phase 5 (2026-10-21, `renderer.md` 3):** fitted **per camera index** from each eye's ViewContext with the union projection (no seam from head rotation) and rendered **per view** (atlas clear, static map, 3 cascades; trace 4400). Sharing recipe (index 1 reuses index 0's `CascadedShadowContext`, fit from the head centre) in `renderer.md` 3. |
 | Runtime check | Read `CascadedShadowMapRenderer` state after `SetupLights` with two views: distinct cascade matrices per camera index, or shared? RenderDoc: count cascade draws per frame. |
 | Confidence | likely (per-idx state exists); guess (fitting policy) |
 
@@ -206,7 +206,7 @@ Columns: `Row` maps to the PLAN inventory (P1..P11 in PLAN order) or is new (N1.
 | Scope | **shared** (once per frame) |
 | Candidate mechanism | **C**: runs once per `OnRender` before the view loop (confirmed placement). **A**: if `OnRender` is not re-run per eye, nothing to do. |
 | Hazards | `RenderProbe` receives the whole view array, so probe relight may depend on view positions (which view? union?): unverified. Probe state is also externally re-run per external scene. |
-| Status | candidate |
+| Status | candidate. **Phase 5 (2026-10-21, `renderer.md` 1):** `RenderProbe` runs once per frame and picks the probe nearest to any view (one face per frame, 7-frame relight cycle); probe filtering appears once in trace 4400. |
 | Runtime check | Count `RenderProbe` calls per frame (expect 1); RenderDoc: probe passes appear once. |
 | Confidence | confirmed (placement); runtime-check |
 
