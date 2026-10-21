@@ -66,6 +66,7 @@ enum class Sig {
     CsmSetupRenderContext,
     CsmRender,
     RenderContextSetCascadedShadowContext,
+    HHParticlesManagerEnableMedium,
     Count,
 };
 
@@ -260,6 +261,10 @@ inline constexpr Signature kSignatures[] = {
         "?SetCascadedShadowContext@RenderContext@Graphics@PlayAll@@QEAAXAEBUCascadedShadowContext@23@@Z",
         "48 89 5C 24 08 57 48 83 EC 40 48 8B D9 48 8B FA 48 81 C1 D0 05 00 00 E8 ?? ?? ?? ?? 48 8B 4B 10",
         0, "export; 0x1408cfb00 (rc, ctx): ctx (0x228 bytes) -> rc+0x5d0, builds cbPSCascadedShadows; pattern unique",
+        kBuild4989319},
+    {"HHParticlesManager::EnableMedium", "?EnableMedium@HHParticlesManager@Graphics@PlayAll@@QEAAXH_N@Z", nullptr, 0,
+        "export; 0x1409a3100, mgr[0x2c+medium] = enable (9 bytes, too short for a pattern); only caller "
+        "RenderOneFrame: medium 2 = GameEngine+0x184 each frame (docs/re/renderer.md 6 A)",
         kBuild4989319},
 };
 

@@ -26,6 +26,7 @@
 #include "game/camera.hpp"
 #include "game/gpu_timers.hpp"
 #include "game/menu_state.hpp"
+#include "game/particle_medium.hpp"
 #include "game/render_size.hpp"
 #include "game/split_view.hpp"
 #include "game/shared_exposure.hpp"
@@ -289,6 +290,7 @@ void InstallEngineHooksOnce()
         game::InstallSkinMotion();
         game::InstallGpuTimers();
         game::InstallSharedShadows();
+        game::InstallParticleMedium();
     }
     else {
         TT2VR_LOG_WARN("engine hooks skipped: unknown game version");
