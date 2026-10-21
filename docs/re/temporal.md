@@ -506,3 +506,39 @@ Each camera's flare sprites are HudNodes that `LensFlareManager::Update` (in DoU
 ### 10.5 MeshPainter
 
 `MeshPainter::Update` (per view, unguarded latch) is the livery editor, active only while painting (`this+0x38`); not a temporal effect, and the second view paints nothing. No action. `likely`.
+
+---
+
+## 11. Phase 6 runtime evidence
+
+### 11.1 History audit, two consecutive frames (6a, 2026-10-21)
+
+Test mode (simulated headset, eye 1770x1892, IPD 0.05 m from the profile), Time Attack start line, bike idle, AA FXAA_TAA, `[capture] cb_floats = 64`. Remote `frametrace 2` wrote frames **10260** and **10261** (not in git). Checker: a scratch script (not in the repo) that tracks every draw/dispatch/copy/clear's bound SRVs, RTVs, UAVs and DSV per recording context, matches resources across the two files by pointer, and splits each frame at the per-view first dispatch `cs:4f3101da75386a3b`. A "history read" is a read in frame N+1 of a resource that frame N+1 has not written yet; its frame-N writer decides the verdict. `confirmed (runtime, two views)` for everything below.
+
+| Verdict | Count | Resources |
+|---|---|---|
+| T1, history from the **same** view's frame N | 9 | per view: 'Last Frame Depth' R32 and 'Last Frame Buffer' RGBA16F 8 mips (read by `cs:4ba56b47c32e768f`, SSR; view 0 `res444`/`res446`, view 1 `res2079`/`res2081`), froxel volume tex3d 111x119x32 RGBA16F (`cs:d0b5b98b2772efab`; `res1039` / `res2084`), TAA history (`ps:fb237089f5d3dd39` t2; `res1682` / `res2106`); view 0 only: previous luminance 1x1 R16F (`ps:80abe7e4b00b6cfa`, `HDR_LuminanceFinal`) |
+| T2 violation, history from the **other** view | **0** | |
+| History written by the per-frame segment | 0 | |
+
+Same-frame reads of view 0's output by view 1 (not history): the shadow atlas 12288x4096 (shared since 5c), the 1x1 luminance (shared since 4c, both `HDR_FinalCompose` bind `res1701`), and a read-only depth test against the 3540x1892 window depth that view 0's split copy cleared for the whole window (view 1 tests only its own half, viewport x = 1770).
+
+TAA constants (`$Globals`, PS slot 7, 52 floats) frame N -> N+1, per view:
+
+| Check | View 0 | View 1 |
+|---|---|---|
+| `g_cameraPositionLastFrame`(N+1) = `g_cameraPosition`(N) | exact (diff 0) | exact |
+| ... the other view's `g_cameraPosition`(N) | differs by 0.050 m (the IPD) | 0.050 m |
+| `g_jitter.zw`(N+1) = `g_jitter.xy`(N) | (0.000282, 0) = (0.000282, 0) | same |
+| `g_jitter.xy` alternates | (1/1770, 0) -> (0, -1/1892) | same phase as view 0 |
+| `g_viewProjLastFrame`(N+1) x `g_invViewProj`(N) | identity to 2.5e-6 | 2.6e-6 |
+| ... with the other view's `g_invViewProj`(N) | 0.36 off identity | 0.36 |
+| `g_TAAParams` | (1, 1, 0, 0): previous scale 1, no reset | same |
+
+So for P1 (TAA history), P2 (jitter), P3 (previous VP / camera position), P4 + N2 (last-frame depth and colour), N1 (froxel) and the shared rows P8 (luminance), P10 (shadows) and N7 (MV RT, rewritten per view: no history read) the per-eye split holds at the D3D level and in the constants. P6 (motion blur) reads the same `lastVP[idx]` as TAA (static); its own constant buffer is checked with motion blur on in 6g.
+
+### 11.2 Cut detection misses in-ride cuts (2026-10-21)
+
+Same session, after the bike moved off (one of A / X is the pad's gear-up) and crashed: the switch to the crash camera and the respawn back into the helmet camera produced **no** "camera cut" line, so neither reset the history. The 15 m / 45 deg thresholds only catch menu/loading jumps (log: 180.7 m, 1574 m, 1512 m, 3.8 m with 131 deg). Fix in 6b: a speed-relative distance limit, a lower turn limit, and the player camera's active mode (`KTUCamera+0x48` / `+0x68`) changing as a trigger.
+
+Also seen in the crash camera: **the left eye is desaturated (grey) and the right eye is in colour**. A crash post effect reaches camera slot 0 only (not temporal; per-slot post-process state, `renderer.md` 6). Recorded for Phase 8 (crash and chase cameras).
