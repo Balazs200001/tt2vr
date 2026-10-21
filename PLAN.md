@@ -350,10 +350,31 @@ Implementation steps (proposed 2026-10-21, **approved by Balazs 2026-10-21**: al
 ## Phase 7 — HUD, menus, desktop mirror
 
 - [ ] Find where the HUD starts (frame trace: shader names or RT switch). The HUD renders once per frame into a UI texture, submitted as `XrCompositionLayerQuad` with configurable distance, size and tilt.
+  - 2026-10-21, static: the race HUD is the global 2D list, drawn by `HudRenderer::Render` (export) at 0x14084953a after the view loop, laid out across the whole two-eye back buffer (minimap in the left eye, speedo in the right). The engine can already draw a HUD list into its own sRGB target (`TextureBaker`). `frame-anatomy.md` 8.6.
 - [ ] Menus, loading screens and replays (no 3D scene this frame, or camera not first-person) go to a theater quad.
+  - Since 2026-10-16 every frame without a head-tracked render goes to the world-fixed screen quad (`[xr] menu_screen`, Phase 3 interim). Open: the per-state check (7a) and the pause menu (7d).
 - [ ] Menu UI world-locked, never head-locked (Balazs, 2026-10-16, after the Phase 3 test: menu UI currently follows the head because it is baked into the eye image).
+  - Met by the interim screen quad since 2026-10-16 (fixed in LOCAL space, verified by Balazs); the UI quads of 7d/7e keep it.
 - [ ] Menu comfort (Balazs, 2026-10-16): no cinematic camera cuts in the main menu. Hold one fixed, head-tracked vantage point in the menu's 3D scene (render-side override only, rule 5) with the UI on a static quad in that world. Needs: a menu-vs-riding signal (RE), the HUD/UI separation above, and a check that the frozen vantage keeps its scene content loaded while the game's own menu camera moves elsewhere.
+  - 2026-10-21: the main menu renders a full 3D deferred scene under its UI (RenderDoc f10838). Menu-vs-riding signal: `game::MenuState` (Phase 3).
 - [ ] Desktop mirror: eye L or side-by-side, per config.
+  - Done in Phase 4 (`[xr] desktop_view` = left / both / game, letterboxed, `desktop_fill`; commit dea0ec3). Open: the HUD on the mirror once it leaves the eye images (7c).
+
+Static findings (2026-10-21, `frame-anatomy.md` 8.6, `symbols.md` 7):
+
+- **Global HUD call:** `HudRenderer::Render(RenderLoop+0x410, final RT, RenderDesc+0xc50, ..., flags 0x22)` at 0x14084953a, once per frame after both views. The per-view lists (lens-flare sprites) and the 3D lists (dashboard) are drawn inside each view and stay in the eye images.
+- **Layout:** the 2D HUD lays out in a 1920x1080 space widened to the window's aspect (`HudNode::GetTargetInfo`); `HudRenderer::SetHudSize(w, h)` (export) replaces it with w x h. The target is an argument of the call, so the global list can be drawn into another engine RT.
+- **Precedent:** `TextureBaker` draws a HUD list into its own sRGB RGBA RT (`RenderTargetManager::CreateRenderTarget`, `Desc` layout known) with `SetHudSize` + `HudRenderer::Render`.
+- **Alpha:** the HUD blends colour SRC_ALPHA / INV_SRC_ALPHA and alpha ONE / INV_SRC_ALPHA into an sRGB target (f8323): drawn over a transparent clear it is premultiplied, which an OpenXR quad layer with `SOURCE_ALPHA` takes as is.
+- **Main menu:** a full 3D scene under the UI, so a held vantage point is possible in principle; whether the set survives the headset's wider FOV and the game's camera cuts needs a test.
+
+Implementation steps (proposed 2026-10-21, **waiting for Balazs's OK**; each step built, deployed and tested in test mode before the next):
+
+- **7a HUD probe** (about 60 lines, new hook `HudRenderer::Render`, pass-through): log each distinct (list, flags, target size, layout size) once per presentation state, and whether the list is `RenderDesc+0xc50` and `GameContext`'s global list (+0x88). Test mode: riding, TT2 pause, main menu, options, loading, replay, plus a frame trace each (blend states of all 2D HUD draws). Gives the per-state table for 7b-7e.
+- **7b HUD on a quad layer while riding** (`game::HudCapture` + `xr`, about 300 lines). An engine RT 'tt2vr HUD' (one 'RGBA' sRGB target, `[hud]` resolution, default 1920x1080) made once with `CreateRenderTarget`. While two views ride: the global call draws into it with `SetHudSize(1080 x aspect, 1080)`, both restored after the call. Present pre-hook: raw copy into a quad swapchain, then clear the RT to 0 for the next frame; the quad is submitted after the projection layer with `SOURCE_ALPHA`. Config `[hud]`: enabled, distance (1.0 m), width (0.9 m), height offset, tilt, `follow` = "seat" (LOCAL space: fixed to the bike like a dashboard) or "head", aspect (16:9; narrower pulls the corner gauges toward the centre). Fail safe: any missing signature or RT failure leaves the HUD in the eye images as now. Tests: eye screenshots without minimap / speedo; new `screenshot hud` saves the HUD texture with alpha; headset: readable, single, no depth fight with the helmet lining.
+- **7c HUD on the desktop mirror** (about 60 lines): the mirror image gets the HUD texture blended on top (`[xr] desktop_hud`, default on). Check with `window`.
+- **7d Pause menu in stereo** (about 100 lines): the TT2 pause menu while riding stays head-tracked in two views (time stopped, camera still), its UI on a quad at the menu screen's distance and size. Loading screens, movies and replays stay on the theater quad with the flat frame.
+- **7e Main menu from a fixed vantage** (about 250 lines, feasibility first). `[debug]` remote `menufreeze on`: two views in the main menu from the menu camera's pose held at menu entry, head-tracked, menu UI on the world-locked quad. Test mode over 60 s of menu camera cuts: the held set stays loaded and complete at the headset's ~100° FOV (the game frames it at 45°), view 1's DOF matches view 0 (Phase 5 item C), per-camera state in view 1. If it holds: vantage taken at menu entry and kept until the menu is left (recenter only re-aligns the head). If not: the main menu stays on the theater quad, with the evidence.
 
 **Done when:** the HUD is readable, not doubled, with no depth conflict, and I can navigate menus in the headset.
 
