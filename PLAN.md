@@ -21,12 +21,12 @@ v1 is done when all of these hold during a 30-minute offline session on the Snae
 - [x] Phase 4 — Dual-view stereo via the split-screen path (milestone)
 - [x] Phase 5 — Synchronous stereo: shared per-frame work
 - [x] Phase 6 — Temporal completeness
-- [ ] Phase 7 — HUD, menus, desktop mirror
+- [x] Phase 7 — HUD, menus, desktop mirror
 - [ ] Phase 8 — Bike comfort & camera
 - [ ] Phase 9 — Performance
 - [ ] Phase 10 — Robustness & release
 
-**Active phase: Phase 7** (Phase 6 completed 2026-10-21; Phase 5 completed 2026-10-21; Phase 4 completed 2026-10-21; Phase 3 completed 2026-10-16; Phase 2 completed 2026-10-16; Phase 1 completed 2026-10-16; Phase 0 completed 2026-10-16)
+**Active phase: Phase 8** (Phase 7 completed 2026-10-21; Phase 6 completed 2026-10-21; Phase 5 completed 2026-10-21; Phase 4 completed 2026-10-21; Phase 3 completed 2026-10-16; Phase 2 completed 2026-10-16; Phase 1 completed 2026-10-16; Phase 0 completed 2026-10-16)
 
 ---
 
@@ -349,15 +349,16 @@ Implementation steps (proposed 2026-10-21, **approved by Balazs 2026-10-21**: al
 
 ## Phase 7 — HUD, menus, desktop mirror
 
-- [ ] Find where the HUD starts (frame trace: shader names or RT switch). The HUD renders once per frame into a UI texture, submitted as `XrCompositionLayerQuad` with configurable distance, size and tilt.
+- [x] Find where the HUD starts (frame trace: shader names or RT switch). The HUD renders once per frame into a UI texture, submitted as `XrCompositionLayerQuad` with configurable distance, size and tilt.
   - 2026-10-21, static: the race HUD is the global 2D list, drawn by `HudRenderer::Render` (export) at 0x14084953a after the view loop, laid out across the whole two-eye back buffer (minimap in the left eye, speedo in the right). The engine can already draw a HUD list into its own sRGB target (`TextureBaker`). `frame-anatomy.md` 8.6.
-- [ ] Menus, loading screens and replays (no 3D scene this frame, or camera not first-person) go to a theater quad.
+- [x] Menus, loading screens and replays (no 3D scene this frame, or camera not first-person) go to a theater quad.
   - Since 2026-10-16 every frame without a head-tracked render goes to the world-fixed screen quad (`[xr] menu_screen`, Phase 3 interim). Open: the per-state check (7a) and the pause menu (7d).
-- [ ] Menu UI world-locked, never head-locked (Balazs, 2026-10-16, after the Phase 3 test: menu UI currently follows the head because it is baked into the eye image).
+- [x] Menu UI world-locked, never head-locked (Balazs, 2026-10-16, after the Phase 3 test: menu UI currently follows the head because it is baked into the eye image).
   - Met by the interim screen quad since 2026-10-16 (fixed in LOCAL space, verified by Balazs); the UI quads of 7d/7e keep it.
-- [ ] Menu comfort (Balazs, 2026-10-16): no cinematic camera cuts in the main menu. Hold one fixed, head-tracked vantage point in the menu's 3D scene (render-side override only, rule 5) with the UI on a static quad in that world. Needs: a menu-vs-riding signal (RE), the HUD/UI separation above, and a check that the frozen vantage keeps its scene content loaded while the game's own menu camera moves elsewhere.
+- [~] Menu comfort (Balazs, 2026-10-16): no cinematic camera cuts in the main menu. Hold one fixed, head-tracked vantage point in the menu's 3D scene (render-side override only, rule 5) with the UI on a static quad in that world. Needs: a menu-vs-riding signal (RE), the HUD/UI separation above, and a check that the frozen vantage keeps its scene content loaded while the game's own menu camera moves elsewhere.
   - 2026-10-21: the main menu renders a full 3D deferred scene under its UI (RenderDoc f10838). Menu-vs-riding signal: `game::MenuState` (Phase 3).
-- [ ] Desktop mirror: eye L or side-by-side, per config.
+  - 2026-10-21: **dropped by Balazs** after the 7e trial: the main menu stays on the flat theater screen (Decisions log). The trial code is reverted; its findings stay in 7e and `frame-anatomy.md` 8.6.
+- [x] Desktop mirror: eye L or side-by-side, per config.
   - Done in Phase 4 (`[xr] desktop_view` = left / both / game, letterboxed, `desktop_fill`; commit dea0ec3). Open: the HUD on the mirror once it leaves the eye images (7c).
 
 Static findings (2026-10-21, `frame-anatomy.md` 8.6, `symbols.md` 7):
@@ -380,10 +381,12 @@ Implementation steps (proposed 2026-10-21, **approved by Balazs 2026-10-21**: al
   - 2026-10-21: **done in test mode** (`MenuState::RidingPause`: time stopped while the riding camera renders). Pausing keeps two views and head tracking (no switch back to one view, so no black frame), the pause UI (55% of the panel) goes on a panel at `[xr] screen_distance` / `screen_width`; Resume returns to riding. The game's pause blur fades in on the 3D world in both eyes, as in the flat game. Without the HUD capture the pause goes to the screen as before. **Open for Balazs:** comfort of the paused world and the panel's place.
 - **7e Main menu from a fixed vantage** (about 250 lines, feasibility first). `[debug]` remote `menufreeze on`: two views in the main menu from the menu camera's pose held at menu entry, head-tracked, menu UI on the world-locked quad. Test mode over 60 s of menu camera cuts: the held set stays loaded and complete at the headset's ~100° FOV (the game frames it at 45°), view 1's DOF matches view 0 (Phase 5 item C), per-camera state in view 1. If it holds: vantage taken at menu entry and kept until the menu is left (recenter only re-aligns the head). If not: the main menu stays on the theater quad, with the evidence.
   - 2026-10-21: **feasible, three choices open** (test mode; remote `menufreeze on`, or `[debug] menu_freeze = true` at startup; default off). The held vantage renders the start-straight set complete at the headset's FOV (grandstand, tower, flags, the bike on its stand), stable for 60 s while the game's camera cut elsewhere, with no TAA reset (the cut detector follows the held vantage), the same depth of field in both eyes, and the menu UI on the panel at the menu screen's place (its left gradient included); GPU 10.9 ms. The main menu and its sub-menus (Single-player, Time Attack region select) share one camera mode, so the vantage holds through them; the race setup and loading change the mode, and a new vantage is taken there (without that, the main-menu vantage held through the level load showed a meaningless blurred view). Loading frames draw no views, so their UI now stays in the flat frame. **Open for Balazs:** (1) the vantage is the game's shot when the menu appears, which can be a ground-level shot (about 10 cm above the tarmac): keep it, raise it to a seated eye height, or use one fixed spot in the start-straight set; (2) the game's depth of field follows its hidden shots and the menu blur reaches the held view: keep, or drop them while the vantage is held; (3) a headset try of `[debug] menu_freeze = true` for comfort, then decide whether it becomes the default.
+  - 2026-10-21: **dropped** (Balazs: "forget about the main menu being in 3d"); trial code reverted (6bb3d0b). The capture guard for frames without views (loading screens) stays.
 
 **Done when:** the HUD is readable, not doubled, with no depth conflict, and I can navigate menus in the headset.
 
 **Status 2026-10-21:** 7a-7d done in test mode; 7e feasible as a `[debug]` trial. Open for Balazs in the headset: the HUD panel (readable, one HUD, comfortable against the helmet lining; tune `[hud]`), the pause menu in stereo, and the menu-freeze trial with its three choices (7e). Phase 7 closes on that report.
+- 2026-10-21: **Phase 7 closed** after Balazs's headset session ("everything seems to work"): HUD panel, pause menu in stereo, desktop mirror HUD. The main menu stays on the flat screen (7e dropped). Not seen in any test: replays (they go to the theater screen by the existing rule: camera not riding) and the replay/menu DOF of view 1 (Phase 5 item C; replays are flat, so view 1 never renders them).
 
 ## Phase 8 — Bike comfort & camera
 
@@ -454,6 +457,7 @@ Implementation steps (proposed 2026-10-21, **approved by Balazs 2026-10-21**: al
 | 2026-10-21 | Lens flares are made per-eye in Phase 6 (6e), not Phase 7 (Balazs) | eye 1 drawing eye 0's flare sprites is a cross-eye leak of view-dependent state (row N3) |
 | 2026-10-21 | Temporal mechanism: **C (engine dual-view slots)** for TAA, last-frame, froxel and exposure history; the mod only owns the shared TAA reset flag (written per view) and shares exposure from slot 0. A / B1 / B2 not needed so far; Phase 6 checks the remaining per-eye rows | leak test passed (no eye-0 history in eye 1), recenter reset clean in both eyes; the engine already keeps per-camera-index history |
 | 2026-10-21 | Phase 7: the race HUD goes on a quad layer fixed to the bike (LOCAL space, `[hud] follow = "seat"` default; "head" as an option); the TT2 pause menu stays in stereo with its UI on a floating panel (Balazs) | a seat-fixed HUD reads like a dashboard and does not swim with the head; staying in the 3D world while paused avoids the switch to the flat screen |
+| 2026-10-21 | Phase 7e dropped: the main menu stays on the flat theater screen, not in 3D from a held vantage (Balazs) | the trial worked technically, but needed choices (vantage height, the game's DOF of hidden shots) for little gain; menus on the screen are comfortable |
 
 ## Open questions (answer in Phase 0)
 
