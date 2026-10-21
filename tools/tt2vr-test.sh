@@ -3,7 +3,8 @@
 #   tools/tt2vr-test.sh launch           start TT2 through Steam with -tt2vr-test (simulated headset, virtual pad) and
 #                                        wait until the mod answers remote commands
 #   tools/tt2vr-test.sh cmd "<lines>"    send a command file (one command per line), wait for its .done, print it
-#   tools/tt2vr-test.sh ride             from the main menu (Single-player highlighted): Time Attack, Isle of Man,
+#   tools/tt2vr-test.sh ride             ONLY from the main menu with Single-player highlighted (check with a
+#                                        screenshot first; the boot timing varies): Time Attack, Isle of Man,
 #                                        default bike, Start; ends riding in the helmet camera (about 50 s)
 #   tools/tt2vr-test.sh restart          while riding: pause > Restart > Yes; back on the start line (about 20 s)
 #   tools/tt2vr-test.sh quit [force]     close the game (WM_CLOSE, waits 30 s); force: kill it if it is still open
@@ -81,7 +82,7 @@ running)
     running
     ;;
 *)
-    sed -n '2,14p' "$0"
+    sed -n '2,15p' "$0"
     exit 2
     ;;
 esac
