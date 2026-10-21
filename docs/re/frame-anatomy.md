@@ -435,6 +435,8 @@ The window layout (`GetTargetInfo`) is 2020x1080 for the 3540x1892 back buffer i
 
 Mod rule (Phase 7 proposal): in a `HudRenderer::Render` hook, the call with `list == RenderDesc+0xc50` and flag 2 gets the mod's own engine RT (created once through `CreateRenderTarget`) and a `SetHudSize` layout for the duration of the call (old values restored after). The per-view lists (lens-flare sprites, 2D) and the 3D HUD lists (dashboard, flags 8 / 0x14) stay in the eye images. Record-then-execute (1.2): the RT is copied out and cleared on the immediate context in the Present pre-hook, after the frame's passes ran.
 
+**7b-7e runtime (test mode, 2026-10-21).** Implemented as `game::HudCapture` with two targets (black / white) and a matte (above). `CreateRenderTarget` with the `TextureBakeSRGB` desc fields gives an `R8G8B8A8_TYPELESS` engine texture (shader resource + render target). Calling `HudRenderer::Render` twice for the global list in one frame is harmless (no doubled animation seen in the race HUD, pause or menus). The TT2 pause keeps rendering the scene in two views; its background blur fades in over about 2 s. Menu camera: one player-camera mode (`KTUCamera` active mode) for the main menu and its sub-menus, whatever shot the menu camera cuts to; the mode changes at the race setup, the level load and the pre-race screen. The game's depth of field follows the menu camera's current shot (a held vantage gets the blur of hidden close-ups).
+
 ## 9. GPU marker situation
 
 - Engine pass names are `DrawPassDesc.name` strings (list in section 4 and below). `confirmed` that they exist as strings in the descs.
