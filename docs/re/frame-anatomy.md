@@ -418,6 +418,21 @@ Ghidra query server (snapshot exe, build 4989319) and the RenderDoc captures f83
 | 7 | The native Oculus HUD path is dead: `Oculus::GetCurrentHUDRenderTarget` 0x140702870 has only data references (vtable, export). | xrefs | confirmed |
 | 8 | **The main menu renders a full 3D scene under its UI:** 1149 draws, depth prepass (200) and G-buffer (432) passes like a riding frame. | RenderDoc f10838 | confirmed |
 
+**7a runtime (test mode, 2026-10-21, remote `hud`, traces 8590 main menu / 16110 riding).** `HudRenderer::Render` calls per frame:
+
+| State | Mod presentation | Calls |
+|---|---|---|
+| Intro movie (logos) | screen | none: the render loop is skipped (8.4) |
+| Press-start screen, main menu, sub-menus | screen, one view | the view's three (flags 8 into the 3540x1892 HDR target, 0x14, 0x22), then the global call (0x22, list = `GameContext+0x88`) |
+| Loading screens, menu transitions | screen | only the global call, with a list that is **not** `GameContext+0x88` (the loading UI); `TextureBaker` bakes during loading (flags 0x12, 2048x2048 target, layout 4096x4096) |
+| Riding, two views | stereo | per view k its three calls into its own 1770x1892 target, then the global call (`GameContext+0x88`) into the 3540x1892 back buffer |
+| TT2 pause while riding | screen, one view | as the main menu (the game still renders the scene, blurred behind the UI); the first frame after the switch from two views is black (render targets recreated) |
+| Replay | - | not reached in test mode |
+
+The window layout (`GetTargetInfo`) is 2020x1080 for the 3540x1892 back buffer in every state; nothing sets `SetHudSize` outside the baker.
+
+**HUD blend states** (trace 16110, global call while riding): 60 draws `color (src_alpha, inv_src_alpha) alpha (one, inv_src_alpha)`; 4 map draws `color (src_alpha, inv_src_alpha) alpha (one, zero)` (alpha replaced); the minimap is **masked through the destination alpha and stencil**: a mask draw with blend off and an alpha-only write (stencil ref 1), then three pairs `alpha := src_a * dst_a` (alpha-only) + `rgb = src * dst_a + dst * (1 - dst_a)` (rgb only), then the mask again (stencil ref 0). The main menu's UI uses only the first state (40 draws, trace 8590). Consequence: after the HUD, the destination alpha inside the minimap holds the mask, not the HUD's coverage, so a single render over a transparent clear does **not** give usable alpha. Every colour equation is linear in the destination colour with one factor for all three channels, so two renders give an exact matte: over black `B = C`, over white `W = C + (1 - a)`, hence `a = 1 - (W - B)` and premultiplied colour `C = B` (blending is in linear space on the sRGB targets).
+
 Mod rule (Phase 7 proposal): in a `HudRenderer::Render` hook, the call with `list == RenderDesc+0xc50` and flag 2 gets the mod's own engine RT (created once through `CreateRenderTarget`) and a `SetHudSize` layout for the duration of the call (old values restored after). The per-view lists (lens-flare sprites, 2D) and the 3D HUD lists (dashboard, flags 8 / 0x14) stay in the eye images. Record-then-execute (1.2): the RT is copied out and cleared on the immediate context in the Present pre-hook, after the frame's passes ran.
 
 ## 9. GPU marker situation
