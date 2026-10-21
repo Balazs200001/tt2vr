@@ -90,6 +90,7 @@ bool g_ready = false;
 std::uint32_t g_width = 0, g_height = 0; // target pixels
 int g_layoutW = 0, g_layoutH = 0; // HudRenderer layout during the capture
 bool g_captured = false; // this frame's global call drew into the targets
+bool g_capturedMenu = false; // ... during the riding pause
 std::uint64_t g_capturedFrames = 0;
 ID3D11Device* g_device = nullptr; // the game's; not owned
 d3d::Blitter g_blitter;
@@ -196,6 +197,7 @@ void HookedHudRender(void* hud, void* rt, void* list, void* loop, void* ctx, con
     g_render(hud, g_targets[1].rt, list, loop, ctx, cameraDesc, flags, flag);
     SetHudSize(hud, old[0], old[1], nullptr);
     g_captured = true;
+    g_capturedMenu = LastMenuState().RidingPause();
 }
 
 std::string KindName(const Call& c)
@@ -502,7 +504,7 @@ void OnHudFramePresent(ID3D11DeviceContext* context)
     if (++g_capturedFrames == 1) {
         TT2VR_LOG_INFO("hud: first HUD frame captured; the eye images carry no 2D HUD while two views ride");
     }
-    g_current = {g_targets[0].srv.Get(), g_targets[1].srv.Get(), g_resolvedSrv.Get(), g_width, g_height};
+    g_current = {g_targets[0].srv.Get(), g_targets[1].srv.Get(), g_resolvedSrv.Get(), g_width, g_height, g_capturedMenu};
     if (!g_saves.empty()) {
         const std::string result = SaveResolved(context);
         TT2VR_LOG_INFO("{}", result);
@@ -516,6 +518,11 @@ void OnHudFramePresent(ID3D11DeviceContext* context)
 HudImage CurrentHud()
 {
     return g_current;
+}
+
+bool HudCaptureReady()
+{
+    return g_ready && core::GetConfig().hud.enabled;
 }
 
 void EndHudFrame(ID3D11DeviceContext* context)

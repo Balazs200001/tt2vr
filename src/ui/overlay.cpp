@@ -280,11 +280,14 @@ void XrSection()
         ImGui::Text("xrWaitFrame %.2f ms  period %.2f ms  render %s  tracked %s", st.waitMs, st.periodMs,
             st.shouldRender ? "yes" : "no", st.tracked ? "yes" : "no");
         const game::MenuState menu = game::LastMenuState();
-        ImGui::Text("frames submitted %llu  showing %s", static_cast<unsigned long long>(st.framesSubmitted),
-            st.presentation);
+        ImGui::Text("frames submitted %llu  showing %s%s", static_cast<unsigned long long>(st.framesSubmitted),
+            st.presentation, st.hudLayer ? " + HUD panel" : "");
         ImGui::Text("menu state: %s (menu %d, paused %d, time stopped %d, riding camera %d)",
-            !menu.available ? "unavailable" : menu.Active() ? "screen" : "riding", menu.menuOpen, menu.paused,
-            menu.timeStopped, menu.springCamera);
+            !menu.available     ? "unavailable"
+            : menu.RidingPause() ? "riding pause"
+            : menu.Active()      ? "screen"
+                                 : "riding",
+            menu.menuOpen, menu.paused, menu.timeStopped, menu.springCamera);
         ImGui::TextUnformatted(game::SplitViewSummary().c_str());
     }
     if (ImGui::Button(fmt::format("Recenter ({})", core::FormatHotkey(core::GetConfig().hotkeys.recenter)).c_str())) {

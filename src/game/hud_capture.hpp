@@ -37,8 +37,11 @@ struct HudImage {
     ID3D11ShaderResourceView* white = nullptr;
     ID3D11ShaderResourceView* resolved = nullptr; // premultiplied colour and alpha, sRGB-encoded (desktop mirror)
     std::uint32_t width = 0, height = 0; // pixels
+    bool menu = false; // captured during the riding pause: the pause UI (shown at the menu screen's place and size)
     explicit operator bool() const { return resolved != nullptr; }
 };
+// The capture targets exist and [hud] enabled: while two views ride, the global list goes onto the panel.
+bool HudCaptureReady();
 // Present pre-hook, before xr::OnFrameEnd: resolves this frame's capture (if any) and answers "hud save".
 void OnHudFramePresent(ID3D11DeviceContext* context);
 HudImage CurrentHud();

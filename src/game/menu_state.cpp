@@ -90,7 +90,10 @@ MenuState ReadMenuState(const void* mainCamera)
     if (s.menuOpen != g_last.menuOpen || s.paused != g_last.paused || s.springCamera != g_last.springCamera ||
         s.timeStopped != g_last.timeStopped) {
         TT2VR_LOG_INFO("menu state: menu open {}, paused {}, time stopped {}, riding camera {} -> {}", s.menuOpen,
-            s.paused, s.timeStopped, s.springCamera, s.Active() ? "screen" : "head-tracked");
+            s.paused, s.timeStopped, s.springCamera,
+            s.RidingPause() ? "riding pause (stereo with the HUD capture, else screen)"
+            : s.Active()    ? "screen"
+                            : "head-tracked");
     }
     g_last = s;
     return s;

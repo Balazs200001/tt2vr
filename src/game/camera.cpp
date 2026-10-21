@@ -185,8 +185,10 @@ bool BeginMainView(const void* camera)
     g_shiftX = g_settings.projEnabled ? g_settings.shiftX : 0.0f;
     g_shiftY = g_settings.projEnabled ? g_settings.shiftY : 0.0f;
     // Pose and FOV of both eyes from xrLocateViews at this frame's predicted display time. Menus and the pause screen
-    // are not head-tracked: xr shows the flat frame on a world-fixed screen instead.
-    const bool menu = core::GetConfig().xr.menu_screen && ReadMenuState(camera).Active();
+    // are not head-tracked: xr shows the flat frame on a world-fixed screen instead. The TT2 pause over the riding
+    // view stays head-tracked in two views while the HUD capture takes its UI onto a panel (PLAN 7d).
+    const MenuState state = ReadMenuState(camera);
+    const bool menu = core::GetConfig().xr.menu_screen && state.Active() && !(state.RidingPause() && HudCaptureReady());
     xr::FrameViews views;
     g_head = !menu && xr::LocateViews(views);
     if (g_head) {

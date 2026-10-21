@@ -48,6 +48,7 @@ struct HudSource {
     ID3D11ShaderResourceView* black = nullptr;
     ID3D11ShaderResourceView* white = nullptr;
     std::uint32_t width = 0, height = 0;
+    bool menu = false; // the pause menu's UI: placed like the menu screen ([xr] screen_distance / screen_width)
 };
 // Present pre-hook. A two-view frame with a HUD adds the HUD panel ([hud]) as a quad layer over the projection layer.
 void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, const HudSource& hud = {});

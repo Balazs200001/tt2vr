@@ -13,6 +13,9 @@
 //      runtime 2026-10-16: that pause sets neither KTUGuiManager flag, and ViewContext::s_bMotionPause did not
 //      change either, so neither is used for it.
 // Screen = menu open || paused || time stopped || the riding camera is not the rendered view.
+// Riding pause (PLAN 7d): time stopped while the riding camera still renders and no KTUGuiManager menu or pause is
+// set: the TT2 pause menu over the riding view (7a: frame-anatomy.md 8.6). game::CameraOverride keeps it head-tracked
+// in two views when the HUD capture runs (its UI then goes on a panel), else it goes to the screen like a menu.
 #pragma once
 
 namespace game {
@@ -24,6 +27,7 @@ struct MenuState {
     bool springCamera = false; // player camera is in TTSpringCameraMode and is the rendered view (riding)
     bool timeStopped = false; // GameContext time factor is 0 (TT2 pause menu)
     bool Active() const { return available && (menuOpen || paused || timeStopped || !springCamera); }
+    bool RidingPause() const { return available && timeStopped && springCamera && !menuOpen && !paused; }
 };
 
 // Resolves the accessors (after ResolveSignatures). Missing ones leave `available` false.

@@ -941,9 +941,12 @@ bool WriteHud(ID3D11DeviceContext* context, const HudSource& hud, XrCompositionL
         return false;
     }
     const auto& hc = core::GetConfig().hud;
-    const bool head = hc.follow == "head" && g.view != XR_NULL_HANDLE;
-    const stereo::Pose pose =
-        stereo::PanelPose(head ? stereo::Identity34() : g.recenter, hc.distance, hc.height, hc.tilt);
+    const auto& xc = core::GetConfig().xr;
+    const bool head = !hud.menu && hc.follow == "head" && g.view != XR_NULL_HANDLE;
+    const stereo::Pose pose = hud.menu ? stereo::PanelPose(g.recenter, xc.screen_distance, 0.0f, 0.0f)
+                                       : stereo::PanelPose(head ? stereo::Identity34() : g.recenter, hc.distance,
+                                             hc.height, hc.tilt);
+    const float width = hud.menu ? xc.screen_width : hc.width;
     quad = {XR_TYPE_COMPOSITION_LAYER_QUAD};
     quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT; // premultiplied: no UNPREMULTIPLIED bit
     quad.space = head ? g.view : g.local;
@@ -952,7 +955,7 @@ bool WriteHud(ID3D11DeviceContext* context, const HudSource& hud, XrCompositionL
     quad.subImage.imageRect.extent = {static_cast<std::int32_t>(hud.width), static_cast<std::int32_t>(hud.height)};
     quad.pose.orientation = {pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w};
     quad.pose.position = {pose.position.x, pose.position.y, pose.position.z};
-    quad.size = {hc.width, hc.width * static_cast<float>(hud.height) / static_cast<float>(hud.width)};
+    quad.size = {width, width * static_cast<float>(hud.height) / static_cast<float>(hud.width)};
     return true;
 }
 
