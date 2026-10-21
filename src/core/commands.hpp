@@ -28,7 +28,8 @@ enum class CommandKind {
 
 struct Command {
     CommandKind kind = CommandKind::Unknown;
-    std::string arg;  // capture / screenshot name ([A-Za-z0-9_-], max 64 chars, others become '_'); pad / head: raw
+    std::string arg;  // capture / screenshot name ([A-Za-z0-9_-], max 64 chars, others become '_'); pad / head: raw;
+                      // frametrace: frame count (same sanitizing)
     std::string text; // the original line
 };
 

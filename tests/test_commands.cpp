@@ -36,6 +36,15 @@ TEST_CASE("ParseCommands: screenshot, pad and head arguments")
     CHECK(cmds[2].arg == "shake 30 2");
 }
 
+TEST_CASE("ParseCommands: frame trace count")
+{
+    const auto cmds = core::ParseCommands("frametrace 2\ntrace\n");
+    REQUIRE(cmds.size() == 2);
+    CHECK(cmds[0].kind == CommandKind::FrameTrace);
+    CHECK(cmds[0].arg == "2");
+    CHECK(cmds[1].arg.empty());
+}
+
 TEST_CASE("ParseCommands: capture names are sanitized")
 {
     const auto cmds = core::ParseCommands("capture snaefell_helmet-01\nrenderdoc ../evil name\ncapture\n");

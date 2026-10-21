@@ -1,4 +1,6 @@
 // frame_trace.cpp - one frame of D3D11 calls, written to captures/frametrace_<frame>.txt.
+// A request for N frames traces N consecutive frames, one file each (history audits compare frame N+1's reads with
+// frame N's writes by object pointer).
 //
 // Window: from the return of Present(N) to the call of Present(N+1), so the file holds everything the
 // game submits for frame N+1. Calls on deferred contexts are buffered per context, attached to their
@@ -71,6 +73,8 @@ struct State {
 
 State g_state;
 bool g_requested = false; // present thread only
+int g_framesLeft = 0; // present thread only: frames still to trace for the pending requests
+std::vector<std::string> g_results; // present thread only: one result line per traced frame
 std::vector<DoneFn> g_done; // present thread only
 
 // Caller holds the mutex.
@@ -123,7 +127,7 @@ const char* ViewKind(ID3D11View* view)
     return "uav";
 }
 
-void WriteFile(std::uint64_t frame, double ms)
+std::string WriteFile(std::uint64_t frame, double ms)
 {
     const auto& cfg = core::GetConfig();
     const auto dir = core::CaptureDir();
@@ -184,19 +188,15 @@ void WriteFile(std::uint64_t frame, double ms)
     }
     shaders::WriteRegistry(dir / "shader_registry.txt");
     TT2VR_LOG_INFO("{}", result);
-    for (auto& done : g_done) {
-        if (done) {
-            done(result);
-        }
-    }
-    g_done.clear();
+    return result;
 }
 
 } // namespace
 
-void Request(DoneFn onDone)
+void Request(DoneFn onDone, int frames)
 {
     g_requested = true;
+    g_framesLeft = std::max(g_framesLeft, std::clamp(frames, 1, kMaxFrames));
     g_done.push_back(std::move(onDone));
 }
 
@@ -241,15 +241,32 @@ void End(std::uint64_t frame)
     std::lock_guard lock(g_state.mutex);
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - g_state.start).count();
     try {
-        WriteFile(frame, ms);
+        g_results.push_back(WriteFile(frame, ms));
     }
     catch (...) {
         TT2VR_LOG_ERROR("frametrace: exception while writing frame {}", frame);
+        g_results.push_back(fmt::format("frametrace FAILED: exception while writing frame {}", frame));
     }
     g_state.streams.clear();
     g_state.lists.clear();
     g_state.objects.clear();
     g_state.objectOrder.clear();
+    if (--g_framesLeft > 0) {
+        g_requested = true; // the next frame (Begin runs after this Present returns)
+        return;
+    }
+    g_framesLeft = 0;
+    std::string result;
+    for (const auto& r : g_results) {
+        result += (result.empty() ? "" : "; ") + r;
+    }
+    g_results.clear();
+    for (auto& done : g_done) {
+        if (done) {
+            done(result);
+        }
+    }
+    g_done.clear();
 }
 
 void Line(ID3D11DeviceContext* ctx, std::string text)

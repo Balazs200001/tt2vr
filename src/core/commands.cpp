@@ -62,6 +62,7 @@ std::vector<Command> ParseCommands(std::string_view text)
         c.text = std::string(line);
         if (word == "frametrace" || word == "trace") {
             c.kind = CommandKind::FrameTrace;
+            c.arg = SafeName(arg); // optional frame count ("frametrace 2": two consecutive frames)
         }
         else if (word == "dump") {
             c.kind = CommandKind::TextureDump;

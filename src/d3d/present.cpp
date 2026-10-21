@@ -45,6 +45,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -155,7 +156,8 @@ void RunCommands()
             const std::string origin = "remote";
             switch (cmd.kind) {
             case core::CommandKind::FrameTrace:
-                trace::Request([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
+                trace::Request([done, origin](const std::string& r) { AddResult(origin, r); done(r); },
+                    cmd.arg.empty() ? 1 : std::atoi(cmd.arg.c_str()));
                 break;
             case core::CommandKind::TextureDump:
                 dump::Request([done, origin](const std::string& r) { AddResult(origin, r); done(r); });

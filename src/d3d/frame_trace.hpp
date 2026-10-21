@@ -11,8 +11,10 @@ namespace d3d::trace {
 
 using DoneFn = std::function<void(const std::string& result)>;
 
-// Arms a trace of the next frame (Present to Present). Thread: present thread.
-void Request(DoneFn onDone = {});
+// Arms a trace of the next `frames` consecutive frames (Present to Present, one file each, 1..kMaxFrames); onDone
+// gets all result lines once the last one is written. Thread: present thread.
+inline constexpr int kMaxFrames = 4;
+void Request(DoneFn onDone = {}, int frames = 1);
 bool Pending();
 
 // Called by the Present hook (present thread): Begin after Present returns, End before the next Present.
