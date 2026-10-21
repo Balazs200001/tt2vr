@@ -44,7 +44,9 @@ bool SameConfig(const Config& a, const Config& b)
            a.xr.menu_screen == b.xr.menu_screen && a.xr.screen_distance == b.xr.screen_distance &&
            a.xr.screen_width == b.xr.screen_width && a.xr.force_render_size == b.xr.force_render_size && a.overlay.show_cursor == b.overlay.show_cursor &&
            a.overlay.visible == b.overlay.visible &&
-           a.camera.helmet_follows_view == b.camera.helmet_follows_view && a.capture.dir == b.capture.dir &&
+           a.camera.helmet_follows_view == b.camera.helmet_follows_view &&
+           a.camera.remove_auto_look == b.camera.remove_auto_look && a.camera.horizon_lock == b.camera.horizon_lock &&
+           a.capture.dir == b.capture.dir &&
            a.capture.renderdoc_dir == b.capture.renderdoc_dir && a.capture.max_textures == b.capture.max_textures &&
            a.capture.include_depth == b.capture.include_depth && a.capture.cb_floats == b.capture.cb_floats &&
            a.commands.enabled == b.commands.enabled && a.commands.poll_frames == b.commands.poll_frames &&
@@ -238,6 +240,7 @@ show_cursor = true
 
 [camera]
 helmet_follows_view = false
+horizon_lock = 40
 
 [xr]
 enabled = false
@@ -277,6 +280,7 @@ input_log = true
     CHECK(c.overlay.show_cursor);
     CHECK_FALSE(c.overlay.visible);
     CHECK_FALSE(c.camera.helmet_follows_view);
+    CHECK(c.camera.horizon_lock == doctest::Approx(40.0));
     CHECK(SameHotkey(c.hotkeys.recenter, Hotkey{0x24}));
     CHECK_FALSE(c.xr.enabled);
     CHECK(c.xr.resolution_scale == doctest::Approx(1.25));

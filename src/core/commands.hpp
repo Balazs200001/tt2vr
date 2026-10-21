@@ -28,12 +28,14 @@ enum class CommandKind {
     Screenshot,       // "screenshot [name]" / "screen [name]": the engine's back buffer as a PNG (next frame)
     Pad,              // "pad <steps>": virtual XInput pad script (test mode only, game::RunPadScript)
     Head,             // "head still | <yaw> [pitch] [roll] | shake <deg> <period s> [seconds]": simulated headset
+    Comfort,          // "comfort [<setting> <value>]": show or change a comfort setting at runtime (PLAN 8)
     Unknown,
 };
 
 struct Command {
     CommandKind kind = CommandKind::Unknown;
-    std::string arg;  // capture / screenshot name ([A-Za-z0-9_-], max 64 chars, others become '_'); pad / head: raw;
+    std::string arg;  // capture / screenshot name ([A-Za-z0-9_-], max 64 chars, others become '_'); pad / head /
+                      // comfort: raw;
                       // frametrace: frame count (same sanitizing)
     std::string text; // the original line
 };

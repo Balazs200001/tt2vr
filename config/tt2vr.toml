@@ -42,6 +42,10 @@ helmet_follows_view = true
 # controller look from the view, so only your head turns it. Visual only; the game's option itself is untouched
 # (setting it to Off in the game menu does the same).
 remove_auto_look = true
+# While head-tracked, how much of the game camera's roll against the horizon is removed, in percent (0..100). The
+# game tilts its riding camera into corners and with speed noise, and the fork view rolls with the bike; your own
+# head roll is never removed. 100 = the horizon stays level, 0 = the game's roll. Also in the overlay (Comfort).
+horizon_lock = 100
 
 [xr]
 # Start OpenXR (headset) when a runtime and a connected headset are available. Off = the game stays flat.

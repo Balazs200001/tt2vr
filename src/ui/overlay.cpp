@@ -19,6 +19,7 @@
 #include "game/gpu_timers.hpp"
 #include "game/menu_state.hpp"
 #include "game/render_size.hpp"
+#include "game/rider_view.hpp"
 #include "game/split_view.hpp"
 #include "game/temporal_debug.hpp"
 #include "game/version.hpp"
@@ -252,6 +253,24 @@ void CameraSection()
     }
 }
 
+// PLAN Phase 8: comfort settings that apply from the next frame (game::CameraSettings, main thread).
+void ComfortSection()
+{
+    if (!ImGui::CollapsingHeader("Comfort (Phase 8)", ImGuiTreeNodeFlags_DefaultOpen)) {
+        return;
+    }
+    if (!game::CameraHooksActive()) {
+        ImGui::TextDisabled("camera hooks not active (see log)");
+        return;
+    }
+    game::CameraSettings& s = game::Settings();
+    const game::CameraInfo info = game::LastCameraInfo();
+    ImGui::SliderFloat("horizon lock", &s.horizonLock, 0.0f, 100.0f, "%.0f %%");
+    ImGui::Text("roll: game %.1f deg (max %.1f), shown %.1f deg (max %.1f)", info.gameRollDeg, info.gameRollMaxDeg,
+        info.shownRollDeg, info.shownRollMaxDeg);
+    ImGui::TextDisabled("%s", game::DescribeRiderView(game::LastRiderView()).c_str());
+}
+
 // PLAN Phase 3: OpenXR session status, eye image size and frame pacing.
 void XrSection()
 {
@@ -412,6 +431,7 @@ void DrawPanel()
         d3d::WriteShaderRegistry("overlay");
     }
     XrSection();
+    ComfortSection();
     CameraSection();
     TemporalSection();
     ImGui::Checkbox(fmt::format("Show mouse cursor ({})", core::FormatHotkey(hk.cursor)).c_str(), &g_cursor);

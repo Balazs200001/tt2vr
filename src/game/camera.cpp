@@ -15,6 +15,7 @@
 #include "game/taa_control.hpp"
 #include "game/temporal_debug.hpp"
 #include "game/vr_effects.hpp"
+#include "stereo/math/comfort.hpp"
 #include "stereo/math/projection.hpp"
 #include "stereo/math/xr_to_engine.hpp"
 #include "xr/session.hpp"
@@ -24,9 +25,11 @@
 #include <algorithm>
 #include <atomic>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <mutex>
 #include <numbers>
+#include <sstream>
 
 namespace game {
 namespace {
@@ -77,6 +80,26 @@ Mat34 g_headLocal = stereo::Identity34();
 // Camera-local rotation that undoes the camera mode's look rotations this frame (identity when not removing them):
 // D = R(mode+0x8)^T * R(mode+0x3e4). docs/re/camera.md section 9.
 Mat34 g_autoLookFix = stereo::Identity34();
+// The frame the head pose goes onto, camera-local: D * horizon lock (PLAN 8b). Set at the frame's first main view
+// (g_baseReady), the same for both eyes, the helmet and the cascade-fitting head view.
+Mat34 g_baseFix = stereo::Identity34();
+bool g_baseReady = false;
+// Largest roll magnitude (degrees) in the current and the previous 10 s window.
+struct RollWindow {
+    float current = 0, previous = 0;
+    std::chrono::steady_clock::time_point start{};
+    void Add(float deg, std::chrono::steady_clock::time_point now)
+    {
+        if (now - start > std::chrono::seconds(10)) {
+            previous = current;
+            current = 0;
+            start = now;
+        }
+        current = std::max(current, std::fabs(deg));
+    }
+    float Max() const { return std::max(current, previous); }
+};
+RollWindow g_gameRoll, g_shownRoll;
 
 // Read by MatrixPerspectiveFovRH, which may also run on render job threads.
 std::atomic<bool> g_projActive{false};
@@ -219,6 +242,8 @@ void BeginFrame(void* renderer)
     g_projActive = false;
     g_head = false;
     g_autoLookFix = stereo::Identity34();
+    g_baseFix = stereo::Identity34();
+    g_baseReady = false;
     g_info.autoLookYawDeg = 0.0f;
     OnSharedExposureFrame();
     OnTaaFrame(renderer, xr::RecenterCount());
@@ -313,12 +338,32 @@ void RecordCamera(void* viewContext, const void* camera)
     }
 }
 
+// Horizon lock (PLAN 8b), once per frame at the first main view: g_baseFix = D * HorizonLock(W * D), so the head pose
+// goes onto a frame with (100 - horizonLock)% of the game camera's roll. W = the game camera (pool matrix, shakes
+// included); the roll is measured, not rebuilt from the game's lean and noise fields (docs/re/camera.md 10.1).
+void UpdateBaseFix(const Mat34& world)
+{
+    g_baseFix = g_autoLookFix;
+    if (g_head) {
+        const Mat34 base = stereo::Mul(world, g_autoLookFix);
+        g_baseFix = stereo::Mul(g_autoLookFix, stereo::HorizonLock(base, g_settings.horizonLock / 100.0f));
+    }
+    g_baseReady = true;
+    const auto now = std::chrono::steady_clock::now();
+    g_info.gameRollDeg = stereo::HorizonRoll(world) * kRadToDeg;
+    g_info.shownRollDeg = stereo::HorizonRoll(stereo::Mul(world, g_baseFix)) * kRadToDeg;
+    g_gameRoll.Add(g_info.gameRollDeg, now);
+    g_shownRoll.Add(g_info.shownRollDeg, now);
+    g_info.gameRollMaxDeg = g_gameRoll.Max();
+    g_info.shownRollMaxDeg = g_shownRoll.Max();
+}
+
 // Rebuilds the main ViewContext from world * local (CameraSettings). Same steps as the tail of InitFromCamera:
 // camera position, view (= inverse world), SetViewProjection with the projection already built, RebuildFrustum.
 void ApplyViewOverride(void* viewContext, int eye)
 {
     const Mat34 world = stereo::ToMat34(Read<Mat44>(viewContext, kViewTransform + kTmWorld));
-    const Mat34 moved = stereo::ComposeCameraLocal(world, stereo::Mul(g_autoLookFix, ViewLocal(eye)));
+    const Mat34 moved = stereo::ComposeCameraLocal(world, stereo::Mul(g_baseFix, ViewLocal(eye)));
     alignas(16) const Mat44 view = stereo::ViewFromWorld(moved);
     alignas(16) const Mat44 proj = Read<Mat44>(viewContext, kViewTransform + kTmProj);
     const Vec3 oldPos = Read<Vec3>(viewContext, kViewCamPos);
@@ -368,6 +413,11 @@ void HookedInitFromCamera(void* viewContext, const void* camera, const void* vie
         RecordCamera(viewContext, camera);
         if (view == 0) {
             OnMainCameraWorld(g_info.world);
+        }
+        if (!g_baseReady) {
+            Mat34 world;
+            std::memcpy(world.m, g_info.world, sizeof(world.m));
+            UpdateBaseFix(world);
         }
         if (g_settings.viewEnabled || g_head) {
             ApplyViewOverride(viewContext, eye);
@@ -550,7 +600,7 @@ bool BeginHeadCenterView(void* viewContext)
     // g_info.world is the engine camera before our override (RecordCamera), the same for both views.
     Mat34 world;
     std::memcpy(world.m, g_info.world, sizeof(world.m));
-    const Mat34 head = stereo::ComposeCameraLocal(world, stereo::Mul(g_autoLookFix, ViewLocal(-1)));
+    const Mat34 head = stereo::ComposeCameraLocal(world, stereo::Mul(g_baseFix, ViewLocal(-1)));
     alignas(16) const Mat44 view = stereo::ViewFromWorld(head);
     alignas(16) const Mat44 proj = Read<Mat44>(viewContext, kViewTransform + kTmProj);
     const Vec3 pos = stereo::Translation(head);
@@ -575,6 +625,7 @@ bool InstallCameraHooks()
     }
     s_done = true;
     g_settings.helmetFollows = core::GetConfig().camera.helmet_follows_view;
+    g_settings.horizonLock = core::GetConfig().camera.horizon_lock;
     ResolveSignatures();
     for (const Sig required : {Sig::RendererDoUpdate, Sig::ViewContextInitFromCamera, Sig::MatrixPerspectiveFovRH,
              Sig::TransformMatrixSetViewProjection, Sig::ViewContextRebuildFrustum}) {
@@ -658,8 +709,27 @@ void OnPresent()
     g_info.helmetMoves = g_helmetCount.exchange(0);
     std::lock_guard lock(g_helmetMutex);
     g_helmetApply = g_helmetActive && (g_settings.viewEnabled || g_head) && g_settings.helmetFollows;
-    g_helmetLocal = stereo::Mul(g_autoLookFix, ViewLocal(-1)); // this frame's head, applied at the next physics step
+    g_helmetLocal = stereo::Mul(g_baseFix, ViewLocal(-1)); // this frame's head, applied at the next physics step
     g_head = false;
+}
+
+std::string ComfortCommand(const std::string& arg)
+{
+    std::istringstream in(arg);
+    std::string name;
+    float value = 0.0f;
+    if (in >> name) {
+        if (!(in >> value)) {
+            return fmt::format("comfort FAILED: '{}' needs a value", name);
+        }
+        if (name == "lock") {
+            g_settings.horizonLock = std::clamp(value, 0.0f, 100.0f);
+        }
+        else {
+            return fmt::format("comfort FAILED: unknown setting '{}' (lock)", name);
+        }
+    }
+    return fmt::format("comfort lock {:.0f}%", g_settings.horizonLock);
 }
 
 std::string DescribeCamera()
@@ -690,6 +760,8 @@ std::string DescribeCamera()
         i.headTracked, g_perEye.load(), i.projUnion);
     out += fmt::format("  rider view: {}\n", DescribeRiderView(LastRiderView()));
     out += fmt::format("  game look rotation removed: {:.2f} deg yaw\n", i.autoLookYawDeg);
+    out += fmt::format("  horizon lock {:.0f}%: roll game {:.2f} deg (max {:.2f}), shown {:.2f} deg (max {:.2f})\n",
+        s.horizonLock, i.gameRollDeg, i.gameRollMaxDeg, i.shownRollDeg, i.shownRollMaxDeg);
     out += fmt::format("  override: view {} (yaw {} pitch {} roll {} deg, offset [{} {} {}] m), proj {} (shift {} "
                        "{}), {} projection calls reshaped last frame; helmet follows {} (hooks {}), {} helmet "
                        "placements adjusted last frame",
@@ -705,10 +777,12 @@ std::string CameraSummary()
         return g_active ? "camera: no main view yet" : "camera: hooks not active";
     }
     return fmt::format("camera ok hfov {:.2f} deg near {} far {} pos [{:.3f} {:.3f} {:.3f}] fwd [{:.3f} {:.3f} {:.3f}] "
-                       "proj m00 {:.5g} m02 {:.5g} m11 {:.5g} m12 {:.5g} reshaped {}; {}; look removed {:.2f} deg",
+                       "proj m00 {:.5g} m02 {:.5g} m11 {:.5g} m12 {:.5g} reshaped {}; {}; look removed {:.2f} deg; "
+                       "roll game {:.2f} (max {:.2f}) shown {:.2f} (max {:.2f}) deg, lock {:.0f}%",
         i.fov * kRadToDeg, i.nearZ, i.farZ, i.world[0][3], i.world[1][3], i.world[2][3], -i.world[0][2],
         -i.world[1][2], -i.world[2][2], i.proj[0][0], i.proj[0][2], i.proj[1][1], i.proj[1][2], i.projOverrides,
-        DescribeRiderView(LastRiderView()), i.autoLookYawDeg);
+        DescribeRiderView(LastRiderView()), i.autoLookYawDeg, i.gameRollDeg, i.gameRollMaxDeg, i.shownRollDeg,
+        i.shownRollMaxDeg, g_settings.horizonLock);
 }
 
 } // namespace game

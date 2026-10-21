@@ -50,6 +50,7 @@ struct Config {
     struct Camera {
         bool helmet_follows_view = true; // move the helmet mesh with the view/head override (Phase 2)
         bool remove_auto_look = true; // head-tracked: drop the game's look-into-corner (Dynamic View) and stick look
+        float horizon_lock = 100.0f; // head-tracked: percent of the camera's roll against the horizon removed, 0..100
     } camera;
     struct Xr {
         bool enabled = true; // start OpenXR when a runtime and headset are available (Phase 3)

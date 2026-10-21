@@ -239,6 +239,12 @@ void RunCommands()
                 done(r);
                 break;
             }
+            case core::CommandKind::Comfort: {
+                const std::string r = game::ComfortCommand(cmd.arg);
+                AddResult(origin, r);
+                done(r);
+                break;
+            }
             case core::CommandKind::Convergence:
                 game::RequestConvergenceTest([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;
