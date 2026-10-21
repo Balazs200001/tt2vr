@@ -42,6 +42,8 @@ struct Config {
         Hotkey renderdoc_capture{0x78}; // F9
         Hotkey cursor{0x77}; // F8: show/hide the overlay's own mouse cursor
         Hotkey recenter{0x76}; // F7: recenter the headset view (Phase 3)
+        // Seated calibration (PLAN 8d): move the eye point 1 cm per press (numpad, NumLock on), Num5 = back to 0.
+        Hotkey seat_forward{0x68}, seat_back{0x62}, seat_up{0x69}, seat_down{0x63}, seat_reset{0x65};
     } hotkeys;
     struct Overlay {
         bool visible = true;
@@ -52,6 +54,8 @@ struct Config {
         bool remove_auto_look = true; // head-tracked: drop the game's look-into-corner (Dynamic View) and stick look
         float horizon_lock = 100.0f; // head-tracked: percent of the camera's roll against the horizon removed, 0..100
         float shake = 100.0f; // in VR: percent of the game's camera shake and speed noise kept, 0..100
+        // Eye point offset from the recentered head (PLAN 8d), metres in the camera's axes, clamp -0.5..0.5.
+        float seat_forward = 0.0f, seat_up = 0.0f, seat_right = 0.0f;
     } camera;
     struct Xr {
         bool enabled = true; // start OpenXR when a runtime and headset are available (Phase 3)
@@ -69,6 +73,8 @@ struct Config {
         bool ssao = false; // keep the game's SSAO while the headset session runs (screen-space AO swims in VR)
         bool motion_blur = false; // keep the game's motion blur while the headset session runs (smears in VR)
         bool shared_shadows = true; // one cascaded shadow render per frame for both eyes (read at startup)
+        float world_scale = 1.0f; // PLAN 8e: the world looks this much larger (head motion and IPD / this), 0.5..2
+        float ipd_scale = 1.0f; // PLAN 8e: eye separation multiplier on top of world_scale, 0.5..2
     } xr;
     struct Hud {
         bool enabled = true; // the game's 2D HUD on its own panel while riding in the headset (Phase 7)
@@ -107,13 +113,21 @@ struct ConfigResult {
 // Never throws. Syntax error: all defaults + a warning (with line/column). Unknown tables/keys: warning, ignored.
 // Wrong type or invalid value for a key: that key keeps its default + warning. Out of range: clamped + warning.
 ConfigResult ParseConfig(std::string_view tomlText);
+// The same, on top of `base` instead of the defaults: keys missing from the text keep base's values (user.toml over
+// tt2vr.toml). A syntax error returns `base` unchanged + a warning.
+ConfigResult ParseConfig(std::string_view tomlText, const Config& base);
 // Missing file: defaults + warning "config file not found: <path>". Read error: defaults + warning.
 ConfigResult LoadConfig(const std::filesystem::path& file);
+// On top of `base`; a missing file gives `base` without a warning when `missingOk`.
+ConfigResult LoadConfig(const std::filesystem::path& file, const Config& base, bool missingOk);
 
 // Process-wide config: set once at startup by the init thread, read afterwards. Reads are thread-safe;
 // a reference returned by GetConfig stays valid for the life of the process, even across SetConfig calls.
 const Config& GetConfig();
 void SetConfig(const Config& config);
+// tt2vr.toml alone (before user.toml): what the runtime settings are compared with when saving user.toml.
+const Config& GetFileConfig();
+void SetFileConfig(const Config& config);
 
 // Warnings from the startup load, shown by the overlay. Written once by the init thread before the
 // game creates its device; read-only afterwards.

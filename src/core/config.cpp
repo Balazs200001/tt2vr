@@ -225,6 +225,11 @@ void ReadHotkeys(const toml::table& t, Config::Hotkeys& out, Warnings& w)
         else if (key == "renderdoc_capture") s.Key(key, node, out.renderdoc_capture);
         else if (key == "cursor") s.Key(key, node, out.cursor);
         else if (key == "recenter") s.Key(key, node, out.recenter);
+        else if (key == "seat_forward") s.Key(key, node, out.seat_forward);
+        else if (key == "seat_back") s.Key(key, node, out.seat_back);
+        else if (key == "seat_up") s.Key(key, node, out.seat_up);
+        else if (key == "seat_down") s.Key(key, node, out.seat_down);
+        else if (key == "seat_reset") s.Key(key, node, out.seat_reset);
         else s.Warn(key, "unknown key, ignored", node);
     }
 }
@@ -249,6 +254,9 @@ void ReadCamera(const toml::table& t, Config::Camera& out, Warnings& w)
         else if (key == "remove_auto_look") s.Bool(key, node, out.remove_auto_look);
         else if (key == "horizon_lock") s.Float(key, node, out.horizon_lock, 0.0, 100.0);
         else if (key == "shake") s.Float(key, node, out.shake, 0.0, 100.0);
+        else if (key == "seat_forward") s.Float(key, node, out.seat_forward, -0.5, 0.5);
+        else if (key == "seat_up") s.Float(key, node, out.seat_up, -0.5, 0.5);
+        else if (key == "seat_right") s.Float(key, node, out.seat_right, -0.5, 0.5);
         else s.Warn(key, "unknown key, ignored", node);
     }
 }
@@ -271,6 +279,8 @@ void ReadXr(const toml::table& t, Config::Xr& out, Warnings& w)
         else if (key == "ssao") s.Bool(key, node, out.ssao);
         else if (key == "motion_blur") s.Bool(key, node, out.motion_blur);
         else if (key == "shared_shadows") s.Bool(key, node, out.shared_shadows);
+        else if (key == "world_scale") s.Float(key, node, out.world_scale, 0.5, 2.0);
+        else if (key == "ipd_scale") s.Float(key, node, out.ipd_scale, 0.5, 2.0);
         else if (key == "desktop_fill") s.Bool(key, node, out.desktop_fill);
         else if (key == "desktop_view") {
             s.String(key, node, out.desktop_view);
@@ -453,12 +463,13 @@ std::string FormatHotkey(const Hotkey& hk)
     }
 }
 
-ConfigResult ParseConfig(std::string_view tomlText)
+ConfigResult ParseConfig(std::string_view tomlText, const Config& base)
 {
     ConfigResult result;
+    result.config = base;
     try {
         // Skip a UTF-8 byte order mark (Notepad adds one).
-        if (tomlText.size() >= 3 && tomlText.substr(0, 3) == "\xEF\xBB\xBF") tomlText.remove_prefix(3);
+        if (tomlText.size() >= 3 && tomlText.substr(0, 3) == "ï»¿") tomlText.remove_prefix(3);
 
 #if TOML_EXCEPTIONS
         toml::table root;
@@ -481,16 +492,23 @@ ConfigResult ParseConfig(std::string_view tomlText)
     }
     catch (const std::exception& e) {
         result = ConfigResult{};
+        result.config = base;
         result.warnings.push_back(std::string("config could not be read: ") + e.what() + "; using defaults");
     }
     catch (...) {
         result = ConfigResult{};
+        result.config = base;
         result.warnings.push_back("config could not be read (unknown error); using defaults");
     }
     return result;
 }
 
-ConfigResult LoadConfig(const std::filesystem::path& file)
+ConfigResult ParseConfig(std::string_view tomlText)
+{
+    return ParseConfig(tomlText, Config{});
+}
+
+ConfigResult LoadConfig(const std::filesystem::path& file, const Config& base, bool missingOk)
 {
     std::string shown;
     try {
@@ -501,32 +519,39 @@ ConfigResult LoadConfig(const std::filesystem::path& file)
     }
 
     try {
+        ConfigResult r;
+        r.config = base;
         std::error_code ec;
         if (!std::filesystem::exists(file, ec)) {
-            ConfigResult r;
-            r.warnings.push_back("config file not found: " + shown);
+            if (!missingOk) {
+                r.warnings.push_back("config file not found: " + shown);
+            }
             return r;
         }
         std::ifstream in(file, std::ios::binary);
         if (!in) {
-            ConfigResult r;
             r.warnings.push_back("config file could not be opened: " + shown + "; using defaults");
             return r;
         }
         std::ostringstream ss;
         ss << in.rdbuf();
         if (in.bad()) {
-            ConfigResult r;
             r.warnings.push_back("config file could not be read: " + shown + "; using defaults");
             return r;
         }
-        return ParseConfig(ss.str());
+        return ParseConfig(ss.str(), base);
     }
     catch (...) {
         ConfigResult r;
+        r.config = base;
         r.warnings.push_back("config file could not be read: " + shown + "; using defaults");
         return r;
     }
+}
+
+ConfigResult LoadConfig(const std::filesystem::path& file)
+{
+    return LoadConfig(file, Config{}, false);
 }
 
 namespace {
@@ -555,6 +580,25 @@ void SetConfig(const Config& config)
     }
     catch (...) {
         // Out of memory: keep the previous config.
+    }
+}
+
+namespace {
+std::atomic<const Config*> g_fileConfig{nullptr};
+} // namespace
+
+const Config& GetFileConfig()
+{
+    const Config* c = g_fileConfig.load(std::memory_order_acquire);
+    return c ? *c : GetConfig();
+}
+
+void SetFileConfig(const Config& config)
+{
+    try {
+        g_fileConfig.store(new Config(config), std::memory_order_release); // kept for the process (as SetConfig)
+    }
+    catch (...) {
     }
 }
 

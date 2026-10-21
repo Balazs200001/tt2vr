@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include "core/config.hpp"
+#include "core/user_toml.hpp"
 
 #include <cstdlib>
 #include <filesystem>
@@ -46,7 +47,13 @@ bool SameConfig(const Config& a, const Config& b)
            a.overlay.visible == b.overlay.visible &&
            a.camera.helmet_follows_view == b.camera.helmet_follows_view &&
            a.camera.remove_auto_look == b.camera.remove_auto_look && a.camera.horizon_lock == b.camera.horizon_lock &&
-           a.camera.shake == b.camera.shake &&
+           a.camera.shake == b.camera.shake && a.camera.seat_forward == b.camera.seat_forward &&
+           a.camera.seat_up == b.camera.seat_up && a.camera.seat_right == b.camera.seat_right &&
+           a.xr.world_scale == b.xr.world_scale && a.xr.ipd_scale == b.xr.ipd_scale &&
+           SameHotkey(a.hotkeys.seat_forward, b.hotkeys.seat_forward) &&
+           SameHotkey(a.hotkeys.seat_back, b.hotkeys.seat_back) && SameHotkey(a.hotkeys.seat_up, b.hotkeys.seat_up) &&
+           SameHotkey(a.hotkeys.seat_down, b.hotkeys.seat_down) &&
+           SameHotkey(a.hotkeys.seat_reset, b.hotkeys.seat_reset) &&
            a.capture.dir == b.capture.dir &&
            a.capture.renderdoc_dir == b.capture.renderdoc_dir && a.capture.max_textures == b.capture.max_textures &&
            a.capture.include_depth == b.capture.include_depth && a.capture.cb_floats == b.capture.cb_floats &&
@@ -516,6 +523,25 @@ TEST_CASE("LoadConfig")
         CHECK(r.warnings.empty());
         CHECK_FALSE(r.config.overlay.visible);
     }
+}
+
+TEST_CASE("user.toml: FormatUserToml parsed on top of a base overrides only its keys")
+{
+    const auto base = ParseConfig("[camera]\nhorizon_lock = 80\nshake = 60\n[xr]\nstereo = false\n");
+    REQUIRE(base.warnings.empty());
+    const std::string text = core::FormatUserToml({{"camera", "shake", 25.0}, {"camera", "seat_up", -0.03},
+        {"xr", "world_scale", 1.25}});
+    const auto r = ParseConfig(text, base.config);
+    CHECK(r.warnings.empty());
+    CHECK(r.config.camera.horizon_lock == doctest::Approx(80.0)); // from the base
+    CHECK(r.config.camera.shake == doctest::Approx(25.0));
+    CHECK(r.config.camera.seat_up == doctest::Approx(-0.03));
+    CHECK(r.config.xr.world_scale == doctest::Approx(1.25));
+    CHECK_FALSE(r.config.xr.stereo); // from the base
+    // A broken user file keeps the base.
+    const auto broken = ParseConfig("[camera\nshake = ", base.config);
+    CHECK_FALSE(broken.warnings.empty());
+    CHECK(broken.config.camera.shake == doctest::Approx(60.0));
 }
 
 TEST_CASE("SetConfig / GetConfig")

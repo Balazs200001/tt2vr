@@ -3,6 +3,7 @@
 #include "core/hooks.hpp"
 #include "core/log.hpp"
 #include "core/paths.hpp"
+#include "core/user_toml.hpp"
 #include "d3d/device_hooks.hpp"
 
 #include <windows.h>
@@ -75,7 +76,14 @@ std::string ParentProcess()
 void LoadConfiguration()
 {
     const auto file = core::ModDir() / L"tt2vr.toml";
-    const core::ConfigResult result = core::LoadConfig(file);
+    const core::ConfigResult fileResult = core::LoadConfig(file);
+    // Settings changed at runtime (PLAN 8d / 8i) override tt2vr.toml.
+    core::ConfigResult result = core::LoadConfig(core::UserTomlPath(), fileResult.config, true);
+    for (auto& warning : result.warnings) {
+        warning = "user.toml: " + warning;
+    }
+    result.warnings.insert(result.warnings.begin(), fileResult.warnings.begin(), fileResult.warnings.end());
+    core::SetFileConfig(fileResult.config);
     core::SetConfig(result.config);
     core::SetLogLevel(result.config.log.level);
     core::SetVerbose(result.config.log.verbose_frames);
@@ -83,7 +91,9 @@ void LoadConfiguration()
     for (const auto& warning : result.warnings) {
         TT2VR_LOG_WARN("config: {}", warning);
     }
-    TT2VR_LOG_INFO("config loaded from {} ({} warnings)", file.string(), result.warnings.size());
+    std::error_code ec;
+    TT2VR_LOG_INFO("config loaded from {}{} ({} warnings)", file.string(),
+        std::filesystem::exists(core::UserTomlPath(), ec) ? " and user.toml" : "", result.warnings.size());
 }
 
 } // namespace
