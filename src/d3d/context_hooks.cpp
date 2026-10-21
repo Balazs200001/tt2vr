@@ -184,6 +184,14 @@ struct H {
             c, nRtv, rtvs, dsv, uavStart, nUav, uavs, counts);
     }
 
+    static void STDMETHODCALLTYPE OMSetBlendState(Ctx* c, ID3D11BlendState* state, const FLOAT factor[4], UINT mask)
+    {
+        if (Tracing()) {
+            trace::Line(c, fmt::format("OMSetBlendState {} sample_mask=0x{:x}", trace::BlendState(state), mask));
+        }
+        Orig<vt::ctx::OMSetBlendState, decltype(&OMSetBlendState)>()(c, state, factor, mask);
+    }
+
     static void STDMETHODCALLTYPE OMSetDepthStencilState(Ctx* c, ID3D11DepthStencilState* state, UINT ref)
     {
         if (Tracing()) {
@@ -531,6 +539,7 @@ struct H {
         TT2VR_HOOK(vt::ctx::DSSetConstantBuffers, (&SetCBs<c::DSSetConstantBuffers, Stage::DS>));
         TT2VR_HOOK(vt::ctx::OMSetRenderTargets, &OMSetRenderTargets);
         TT2VR_HOOK(vt::ctx::OMSetRenderTargetsAndUnorderedAccessViews, &OMSetRenderTargetsAndUAVs);
+        TT2VR_HOOK(vt::ctx::OMSetBlendState, &OMSetBlendState);
         TT2VR_HOOK(vt::ctx::OMSetDepthStencilState, &OMSetDepthStencilState);
         TT2VR_HOOK(vt::ctx::RSSetState, &RSSetState);
         TT2VR_HOOK(vt::ctx::RSSetViewports, &RSSetViewports);

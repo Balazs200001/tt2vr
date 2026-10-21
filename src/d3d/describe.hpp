@@ -19,6 +19,7 @@ std::string DebugName(ID3D11DeviceChild* object);
 // One-line descriptions; must be called while the object is alive.
 std::string DescribeResource(ID3D11Resource* resource);
 std::string DescribeView(ID3D11View* view); // view type, view format, subresource range (not the resource)
+std::string DescribeBlendState(ID3D11BlendState* state); // render target 0 only, plus the independent-blend flag
 std::string DescribeDepthStencilState(ID3D11DepthStencilState* state);
 std::string DescribeRasterizerState(ID3D11RasterizerState* state);
 

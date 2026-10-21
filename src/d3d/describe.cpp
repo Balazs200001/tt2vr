@@ -69,6 +69,20 @@ const char* ComparisonName(D3D11_COMPARISON_FUNC func)
     return (func >= 1 && func <= 8) ? kNames[func] : kNames[0];
 }
 
+const char* BlendName(D3D11_BLEND blend)
+{
+    static constexpr const char* kNames[] = {"?", "zero", "one", "src_color", "inv_src_color", "src_alpha",
+        "inv_src_alpha", "dest_alpha", "inv_dest_alpha", "dest_color", "inv_dest_color", "src_alpha_sat", "?", "?",
+        "blend_factor", "inv_blend_factor", "src1_color", "inv_src1_color", "src1_alpha", "inv_src1_alpha"};
+    return (blend >= 1 && blend <= 19) ? kNames[blend] : kNames[0];
+}
+
+const char* BlendOpName(D3D11_BLEND_OP op)
+{
+    static constexpr const char* kNames[] = {"?", "add", "subtract", "rev_subtract", "min", "max"};
+    return (op >= 1 && op <= 5) ? kNames[op] : kNames[0];
+}
+
 } // namespace
 
 const char* FormatName(DXGI_FORMAT format)
@@ -186,6 +200,24 @@ std::string DescribeView(ID3D11View* view)
         s = "view?";
     }
     return s + NameSuffix(view);
+}
+
+std::string DescribeBlendState(ID3D11BlendState* state)
+{
+    if (!state) {
+        return "null (default: blend off, write rgba)";
+    }
+    D3D11_BLEND_DESC d{};
+    state->GetDesc(&d);
+    const D3D11_RENDER_TARGET_BLEND_DESC& rt = d.RenderTarget[0];
+    const std::string independent = d.IndependentBlendEnable ? " independent" : "";
+    if (!rt.BlendEnable) {
+        return fmt::format("blend=off write=0x{:x}{}", rt.RenderTargetWriteMask, independent);
+    }
+    // (source factor, destination factor, op) per channel group
+    return fmt::format("blend=on color=({}, {}, {}) alpha=({}, {}, {}) write=0x{:x}{}", BlendName(rt.SrcBlend),
+        BlendName(rt.DestBlend), BlendOpName(rt.BlendOp), BlendName(rt.SrcBlendAlpha), BlendName(rt.DestBlendAlpha),
+        BlendOpName(rt.BlendOpAlpha), rt.RenderTargetWriteMask, independent);
 }
 
 std::string DescribeDepthStencilState(ID3D11DepthStencilState* state)

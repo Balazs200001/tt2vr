@@ -41,6 +41,7 @@ void UnmapBuffer(ID3D11DeviceContext* ctx, ID3D11Resource* resource);
 // in the trace's object table, so the object only has to be alive at the call.
 std::string Res(ID3D11Resource* resource);
 std::string View(ID3D11View* view);
+std::string BlendState(ID3D11BlendState* state);
 std::string DepthState(ID3D11DepthStencilState* state);
 std::string RasterState(ID3D11RasterizerState* state);
 // Formats the first N floats of constant-buffer data, N = [capture] cb_floats.

@@ -369,6 +369,14 @@ std::string View(ID3D11View* view)
     });
 }
 
+std::string BlendState(ID3D11BlendState* state)
+{
+    if (!state) {
+        return "bs:default";
+    }
+    return ObjectId(state, "bs", [&] { return DescribeBlendState(state); });
+}
+
 std::string DepthState(ID3D11DepthStencilState* state)
 {
     if (!state) {

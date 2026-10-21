@@ -38,6 +38,7 @@ TT2VR_CHECK_CTX(VSSetShaderResources);
 TT2VR_CHECK_CTX(GSSetShaderResources);
 TT2VR_CHECK_CTX(OMSetRenderTargets);
 TT2VR_CHECK_CTX(OMSetRenderTargetsAndUnorderedAccessViews);
+TT2VR_CHECK_CTX(OMSetBlendState);
 TT2VR_CHECK_CTX(OMSetDepthStencilState);
 TT2VR_CHECK_CTX(DrawAuto);
 TT2VR_CHECK_CTX(DrawIndexedInstancedIndirect);

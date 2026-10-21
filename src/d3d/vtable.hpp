@@ -36,6 +36,7 @@ enum : int {
     GSSetShaderResources = 31,
     OMSetRenderTargets = 33,
     OMSetRenderTargetsAndUnorderedAccessViews = 34,
+    OMSetBlendState = 35,
     OMSetDepthStencilState = 36,
     DrawAuto = 38,
     DrawIndexedInstancedIndirect = 39,
