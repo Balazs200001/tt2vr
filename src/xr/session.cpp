@@ -219,6 +219,13 @@ bool CreateInstance()
             XR_VERSION_MINOR(props.runtimeVersion), XR_VERSION_PATCH(props.runtimeVersion));
     }
     TT2VR_LOG_INFO("xr: instance created, runtime {}", g.status.runtime);
+    // PLAN Phase 9 (depth submission, refresh rate, space warp): what this runtime offers.
+    std::string names;
+    for (const XrExtensionProperties& e : exts) {
+        names += names.empty() ? "" : " ";
+        names += e.extensionName;
+    }
+    TT2VR_LOG_INFO("xr: runtime extensions ({}): {}", exts.size(), names);
     g.status.state = "looking for headset";
     g.nextAttempt = Clock::time_point{}; // look for the headset right away
     return true;
@@ -1179,6 +1186,11 @@ void RequestRestart()
     g.stopped = false;
     g.status.error.clear();
     g.nextAttempt = Clock::time_point{};
+}
+
+double LastWaitMs()
+{
+    return g.status.lastWaitMs;
 }
 
 Status GetStatus()

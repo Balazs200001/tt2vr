@@ -98,5 +98,6 @@ struct Status {
     std::uint64_t framesSubmitted = 0; // xrEndFrame calls with a layer (projection or screen)
 };
 Status GetStatus(); // main thread
+double LastWaitMs(); // main thread: xrWaitFrame of the last frame (cheap, no copy)
 
 } // namespace xr
