@@ -27,12 +27,14 @@ namespace {
 using Ctx = ID3D11DeviceContext;
 using shaders::Stage;
 
-std::atomic<PreDrawCallback> g_preDraw{nullptr};
+std::atomic<PreDrawCallback> g_preDraw[kPreDrawSlots]{};
 
 void PreDraw(Ctx* c)
 {
-    if (const PreDrawCallback pre = g_preDraw.load(std::memory_order_acquire); pre && !InInternalCall()) {
-        pre(c);
+    for (auto& slot : g_preDraw) {
+        if (const PreDrawCallback pre = slot.load(std::memory_order_acquire); pre && !InInternalCall()) {
+            pre(c);
+        }
     }
 }
 
@@ -578,9 +580,11 @@ bool HasContext1(ID3D11DeviceContext* ctx)
 
 } // namespace
 
-void SetPreDrawCallback(PreDrawCallback callback)
+void SetPreDrawCallback(PreDrawCallback callback, int slot)
 {
-    g_preDraw.store(callback, std::memory_order_release);
+    if (slot >= 0 && slot < kPreDrawSlots) {
+        g_preDraw[slot].store(callback, std::memory_order_release);
+    }
 }
 
 void InstallContextHooks(ID3D11Device* device, ID3D11DeviceContext* immediate)

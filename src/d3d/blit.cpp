@@ -67,6 +67,14 @@ float4 PSOpaque(V i) : SV_Target
 {
     return float4(0, 0, 0, 1); // written through an alpha-only write mask
 }
+float4 PSMotion(V i) : SV_Target
+{
+    return float4(saturate(0.5 + 25.0 * src.Sample(smp, i.uv).rg), 0.5, 1);
+}
+float4 PSDepth(V i) : SV_Target
+{
+    return float4(saturate(1.0 + log10(max(src.Sample(smp, i.uv).r, 1e-7)) / 6.0).xxx, 1);
+}
 )";
 
 ComPtr<ID3DBlob> Compile(const char* entry, const char* target)
@@ -221,7 +229,9 @@ bool Blitter::Init(ID3D11Device* device)
     const auto psDecode = Compile("PSDecode", "ps_5_0");
     const auto psOpaque = Compile("PSOpaque", "ps_5_0");
     const auto psOver = Compile("PSOver", "ps_5_0");
-    if (!vs || !psRaw || !psDecode || !psOpaque || !psOver) {
+    const auto psMotion = Compile("PSMotion", "ps_5_0");
+    const auto psDepth = Compile("PSDepth", "ps_5_0");
+    if (!vs || !psRaw || !psDecode || !psOpaque || !psOver || !psMotion || !psDepth) {
         return false;
     }
     D3D11_SAMPLER_DESC sd{};
@@ -254,6 +264,9 @@ bool Blitter::Init(ID3D11Device* device)
         FAILED(device->CreatePixelShader(psDecode->GetBufferPointer(), psDecode->GetBufferSize(), nullptr, &m_psDecode)) ||
         FAILED(device->CreatePixelShader(psOpaque->GetBufferPointer(), psOpaque->GetBufferSize(), nullptr, &m_psOpaque)) ||
         FAILED(device->CreatePixelShader(psOver->GetBufferPointer(), psOver->GetBufferSize(), nullptr, &m_psOver)) ||
+        FAILED(device->CreatePixelShader(
+            psMotion->GetBufferPointer(), psMotion->GetBufferSize(), nullptr, &m_psMotion)) ||
+        FAILED(device->CreatePixelShader(psDepth->GetBufferPointer(), psDepth->GetBufferSize(), nullptr, &m_psDepth)) ||
         FAILED(device->CreateBlendState(&ad, &m_blendAlpha)) || FAILED(device->CreateBlendState(&od, &m_blendOver)) ||
         FAILED(device->CreateSamplerState(&sd, &m_sampler)) || FAILED(device->CreateRasterizerState(&rd, &m_raster)) ||
         FAILED(device->CreateBlendState(&bd, &m_blend)) || FAILED(device->CreateDepthStencilState(&dd, &m_depth))) {
@@ -385,6 +398,40 @@ bool Blitter::Composite(ID3D11DeviceContext* context, ID3D11ShaderResourceView* 
     return true;
 }
 
+bool Blitter::Visualize(ID3D11DeviceContext* context, ID3D11ShaderResourceView* source, ID3D11RenderTargetView* target,
+    UINT width, UINT height, View view)
+{
+    if (!m_ready || !context || !source || !target || width == 0 || height == 0) {
+        return false;
+    }
+    InternalScope internal;
+    StateBackup backup(context);
+    const D3D11_VIEWPORT vp{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f};
+    const D3D11_RECT scissor{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+    ID3D11PixelShader* ps = view == View::Motion ? m_psMotion.Get()
+                            : view == View::Depth ? m_psDepth.Get()
+                                                  : m_psRaw.Get();
+    context->IASetInputLayout(nullptr);
+    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    context->VSSetShader(m_vs.Get(), nullptr, 0);
+    context->PSSetShader(ps, nullptr, 0);
+    context->GSSetShader(nullptr, nullptr, 0);
+    context->HSSetShader(nullptr, nullptr, 0);
+    context->DSSetShader(nullptr, nullptr, 0);
+    context->RSSetState(m_raster.Get());
+    context->RSSetViewports(1, &vp);
+    context->RSSetScissorRects(1, &scissor);
+    context->OMSetRenderTargets(1, &target, nullptr);
+    context->OMSetBlendState(m_blend.Get(), nullptr, 0xffffffff);
+    context->OMSetDepthStencilState(m_depth.Get(), 0);
+    context->PSSetShaderResources(0, 1, &source);
+    context->PSSetSamplers(0, 1, m_sampler.GetAddressOf());
+    context->Draw(3, 0);
+    ID3D11ShaderResourceView* none = nullptr;
+    context->PSSetShaderResources(0, 1, &none);
+    return true;
+}
+
 bool Blitter::FillAlpha(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, UINT width, UINT height)
 {
     if (!m_ready || !context || !target) {
@@ -416,6 +463,8 @@ void Blitter::Release()
     m_ready = false;
     m_blendOver.Reset();
     m_psOver.Reset();
+    m_psDepth.Reset();
+    m_psMotion.Reset();
     m_blendAlpha.Reset();
     m_psOpaque.Reset();
     m_copySrv.Reset();

@@ -10,8 +10,10 @@ namespace d3d {
 void InstallContextHooks(ID3D11Device* device, ID3D11DeviceContext* immediate);
 
 // Called before every ID3D11DeviceContext::Draw on any context (immediate or deferred, any thread) while set; must
-// be thread-safe and cheap. nullptr = none (one atomic load per draw).
+// be thread-safe and cheap. nullptr = none (one atomic load per slot and draw). Slot 0: the TAA leak test; slot 1:
+// the temporal debug views (game::TemporalDebug).
 using PreDrawCallback = void (*)(ID3D11DeviceContext* context);
-void SetPreDrawCallback(PreDrawCallback callback);
+inline constexpr int kPreDrawSlots = 2;
+void SetPreDrawCallback(PreDrawCallback callback, int slot = 0);
 
 } // namespace d3d

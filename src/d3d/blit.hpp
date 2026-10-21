@@ -44,6 +44,12 @@ public:
     // Sets alpha to 1 in the whole target, colour untouched (a raw copy carries the game's back-buffer alpha,
     // which a compositor may blend with).
     bool FillAlpha(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, UINT width, UINT height);
+    // Debug views (PLAN 6f): draws `source` over the whole target (width x height), opaque. Raw: rgb as stored;
+    // Motion: rg motion vectors (UV units) as 0.5 + 25 x mv in red / green; Depth: reversed-Z depth on a log scale
+    // (1 = white, 1e-6 and the far plane 0 = black).
+    enum class View { Raw, Motion, Depth };
+    bool Visualize(ID3D11DeviceContext* context, ID3D11ShaderResourceView* source, ID3D11RenderTargetView* target,
+        UINT width, UINT height, View view);
     void Release();
 
 private:
@@ -59,6 +65,8 @@ private:
     ComPtr<ID3D11PixelShader> m_psDecode;
     ComPtr<ID3D11PixelShader> m_psOpaque;
     ComPtr<ID3D11PixelShader> m_psOver;
+    ComPtr<ID3D11PixelShader> m_psMotion;
+    ComPtr<ID3D11PixelShader> m_psDepth;
     ComPtr<ID3D11BlendState> m_blendAlpha;
     ComPtr<ID3D11BlendState> m_blendOver;
     ComPtr<ID3D11SamplerState> m_sampler;
