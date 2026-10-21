@@ -73,6 +73,11 @@ inline constexpr std::ptrdiff_t kRendererViewContexts = 0x30; // ViewContext[2],
 inline constexpr std::ptrdiff_t kViewContextSize = 0x620;
 inline constexpr std::ptrdiff_t kRendererRenderLoop = 0xd30; // active RenderLoop*
 inline constexpr std::ptrdiff_t kRendererScenes = 0xd80; // Scene*[2], per view (lighting, fog)
+// GPU frame timer: ring of 4 slots of ID3D11Query* {TIMESTAMP start, TIMESTAMP end, TIMESTAMP_DISJOINT}; slot =
+// frame counter & 3 (OnRender 0x1405af5e3: Begin(disjoint), End(start); OnFlushRender: End(end), End(disjoint)).
+inline constexpr std::ptrdiff_t kRendererGpuTimerSlots = 0x1cd * 8;
+inline constexpr std::ptrdiff_t kRendererGpuTimerSlotSize = 3 * 8;
+inline constexpr std::ptrdiff_t kRendererGpuTimerFrame = 0xec8; // uint32, +1 per rendered OnFlip
 inline constexpr std::ptrdiff_t kRenderLoopDeferredLighting = 0x1e78; // DeferredLighting* (GetDeferredLighting)
 inline constexpr std::ptrdiff_t kRenderLoopMainContext = 0x1f00; // RenderContext re-prepared for every view
 inline constexpr std::ptrdiff_t kRenderLoopTaaReset = 0xd08; // byte, TAA history reset (shared; cleared per RenderTAA)

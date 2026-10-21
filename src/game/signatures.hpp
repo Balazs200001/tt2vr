@@ -62,6 +62,7 @@ enum class Sig {
     TonemapRender,
     RenderLoopRenderTaa,
     SkinMeshUpdateRenderData,
+    RenderLayerAddProfilingEvent,
     Count,
 };
 
@@ -230,6 +231,12 @@ inline constexpr Signature kSignatures[] = {
         "44 0F B7 AA 64 04 00 00 45 8B E0 48 8B 79 68 48 8B F2",
         0, "export; 0x140906b90 (mesh, vc, frameId, dbIdx), per visible view from the fill job FUN_1408d3370; "
            "pattern unique in .text (docs/re/renderer.md 4)",
+        kBuild4989319},
+    {"RenderLayer::AddProfilingEvent",
+        "?AddProfilingEvent@RenderLayer@Graphics@PlayAll@@IEAAXPEAUSimpleGPUPerformanceQuery@23@PEBD@Z",
+        "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 80 B9 68 02 00 00 00 49 8B F0 4C 63 4A 0C 48 8B FA 48 8B D9 74",
+        0, "export; 0x1408d3aa0 (layer, query, name), queues a kind-5 pass: End(query) + Begin/EndEvent when its job "
+           "executes (Begin/EndProfilingEvent are jmp thunks to it); pattern unique in .text (docs/re/renderer.md 7)",
         kBuild4989319},
 };
 

@@ -4,6 +4,7 @@
 #include "core/hooks.hpp"
 #include "core/log.hpp"
 #include "game/engine_layout.hpp"
+#include "game/gpu_timers.hpp"
 #include "game/menu_state.hpp"
 #include "game/signatures.hpp"
 #include "game/split_view.hpp"
@@ -455,6 +456,7 @@ void HookedPrepareView(void* renderContext, const void* viewContext)
         const void* loop = Read<const void*>(g_renderer, kRendererRenderLoop);
         if (loop && renderContext == static_cast<const char*>(loop) + kRenderLoopMainContext) {
             t_eye = EyeOfCameraIndex(viewContext);
+            GpuTimersView(viewContext);
         }
     }
     g_prepareView(renderContext, viewContext);
@@ -483,7 +485,9 @@ void HookedLoopRender(void* renderLoop, void* renderDesc)
     t_eye = -1; // the scene phase (culling, cascade fitting) serves both eyes
     void* renderer = g_renderer && Read<void*>(g_renderer, kRendererRenderLoop) == renderLoop ? g_renderer : nullptr;
     BeginLoopRender(renderer); // the main render only (not external scenes)
+    GpuTimersLoopBegin(renderer);
     g_loopRender(renderLoop, renderDesc);
+    GpuTimersLoopEnd();
     EndLoopRender(renderer);
     t_eye = -1;
 }

@@ -24,6 +24,7 @@
 #include "d3d/texture_dump.hpp"
 #include "d3d/vtable.hpp"
 #include "game/camera.hpp"
+#include "game/gpu_timers.hpp"
 #include "game/menu_state.hpp"
 #include "game/render_size.hpp"
 #include "game/split_view.hpp"
@@ -285,6 +286,7 @@ void InstallEngineHooksOnce()
         game::InstallSharedExposure();
         game::InstallTaaControl();
         game::InstallSkinMotion();
+        game::InstallGpuTimers();
     }
     else {
         TT2VR_LOG_WARN("engine hooks skipped: unknown game version");
@@ -311,6 +313,9 @@ void LogPerformance(std::chrono::steady_clock::time_point now, double frameMs)
                    "({}), xrWaitFrame {:.2f} ms, display period {:.2f} ms",
         g_perfFrames / window, 1000.0 * window / g_perfFrames, g_perfWorstMs, window, g_stats.width, g_stats.height,
         xs.running ? xs.presentation : "off", xs.copyMode, xs.waitMs, xs.periodMs);
+    if (const std::string gpu = game::GpuTimersPerfSummary(); !gpu.empty()) {
+        TT2VR_LOG_INFO("perf: {}", gpu);
+    }
     g_perfStart = now;
     g_perfFrames = 0;
     g_perfWorstMs = 0;
@@ -383,6 +388,7 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
         try {
             ++g_frame;
             game::OnPresent();
+            game::GpuTimersPresent(g_device, g_immediate);
             InstallEngineHooksOnce();
             UpdateStats();
             PollHotkeys();

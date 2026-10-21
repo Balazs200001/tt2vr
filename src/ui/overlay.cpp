@@ -16,6 +16,7 @@
 #include "d3d/renderdoc.hpp"
 #include "d3d/shader_registry.hpp"
 #include "game/camera.hpp"
+#include "game/gpu_timers.hpp"
 #include "game/menu_state.hpp"
 #include "game/render_size.hpp"
 #include "game/split_view.hpp"
@@ -305,6 +306,12 @@ void DrawPanel()
     ImGui::Text("tt2vr 0.1.0 - Phase 3 (left eye head-tracked)");
     ImGui::Text("%.1f fps  %.2f ms  frame %llu  %ux%u", stats.fps, stats.ms,
         static_cast<unsigned long long>(stats.frame), stats.width, stats.height);
+    if (const game::GpuTimes gpu = game::LastGpuTimes(); gpu.valid && gpu.views >= 2) {
+        ImGui::Text("GPU: view 0 %.2f ms  view 1 %.2f ms  frame %.2f ms", gpu.viewMs[0], gpu.viewMs[1], gpu.frameMs);
+    }
+    else if (gpu.valid) {
+        ImGui::Text("GPU: view 0 %.2f ms  frame %.2f ms", gpu.viewMs[0], gpu.frameMs);
+    }
     VersionLine(version);
     const int failed = core::hooks::FailedCount();
     const auto installed = core::hooks::Installed().size();
