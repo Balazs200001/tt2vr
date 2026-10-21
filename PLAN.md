@@ -426,6 +426,8 @@ Implementation steps (proposed 2026-10-21, **approved by Balazs 2026-10-21**: al
 
 **Done when:** a 10-minute ride on the TT course with horizon lock on is comfortable for me.
 
+**Status 2026-10-21:** 8a-8h done in test mode (8f's visual check needs rain), plus `[hud] spread` (Balazs's HUD request) and `tt2vr\user.toml` for runtime settings; 8i (VR tab in the game's Options) in progress. **Open for Balazs in the headset:** the 10-minute ride with horizon lock on (the done-when); shake / head bob at racing speed; seat offset with the numpad (Num8 / Num2 forward / back, Num9 / Num3 up / down, Num5 reset); world / IPD scale feel; chase views as an offset seat; the HUD spread; both eyes grey in the crash camera; visor drops in rain if a mode has it.
+
 ## Phase 9 — Performance
 
 - [ ] Frame spikes (Balazs, 2026-10-21 ride, scale 0.7, eye 1770x1892, 72 Hz): (a) steady 52-58 fps against the 13.9 ms budget (GPU 15-17.5 ms: view 0 about 9.5, view 1 about 6.7), so the runtime keeps switching between 72 and 36 Hz (display period 13.89 / 27.78 ms alternates every few 10 s windows), which can feel like stutter; (b) four real hitches of 106-173 ms within one minute (13:35:40-13:36:40) with normal GPU time and no mod event (no reset, no World Shift in those windows): CPU-side, likely the game's streaming. The frame-spike log ("perf: frame spike ...", frames over 50 ms split into game update / render / Present / xrWaitFrame / GPU) names the part on the next ride. Then: hold 72 Hz (resolution scale, GPU savings) or lock a steady 36 Hz with reprojection instead of the switching.
