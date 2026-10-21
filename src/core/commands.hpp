@@ -23,6 +23,7 @@ enum class CommandKind {
     ShiftTest,        // "shifttest": no reset, rebased previous cameras at the next World Shift (RequestShiftTest)
     Views,            // "views on|off": the overlay's per-eye history views (game::TemporalDebug)
     Freeze,           // "freeze on|off": [debug] freeze eye R's TAA history (game::TemporalDebug)
+    MvSave,           // "mvsave": both eyes' motion vectors: statistics and a PNG (game::TemporalDebug)
     Screenshot,       // "screenshot [name]" / "screen [name]": the engine's back buffer as a PNG (next frame)
     Pad,              // "pad <steps>": virtual XInput pad script (test mode only, game::RunPadScript)
     Head,             // "head still | <yaw> [pitch] [roll] | shake <deg> <period s> [seconds]": simulated headset

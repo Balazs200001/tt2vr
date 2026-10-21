@@ -199,6 +199,9 @@ void RunCommands()
                 done(r);
                 break;
             }
+            case core::CommandKind::MvSave:
+                game::RequestMotionSave([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
+                break;
             case core::CommandKind::ShiftTest:
                 game::RequestShiftTest([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;

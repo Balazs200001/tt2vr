@@ -14,6 +14,9 @@
 
 #include <d3d11.h>
 
+#include <functional>
+#include <string>
+
 namespace game {
 
 struct TemporalVram {
@@ -41,5 +44,9 @@ bool FreezeRightHistory();
 ID3D11ShaderResourceView* TemporalThumbnail(int eye, TemporalView view);
 void TemporalThumbnailSize(unsigned& width, unsigned& height);
 TemporalVram TemporalVramUsage();
+// Remote "mvsave": with the views shown, reads back both eyes' motion vectors at the next Present, reports per eye the
+// mean / max length in pixels and the share above 1 px, and writes screens\motion_vectors.png (left | right at half
+// size; red / green = 128 + 16 x the x / y motion in pixels). Thread: game main thread.
+void RequestMotionSave(std::function<void(const std::string&)> done);
 
 } // namespace game

@@ -1,16 +1,24 @@
 #include "game/temporal_debug.hpp"
 
 #include "core/log.hpp"
+#include "core/paths.hpp"
 #include "d3d/blit.hpp"
 #include "d3d/context_hooks.hpp"
 #include "d3d/internal.hpp"
+#include "d3d/texture_dump.hpp"
 #include "game/engine_layout.hpp"
 #include "game/engine_textures.hpp"
 #include "game/split_view.hpp"
 
+#include <DirectXPackedVector.h>
+#include <objbase.h>
+#include <spdlog/fmt/fmt.h>
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <cmath>
+#include <filesystem>
+#include <system_error>
 #include <atomic>
 #include <cstdint>
 #include <utility>
@@ -45,6 +53,7 @@ unsigned g_thumbW = 0, g_thumbH = 0;
 std::vector<std::pair<ID3D11Texture2D*, ComPtr<ID3D11ShaderResourceView>>> g_srvs; // views of engine textures
 TemporalVram g_vram;
 int g_vramCountdown = 0;
+std::function<void(const std::string&)> g_motionSaveDone;
 
 // Read by the pre-draw callback on the recording threads. The main thread changes them only in the Render pre-hook
 // (before this frame's recording starts) and releases textures only there or at Present, after the recording.
@@ -275,7 +284,80 @@ bool EnsureThumbs(ID3D11Device* device, ID3D11Texture2D* like)
     return true;
 }
 
+// Both eyes' motion-vector copies read back (R16G16_FLOAT, UV units per frame), statistics in pixels, one PNG.
+std::string SaveMotion(ID3D11Device* device, ID3D11DeviceContext* context)
+{
+    if (!g_motion[0] || !g_motion[1]) {
+        return "FAILED: no motion-vector copies (views off or not two views)";
+    }
+    D3D11_TEXTURE2D_DESC d{};
+    g_motion[0]->GetDesc(&d);
+    if (d.Format != DXGI_FORMAT_R16G16_FLOAT) {
+        return fmt::format("FAILED: motion vectors are format {}, expected R16G16_FLOAT", static_cast<int>(d.Format));
+    }
+    D3D11_TEXTURE2D_DESC s = d;
+    s.Usage = D3D11_USAGE_STAGING;
+    s.BindFlags = 0;
+    s.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ComPtr<ID3D11Texture2D> staging;
+    if (FAILED(device->CreateTexture2D(&s, nullptr, &staging))) {
+        return "FAILED: staging texture";
+    }
+    constexpr UINT kStep = 2; // the PNG and the statistics use every 2nd pixel
+    const UINT w = d.Width / kStep, h = d.Height / kStep;
+    std::vector<std::uint8_t> bgr(static_cast<std::size_t>(w) * 2 * h * 3);
+    std::string stats;
+    d3d::InternalScope internal;
+    for (int k = 0; k < 2; ++k) {
+        context->CopyResource(staging.Get(), g_motion[k].Get());
+        D3D11_MAPPED_SUBRESOURCE m{};
+        if (FAILED(context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &m))) {
+            return "FAILED: map";
+        }
+        double sum = 0, peak = 0;
+        std::uint64_t moving = 0, count = 0;
+        for (UINT y = 0; y < h; ++y) {
+            const auto* row = reinterpret_cast<const DirectX::PackedVector::HALF*>(
+                static_cast<const std::uint8_t*>(m.pData) + static_cast<std::size_t>(y) * kStep * m.RowPitch);
+            for (UINT x = 0; x < w; ++x) {
+                const float px = DirectX::PackedVector::XMConvertHalfToFloat(row[x * kStep * 2]) * d.Width;
+                const float py = DirectX::PackedVector::XMConvertHalfToFloat(row[x * kStep * 2 + 1]) * d.Height;
+                const double len = std::sqrt(static_cast<double>(px) * px + static_cast<double>(py) * py);
+                sum += len;
+                peak = std::max(peak, len);
+                moving += len > 1.0 ? 1 : 0;
+                ++count;
+                std::uint8_t* out = &bgr[(static_cast<std::size_t>(y) * w * 2 + k * w + x) * 3];
+                out[0] = 128;
+                out[1] = static_cast<std::uint8_t>(std::clamp(128.0f + py * 16.0f, 0.0f, 255.0f));
+                out[2] = static_cast<std::uint8_t>(std::clamp(128.0f + px * 16.0f, 0.0f, 255.0f));
+            }
+        }
+        context->Unmap(staging.Get(), 0);
+        stats += fmt::format("{}{} eye: mean {:.3f} px, max {:.1f} px, {:.2f}% above 1 px", k ? "; " : "", k ? "right" : "left",
+            count ? sum / count : 0.0, peak, count ? 100.0 * moving / count : 0.0);
+    }
+    const auto dir = core::CaptureDir() / "screens";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    const auto path = dir / "motion_vectors.png";
+    const HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const bool ok = d3d::dump::WritePngBgr(path, w * 2, h, bgr);
+    if (SUCCEEDED(co)) {
+        CoUninitialize();
+    }
+    return stats + (ok ? "; " + path.string() : "; PNG not written");
+}
+
 } // namespace
+
+void RequestMotionSave(std::function<void(const std::string&)> done)
+{
+    if (g_motionSaveDone) {
+        g_motionSaveDone("mvsave FAILED: superseded by a newer request");
+    }
+    g_motionSaveDone = std::move(done);
+}
 
 void OnTemporalDebugLoopRender(void* renderLoop)
 {
@@ -329,6 +411,13 @@ void OnTemporalDebugLoopRender(void* renderLoop)
 
 void UpdateTemporalViews(ID3D11Device* device, ID3D11DeviceContext* context)
 {
+    if (g_motionSaveDone && device && context) {
+        auto done = std::move(g_motionSaveDone);
+        g_motionSaveDone = nullptr;
+        const std::string result = "mvsave " + SaveMotion(device, context);
+        TT2VR_LOG_INFO("{}", result);
+        done(result);
+    }
     if (!g_shown || !g_renderLoop || !device || !context) {
         return;
     }
