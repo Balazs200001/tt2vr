@@ -51,7 +51,7 @@ bool SameConfig(const Config& a, const Config& b)
            a.debug.fake_exe_sha256 == b.debug.fake_exe_sha256 && a.debug.input_log == b.debug.input_log &&
            a.hud.enabled == b.hud.enabled && a.hud.pixels == b.hud.pixels && a.hud.aspect == b.hud.aspect &&
            a.hud.distance == b.hud.distance && a.hud.width == b.hud.width && a.hud.height == b.hud.height &&
-           a.hud.tilt == b.hud.tilt && a.hud.follow == b.hud.follow;
+           a.hud.tilt == b.hud.tilt && a.hud.follow == b.hud.follow && a.hud.desktop == b.hud.desktop;
 }
 
 // Finds config/tt2vr.toml: TT2VR_SOURCE_DIR, else walk up from the current directory and the exe directory.
@@ -433,6 +433,7 @@ width = 0.7
 height = -0.2
 tilt = 15
 follow = "head"
+desktop = false
 )");
     CHECK(ContainsWarning(r, "pixels"));
     CHECK(r.config.hud.enabled == false);
@@ -443,6 +444,7 @@ follow = "head"
     CHECK(r.config.hud.height == doctest::Approx(-0.2));
     CHECK(r.config.hud.tilt == doctest::Approx(15.0));
     CHECK(r.config.hud.follow == "head");
+    CHECK(r.config.hud.desktop == false);
     const auto bad = ParseConfig("[hud]\nfollow = \"wall\"\n");
     CHECK(ContainsWarning(bad, "follow"));
     CHECK(bad.config.hud.follow == "seat");

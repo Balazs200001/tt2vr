@@ -111,6 +111,8 @@ tilt = 0.0
 # "seat": the panel is fixed to the bike, like a dashboard (look at it by moving your head). "head": it stays in the
 # same place in your view whatever you look at.
 follow = "seat"
+# Also draw the HUD on the desktop window (over the mirrored eye image), so the flat screen still shows it.
+desktop = true
 
 [capture]
 # Folder for frame traces and texture dumps; relative to <game>\tt2vr\ unless absolute.

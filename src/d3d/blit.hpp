@@ -19,6 +19,7 @@ namespace d3d {
 // themselves.
 DXGI_FORMAT TypelessOf(DXGI_FORMAT format); // R8G8B8A8_UNORM_SRGB -> R8G8B8A8_TYPELESS
 DXGI_FORMAT LinearViewOf(DXGI_FORMAT format); // R8G8B8A8_UNORM_SRGB / _TYPELESS -> R8G8B8A8_UNORM
+DXGI_FORMAT SrgbViewOf(DXGI_FORMAT format); // R8G8B8A8_UNORM / _TYPELESS -> R8G8B8A8_UNORM_SRGB; UNKNOWN if none
 bool IsSrgb(DXGI_FORMAT format);
 bool SameFamily(DXGI_FORMAT a, DXGI_FORMAT b); // CopyResource-compatible
 

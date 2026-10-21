@@ -215,6 +215,12 @@ DXGI_FORMAT LinearViewOf(DXGI_FORMAT format)
     return fam ? fam->linear : format;
 }
 
+DXGI_FORMAT SrgbViewOf(DXGI_FORMAT format)
+{
+    const FormatFamily* fam = FamilyOf(format);
+    return fam ? fam->srgb : DXGI_FORMAT_UNKNOWN;
+}
+
 bool IsSrgb(DXGI_FORMAT format)
 {
     const FormatFamily* fam = FamilyOf(format);

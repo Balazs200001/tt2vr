@@ -52,8 +52,10 @@ struct HudSource {
 // Present pre-hook. A two-view frame with a HUD adds the HUD panel ([hud]) as a quad layer over the projection layer.
 void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, const HudSource& hud = {});
 // Present pre-hook, after OnFrameEnd and before the overlay: while the session runs, redraws the back buffer for the
-// desktop window ([xr] desktop_view), letterboxed so the window's stretch gives the right shape.
-void DrawDesktopMirror(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, HWND window);
+// desktop window ([xr] desktop_view), letterboxed so the window's stretch gives the right shape, and draws the
+// captured HUD (`hud`: premultiplied, sRGB; width / height `hudAspect`) over it ([hud] desktop).
+void DrawDesktopMirror(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, HWND window,
+    ID3D11ShaderResourceView* hud = nullptr, float hudAspect = 0.0f);
 
 bool SessionRunning(); // between xrBeginSession and xrEndSession
 // Remote "xrprobe": at the next frame that hands images to the runtime, reads back a 64x64 patch from the centre of

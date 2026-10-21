@@ -1029,10 +1029,64 @@ void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, const H
     }
 }
 
-void DrawDesktopMirror(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, HWND window)
+namespace {
+
+// The desktop mirror's eye image ([xr] desktop_view left / both). The window stretches the back buffer by
+// (cw / bw, ch / bh): fit the image's shape into the window (or cover it, cropping: [xr] desktop_fill), then map that
+// rectangle back into back-buffer pixels. A covering viewport extends past the back buffer and the rasterizer clips it.
+void DrawMirrorImage(ID3D11DeviceContext* context, ID3D11Texture2D* back, const D3D11_TEXTURE2D_DESC& bd, float cw,
+    float ch, float uw)
+{
+    const float bw = static_cast<float>(bd.Width), bh = static_cast<float>(bd.Height);
+    const float aspect = uw * bw / bh;
+    const float dw = core::GetConfig().xr.desktop_fill ? std::max(cw, ch * aspect) : std::min(cw, ch * aspect);
+    const float dh = dw / aspect;
+    const D3D11_VIEWPORT dst{(cw - dw) * 0.5f * bw / cw, (ch - dh) * 0.5f * bh / ch, dw * bw / cw, dh * bh / ch,
+        0.0f, 1.0f};
+    D3D11_RENDER_TARGET_VIEW_DESC rd{};
+    rd.Format = d3d::LinearViewOf(bd.Format); // raw gamma-encoded values in, raw out
+    rd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+    ComPtr<ID3D11RenderTargetView> rtv;
+    if (FAILED(g.device->CreateRenderTargetView(back, &rd, &rtv))) {
+        return;
+    }
+    d3d::InternalScope internal;
+    // Copy first (the blitter's source copy, 1x1 draw), then clear and draw the letterboxed image.
+    constexpr float kBlack[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    const D3D11_VIEWPORT corner{0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f};
+    g.blitter.BlitRect(context, back, rtv.Get(), corner, false, 0.0f, 1.0f, true);
+    context->ClearRenderTargetView(rtv.Get(), kBlack);
+    g.blitter.BlitRect(context, back, rtv.Get(), dst, false, 0.0f, uw, false);
+}
+
+// The HUD panel's image (premultiplied colour and alpha, sRGB-encoded) over the whole window at its own shape (fitted,
+// [hud] desktop), blended in linear space through an _SRGB view of the back buffer, as the game draws its HUD.
+void DrawMirrorHud(ID3D11DeviceContext* context, ID3D11Texture2D* back, const D3D11_TEXTURE2D_DESC& bd, float cw,
+    float ch, ID3D11ShaderResourceView* hud, float hudAspect)
+{
+    const float bw = static_cast<float>(bd.Width), bh = static_cast<float>(bd.Height);
+    const float hw = std::min(cw, ch * hudAspect);
+    const float hh = hw / hudAspect;
+    const D3D11_VIEWPORT dst{(cw - hw) * 0.5f * bw / cw, (ch - hh) * 0.5f * bh / ch, hw * bw / cw, hh * bh / ch,
+        0.0f, 1.0f};
+    D3D11_RENDER_TARGET_VIEW_DESC rd{};
+    rd.Format = d3d::SrgbViewOf(bd.Format);
+    rd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+    ComPtr<ID3D11RenderTargetView> rtv;
+    if (rd.Format == DXGI_FORMAT_UNKNOWN || FAILED(g.device->CreateRenderTargetView(back, &rd, &rtv))) {
+        return;
+    }
+    g.blitter.Composite(context, hud, rtv.Get(), dst);
+}
+
+} // namespace
+
+void DrawDesktopMirror(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, HWND window,
+    ID3D11ShaderResourceView* hud, float hudAspect)
 {
     const std::string& view = core::GetConfig().xr.desktop_view;
-    if (!g.running || !swapChain || !context || !window || view == "game") {
+    const bool drawHud = hud && hudAspect > 0.0f && core::GetConfig().hud.desktop;
+    if (!g.running || !swapChain || !context || !window || (view == "game" && !drawHud)) {
         return;
     }
     try {
@@ -1042,37 +1096,17 @@ void DrawDesktopMirror(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, 
         }
         D3D11_TEXTURE2D_DESC bd{};
         const ComPtr<ID3D11Texture2D> back = BackBuffer(swapChain, bd);
-        if (!back || bd.Width == 0 || bd.Height == 0) {
+        if (!back || bd.Width == 0 || bd.Height == 0 || (!g.blitter.Ready() && !g.blitter.Init(g.device))) {
             return;
         }
-        const float uw = g.sideBySide && view == "left" ? 0.5f : 1.0f; // one-view frames: the whole image
-        // The window stretches the back buffer by (cw / bw, ch / bh). Fit the image's shape into the window (or cover
-        // it, cropping: [xr] desktop_fill), then map that rectangle back into back-buffer pixels. A covering viewport
-        // extends past the back buffer and the rasterizer clips it.
         const float cw = static_cast<float>(rc.right), ch = static_cast<float>(rc.bottom);
-        const float bw = static_cast<float>(bd.Width), bh = static_cast<float>(bd.Height);
-        const float aspect = uw * bw / bh;
-        const float dw = core::GetConfig().xr.desktop_fill ? std::max(cw, ch * aspect) : std::min(cw, ch * aspect);
-        const float dh = dw / aspect;
-        const D3D11_VIEWPORT dst{(cw - dw) * 0.5f * bw / cw, (ch - dh) * 0.5f * bh / ch, dw * bw / cw, dh * bh / ch,
-            0.0f, 1.0f};
-        D3D11_RENDER_TARGET_VIEW_DESC rd{};
-        rd.Format = d3d::LinearViewOf(bd.Format); // raw gamma-encoded values in, raw out
-        rd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-        ComPtr<ID3D11RenderTargetView> rtv;
-        if (FAILED(g.device->CreateRenderTargetView(back.Get(), &rd, &rtv))) {
-            return;
+        if (view != "game") {
+            const float uw = g.sideBySide && view == "left" ? 0.5f : 1.0f; // one-view frames: the whole image
+            DrawMirrorImage(context, back.Get(), bd, cw, ch, uw);
         }
-        if (!g.blitter.Ready() && !g.blitter.Init(g.device)) {
-            return;
+        if (drawHud) {
+            DrawMirrorHud(context, back.Get(), bd, cw, ch, hud, hudAspect);
         }
-        d3d::InternalScope internal;
-        // Copy first (the blitter's source copy, 1x1 draw), then clear and draw the letterboxed image.
-        constexpr float kBlack[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-        const D3D11_VIEWPORT corner{0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f};
-        g.blitter.BlitRect(context, back.Get(), rtv.Get(), corner, false, 0.0f, 1.0f, true);
-        context->ClearRenderTargetView(rtv.Get(), kBlack);
-        g.blitter.BlitRect(context, back.Get(), rtv.Get(), dst, false, 0.0f, uw, false);
     }
     catch (...) {
         TT2VR_LOG_ERROR("xr: exception in DrawDesktopMirror");

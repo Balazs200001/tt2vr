@@ -77,6 +77,7 @@ struct Config {
         float height = -0.05f; // metres above (+) or below (-) eye height, clamp -1..1
         float tilt = 0.0f; // degrees the panel's top leans away from you, clamp -60..60
         std::string follow = "seat"; // "seat": fixed to the bike (LOCAL space); "head": follows the head
+        bool desktop = true; // also draw the captured HUD over the desktop mirror
     } hud;
     struct Capture {
         std::string dir = "captures"; // relative to <game>\tt2vr\ unless absolute

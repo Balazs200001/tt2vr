@@ -293,6 +293,7 @@ void ReadHud(const toml::table& t, Config::Hud& out, Warnings& w)
         else if (key == "width") s.Float(key, node, out.width, 0.2, 4.0);
         else if (key == "height") s.Float(key, node, out.height, -1.0, 1.0);
         else if (key == "tilt") s.Float(key, node, out.tilt, -60.0, 60.0);
+        else if (key == "desktop") s.Bool(key, node, out.desktop);
         else if (key == "follow") {
             s.String(key, node, out.follow);
             if (out.follow != "seat" && out.follow != "head") {
