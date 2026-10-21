@@ -8,6 +8,7 @@
 #include "game/gpu_timers.hpp"
 #include "game/hud_capture.hpp"
 #include "game/menu_state.hpp"
+#include "game/rider_view.hpp"
 #include "game/signatures.hpp"
 #include "game/split_view.hpp"
 #include "game/shared_exposure.hpp"
@@ -76,7 +77,6 @@ Mat34 g_headLocal = stereo::Identity34();
 // Camera-local rotation that undoes the camera mode's look rotations this frame (identity when not removing them):
 // D = R(mode+0x8)^T * R(mode+0x3e4). docs/re/camera.md section 9.
 Mat34 g_autoLookFix = stereo::Identity34();
-const void* g_springManage = nullptr; // TTSpringCameraMode::Manage, identifies the helmet camera mode
 
 // Read by MatrixPerspectiveFovRH, which may also run on render job threads.
 std::atomic<bool> g_projActive{false};
@@ -133,19 +133,11 @@ void* At(void* base, std::ptrdiff_t offset)
 // The helmet camera mode turns its view after building it: LookAroundInput 0x1401a0a70 post-multiplies the
 // Dynamic View yaw (TTDriverAnim+0x120, toward a racing-line point ahead, |yaw| <= 0.25 rad) and pre-multiplies the
 // stick look, mode+0x3e4 -> mode+0x8. D = R(+0x8)^T R(+0x3e4) in camera-local axes removes both; translation, lean,
-// tuck and shakes stay. Read-only; false if the player camera is not the rendered helmet mode. SEH: game objects.
-bool ReadAutoLookFix(const void* ktuCamera, const void* renderedCamera, Mat34& d)
+// tuck and shakes stay. Only for RiderView::Cockpit(): in chase views and while crashed +0x3e4 is an unrelated bike
+// frame (docs/re/camera.md 10.3). Read-only; SEH: game objects.
+bool ReadAutoLookFix(const void* mode, Mat34& d)
 {
     __try {
-        if (!ktuCamera || !g_springManage || Read<const void*>(ktuCamera, kKTUCameraCamera) != renderedCamera ||
-            Read<const void*>(ktuCamera, kKTUCameraOverrideMode)) {
-            return false;
-        }
-        const void* mode = Read<const void*>(ktuCamera, kKTUCameraMode);
-        const void* const* vtable = mode ? *static_cast<const void* const* const*>(mode) : nullptr;
-        if (!vtable || vtable[kModeManageSlot] != g_springManage) {
-            return false;
-        }
         Mat34 post = Read<Mat34>(mode, kModeCameraMatrix);
         Mat34 pre = Read<Mat34>(mode, kModePreLookMatrix);
         for (int r = 0; r < 3; ++r) {
@@ -188,6 +180,7 @@ bool BeginMainView(const void* camera)
     // are not head-tracked: xr shows the flat frame on a world-fixed screen instead. The TT2 pause over the riding
     // view stays head-tracked in two views while the HUD capture takes its UI onto a panel (PLAN 7d).
     const MenuState state = ReadMenuState(camera);
+    const RiderView rider = ReadRiderView(LastPlayerCamera(), camera);
     const bool menu = core::GetConfig().xr.menu_screen && state.Active() && !(state.RidingPause() && HudCaptureReady());
     xr::FrameViews views;
     g_head = !menu && xr::LocateViews(views);
@@ -209,7 +202,7 @@ bool BeginMainView(const void* camera)
         const float dz = r.position.z - l.position.z;
         OnTaaEyeDistance(std::sqrt(dx * dx + dy * dy + dz * dz));
         Mat34 fix;
-        if (core::GetConfig().camera.remove_auto_look && ReadAutoLookFix(LastPlayerCamera(), camera, fix)) {
+        if (core::GetConfig().camera.remove_auto_look && rider.Cockpit() && ReadAutoLookFix(rider.mode, fix)) {
             g_autoLookFix = fix;
             g_info.autoLookYawDeg = std::atan2(fix.m[0][2], fix.m[0][0]) * kRadToDeg;
         }
@@ -583,7 +576,6 @@ bool InstallCameraHooks()
     s_done = true;
     g_settings.helmetFollows = core::GetConfig().camera.helmet_follows_view;
     ResolveSignatures();
-    g_springManage = SignatureAddress(Sig::SpringCameraModeManage);
     for (const Sig required : {Sig::RendererDoUpdate, Sig::ViewContextInitFromCamera, Sig::MatrixPerspectiveFovRH,
              Sig::TransformMatrixSetViewProjection, Sig::ViewContextRebuildFrustum}) {
         if (!SignatureAddress(required)) {
@@ -696,6 +688,7 @@ std::string DescribeCamera()
         i.jitter[1]);
     out += fmt::format("  head tracked {}, per-eye views {} ({} projections with the union frustum last frame)\n",
         i.headTracked, g_perEye.load(), i.projUnion);
+    out += fmt::format("  rider view: {}\n", DescribeRiderView(LastRiderView()));
     out += fmt::format("  game look rotation removed: {:.2f} deg yaw\n", i.autoLookYawDeg);
     out += fmt::format("  override: view {} (yaw {} pitch {} roll {} deg, offset [{} {} {}] m), proj {} (shift {} "
                        "{}), {} projection calls reshaped last frame; helmet follows {} (hooks {}), {} helmet "
@@ -712,9 +705,10 @@ std::string CameraSummary()
         return g_active ? "camera: no main view yet" : "camera: hooks not active";
     }
     return fmt::format("camera ok hfov {:.2f} deg near {} far {} pos [{:.3f} {:.3f} {:.3f}] fwd [{:.3f} {:.3f} {:.3f}] "
-                       "proj m00 {:.5g} m02 {:.5g} m11 {:.5g} m12 {:.5g} reshaped {}",
+                       "proj m00 {:.5g} m02 {:.5g} m11 {:.5g} m12 {:.5g} reshaped {}; {}; look removed {:.2f} deg",
         i.fov * kRadToDeg, i.nearZ, i.farZ, i.world[0][3], i.world[1][3], i.world[2][3], -i.world[0][2],
-        -i.world[1][2], -i.world[2][2], i.proj[0][0], i.proj[0][2], i.proj[1][1], i.proj[1][2], i.projOverrides);
+        -i.world[1][2], -i.world[2][2], i.proj[0][0], i.proj[0][2], i.proj[1][1], i.proj[1][2], i.projOverrides,
+        DescribeRiderView(LastRiderView()), i.autoLookYawDeg);
 }
 
 } // namespace game

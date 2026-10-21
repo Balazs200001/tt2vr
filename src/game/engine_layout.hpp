@@ -86,6 +86,20 @@ inline constexpr std::ptrdiff_t kSkinMeshLastLod = 0x160; // uint16[2], LOD of t
 inline constexpr std::ptrdiff_t kModeCameraMatrix = 0x8; // Matrix34 the mode outputs
 inline constexpr std::ptrdiff_t kModeHelmetMatrix = 0x4c4; // Matrix34 from HelmetSprings (built from +0x8)
 inline constexpr std::ptrdiff_t kModePreLookMatrix = 0x3e4; // Matrix34: +0x8 before LookAroundInput (auto + stick look)
+// TTSpringCameraMode riding-view state, written by its Manage every frame (docs/re/camera.md 10.3)
+inline constexpr std::ptrdiff_t kModeRearView = 0x378; // byte, rear view held
+inline constexpr std::ptrdiff_t kModeViewEnum = 0x3c8; // int, GameCameraViews of the current CameraData
+inline constexpr std::ptrdiff_t kModeCameraDataIndex = 0x3d0; // int, index into TTGameCameraViews' CameraData array
+inline constexpr std::ptrdiff_t kModeVehicle = 0x418; // vehicle the mode follows
+inline constexpr std::ptrdiff_t kModeCameraViews = 0x428; // TTGameCameraViews* (vehicle+0xb20)
+inline constexpr std::ptrdiff_t kVehicleController = 0x70; // BikeController*
+inline constexpr std::ptrdiff_t kControllerCrashed = 0x15e4; // byte, from OnCrash until the respawn
+inline constexpr std::ptrdiff_t kCameraViewsCount = 0x5c; // int
+inline constexpr std::ptrdiff_t kCameraViewsData = 0x60; // CameraData*, stride kCameraDataSize
+inline constexpr std::ptrdiff_t kCameraDataSize = 0x108;
+inline constexpr std::ptrdiff_t kCameraDataView = 0xa8; // int, GameCameraViews
+inline constexpr std::ptrdiff_t kCameraDataType = 0xb8; // int, TTCameraType (0 Fixed, 1 Spring, 2 Cockpit, 3 Heli, 4 Photo)
+inline constexpr std::ptrdiff_t kCameraDataSettings = 0xc0; // CockpitSettings* (valid for types 0 and 2)
 
 // KTUCamera / KTUCameraMode (game side; read only, never written)
 inline constexpr std::ptrdiff_t kKTUCameraCamera = 0x10; // Graphics::Camera* it drives (SetFov/SetClips target)

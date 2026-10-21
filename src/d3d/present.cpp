@@ -29,6 +29,7 @@
 #include "game/menu_state.hpp"
 #include "game/particle_medium.hpp"
 #include "game/render_size.hpp"
+#include "game/rider_view.hpp"
 #include "game/split_view.hpp"
 #include "game/shared_exposure.hpp"
 #include "game/shared_shadows.hpp"
@@ -322,6 +323,7 @@ void InstallEngineHooksOnce()
     if (game::EngineHooksAllowed()) {
         game::InstallCameraHooks(); // resolves the signature table
         game::InitMenuState();
+        game::InitRiderView();
         game::InstallRenderSizeHook();
         game::InitSplitView();
         game::InstallSsaoFix();
