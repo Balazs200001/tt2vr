@@ -22,8 +22,10 @@ DXGI_FORMAT ChooseSwapchainFormat(const std::vector<std::int64_t>& offered);
 // Thread: game main thread.
 class EyeSwapchain {
 public:
+    // srgbView: a typeless image of an _SRGB format gets _SRGB render target views (shader writes linear values and
+    // the hardware encodes, e.g. the HUD matte) instead of raw ones; Decode() is then true for every format.
     bool Create(XrInstance instance, XrSession session, ID3D11Device* device, DXGI_FORMAT format, std::uint32_t width,
-        std::uint32_t height, const char* name);
+        std::uint32_t height, const char* name, bool srgbView = false);
     void Destroy();
     bool Valid() const { return m_swapchain != XR_NULL_HANDLE; }
 

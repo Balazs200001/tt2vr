@@ -49,11 +49,13 @@ struct State {
     XrSystemId system = XR_NULL_SYSTEM_ID;
     XrSession session = XR_NULL_HANDLE;
     XrSpace local = XR_NULL_HANDLE;
+    XrSpace view = XR_NULL_HANDLE; // the head ([hud] follow = "head")
     XrSessionState sessionState = XR_SESSION_STATE_UNKNOWN;
     XrEnvironmentBlendMode blendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
     bool running = false;
     EyeSwapchain eyes[2];
     EyeSwapchain screen; // menu screen quad (created on first use, sized like the back buffer)
+    EyeSwapchain hud; // HUD panel quad (created on first use, sized like the HUD capture targets)
     DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
     d3d::Blitter blitter;
 
@@ -140,6 +142,11 @@ void DestroySession()
         eye.Destroy();
     }
     g.screen.Destroy();
+    g.hud.Destroy();
+    if (g.view != XR_NULL_HANDLE) {
+        xrDestroySpace(g.view);
+        g.view = XR_NULL_HANDLE;
+    }
     if (g.local != XR_NULL_HANDLE) {
         xrDestroySpace(g.local);
         g.local = XR_NULL_HANDLE;
@@ -323,6 +330,10 @@ bool CreateSession()
         DestroySession();
         return false;
     }
+    spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+    if (!Ok(xrCreateReferenceSpace(g.session, &spaceInfo, &g.view), "xrCreateReferenceSpace(VIEW)")) {
+        g.view = XR_NULL_HANDLE; // a head-following HUD panel falls back to the seat
+    }
 
     std::uint32_t formatCount = 0;
     xrEnumerateSwapchainFormats(g.session, 0, &formatCount, nullptr);
@@ -441,18 +452,24 @@ void PumpEvents()
     }
 }
 
-// Ends the open frame. With `layer`, submits the projection layer.
-void EndFrame(const XrCompositionLayerBaseHeader* layer)
+// Ends the open frame with `count` layers, back to front (0 = none).
+void EndFrame(const XrCompositionLayerBaseHeader* const* layers, std::uint32_t count)
 {
     XrFrameEndInfo end{XR_TYPE_FRAME_END_INFO};
     end.displayTime = g.displayTime;
     end.environmentBlendMode = g.blendMode;
-    end.layerCount = layer ? 1 : 0;
-    end.layers = layer ? &layer : nullptr;
-    if (Ok(xrEndFrame(g.session, &end), "xrEndFrame") && layer) {
+    end.layerCount = count;
+    end.layers = count ? layers : nullptr;
+    if (Ok(xrEndFrame(g.session, &end), "xrEndFrame") && count) {
         ++g.status.framesSubmitted;
     }
     g.frameOpen = g.located = g.rendered = false;
+}
+
+// Ends the open frame. With `layer`, submits that one layer.
+void EndFrame(const XrCompositionLayerBaseHeader* layer)
+{
+    EndFrame(&layer, layer ? 1 : 0);
 }
 
 // Back buffer -> the target's current image: raw copy when size and family match, else a stretch blit.
@@ -898,19 +915,62 @@ void MarkRendered(int view, int eye)
     }
 }
 
+// HUD panel ([hud], PLAN Phase 7): the matte of the two HUD renders into the panel's image (premultiplied colour and
+// alpha, linear values through an _SRGB view). Fixed in LOCAL space in front of the recentered head ("seat": the
+// bike carries the camera, so LOCAL moves with the bike) or in VIEW space ("head"). false = no HUD layer this frame.
+bool WriteHud(ID3D11DeviceContext* context, const HudSource& hud, XrCompositionLayerQuad& quad)
+{
+    if (!hud.black || !hud.white || hud.width == 0 || hud.height == 0) {
+        return false;
+    }
+    if (!g.hud.Valid() || g.hud.Width() != hud.width || g.hud.Height() != hud.height) {
+        if (!g.hud.Create(g.instance, g.session, g.device, g.format, hud.width, hud.height, "hud", true)) {
+            return false;
+        }
+    }
+    if (!g.blitter.Ready() && !g.blitter.Init(g.device)) {
+        return false;
+    }
+    d3d::InternalScope internal;
+    if (!g.hud.Acquire(g.instance)) {
+        return false;
+    }
+    const bool ok = g.blitter.Matte(context, hud.black, hud.white, g.hud.Rtv(), hud.width, hud.height);
+    g.hud.Release(g.instance);
+    if (!ok) {
+        return false;
+    }
+    const auto& hc = core::GetConfig().hud;
+    const bool head = hc.follow == "head" && g.view != XR_NULL_HANDLE;
+    const stereo::Pose pose =
+        stereo::PanelPose(head ? stereo::Identity34() : g.recenter, hc.distance, hc.height, hc.tilt);
+    quad = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+    quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT; // premultiplied: no UNPREMULTIPLIED bit
+    quad.space = head ? g.view : g.local;
+    quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+    quad.subImage.swapchain = g.hud.Handle();
+    quad.subImage.imageRect.extent = {static_cast<std::int32_t>(hud.width), static_cast<std::int32_t>(hud.height)};
+    quad.pose.orientation = {pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w};
+    quad.pose.position = {pose.position.x, pose.position.y, pose.position.z};
+    quad.size = {hc.width, hc.width * static_cast<float>(hud.height) / static_cast<float>(hud.width)};
+    return true;
+}
+
 void SetSideBySide(bool sideBySide)
 {
     g.sideBySide = sideBySide;
     g.status.sideBySide = sideBySide;
 }
 
-void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
+void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, const HudSource& hud)
 {
+    g.status.hudLayer = false;
     if (!g.frameOpen) {
         return;
     }
     if (g.simulated) {
         g.status.presentation = !g.rendered ? "screen" : g.sideBySide ? "stereo" : "head-tracked";
+        g.status.hudLayer = g.rendered && g.sideBySide && hud.black && hud.white;
         g.frameOpen = false;
         return;
     }
@@ -954,7 +1014,12 @@ void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
         layer.space = g.local;
         layer.viewCount = 2;
         layer.views = projViews;
-        EndFrame(reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer));
+        XrCompositionLayerQuad hudQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
+        g.status.hudLayer = g.sideBySide && WriteHud(context, hud, hudQuad);
+        const XrCompositionLayerBaseHeader* layers[2] = {
+            reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer),
+            reinterpret_cast<const XrCompositionLayerBaseHeader*>(&hudQuad)};
+        EndFrame(layers, g.status.hudLayer ? 2u : 1u);
     }
     catch (...) {
         TT2VR_LOG_ERROR("xr: exception in OnFrameEnd");

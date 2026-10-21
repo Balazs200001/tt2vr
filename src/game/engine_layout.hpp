@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 
 namespace game::layout {
@@ -46,6 +47,19 @@ inline constexpr std::ptrdiff_t kHudRendererHudSize = 0x4;
 // the window's back-buffer target.
 inline constexpr std::ptrdiff_t kRenderTargetWidth = 0xf0;
 inline constexpr std::ptrdiff_t kRenderTargetHeight = 0xf4;
+// RenderTarget::Desc (RenderTargetManager::CreateRenderTarget; fields as TextureBaker::Create fills them for its
+// 'TextureBakeSRGB' target, docs/re/frame-anatomy.md 8.6). The caller zeroes the struct.
+inline constexpr std::size_t kRtDescSize = 0x88;
+inline constexpr std::ptrdiff_t kRtDescCount = 0x30; // int, colour targets
+inline constexpr std::ptrdiff_t kRtDescWidth = 0x34;
+inline constexpr std::ptrdiff_t kRtDescHeight = 0x38;
+inline constexpr std::ptrdiff_t kRtDescMips = 0x40;
+inline constexpr std::ptrdiff_t kRtDescFormat = 0x48; // uint32[4] format codes
+inline constexpr std::ptrdiff_t kRtDescSrgb = 0x60; // byte per target
+inline constexpr std::ptrdiff_t kRtDescSrgb2 = 0x64; // byte per target, set together with +0x60 (meaning: guess)
+inline constexpr std::ptrdiff_t kRtDescName = 0x78; // const char*
+inline constexpr std::ptrdiff_t kRtDescFlag81 = 0x81; // byte, 1 in every TextureBaker desc (meaning unknown)
+inline constexpr std::uint32_t kRtFormatRgba = 0x41424752; // 'RGBA': 8-bit RGBA
 
 // TransformMatrix slots (4x4, engine layout, stride 0x40)
 inline constexpr std::ptrdiff_t kTmView = 0x00;

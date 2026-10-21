@@ -20,7 +20,7 @@ DXGI_FORMAT ChooseSwapchainFormat(const std::vector<std::int64_t>& offered)
 }
 
 bool EyeSwapchain::Create(XrInstance instance, XrSession session, ID3D11Device* device, DXGI_FORMAT format,
-    std::uint32_t width, std::uint32_t height, const char* name)
+    std::uint32_t width, std::uint32_t height, const char* name, bool srgbView)
 {
     Destroy();
     XrSwapchainCreateInfo info{XR_TYPE_SWAPCHAIN_CREATE_INFO};
@@ -60,8 +60,9 @@ bool EyeSwapchain::Create(XrInstance instance, XrSession session, ID3D11Device* 
     const bool typeless = d3d::TypelessOf(desc.Format) == desc.Format;
     // Typeless image: write through the non-sRGB view, so the stored bits are exactly what the shader returns.
     // Typed image: the view must use its format; an _SRGB view re-encodes, so the shader must decode first.
-    const DXGI_FORMAT rtvFormat = typeless ? d3d::LinearViewOf(format) : desc.Format;
-    m_decode = typeless ? !d3d::IsSrgb(format) : true;
+    const bool encode = typeless && srgbView && d3d::IsSrgb(format);
+    const DXGI_FORMAT rtvFormat = encode ? format : typeless ? d3d::LinearViewOf(format) : desc.Format;
+    m_decode = typeless && !encode ? !d3d::IsSrgb(format) : true;
     for (const auto& image : images) {
         D3D11_RENDER_TARGET_VIEW_DESC rd{};
         rd.Format = rtvFormat;

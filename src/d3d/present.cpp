@@ -216,7 +216,12 @@ void RunCommands()
                 game::RequestMotionSave([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;
             case core::CommandKind::Hud:
-                game::RequestHudReport([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
+                if (cmd.arg == "save") {
+                    game::RequestHudSave([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
+                }
+                else {
+                    game::RequestHudReport([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
+                }
                 break;
             case core::CommandKind::ShiftTest:
                 game::RequestShiftTest([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
@@ -436,8 +441,12 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
             dump::End(g_frame, self);
             screenshot::OnPresent(self, g_device, g_immediate); // the engine's frame, before eyes and mirror
             game::OnTaaPresent(self, g_device, g_immediate); // reads the engine's frame, before eyes and mirror
-            xr::OnFrameEnd(self, g_immediate); // before the overlay, so the overlay stays on the desktop
+            game::OnHudFramePresent(g_immediate); // this frame's captured HUD, for the headset and the mirror
+            const game::HudImage hud = game::CurrentHud();
+            // Before the overlay, so the overlay stays on the desktop.
+            xr::OnFrameEnd(self, g_immediate, {hud.black, hud.white, hud.width, hud.height});
             xr::DrawDesktopMirror(self, g_immediate, g_window);
+            game::EndHudFrame(g_immediate); // capture targets cleared for the next frame
             if (!renderdoc::Busy()) {
                 ui::Render(self, g_device, g_immediate);
             }

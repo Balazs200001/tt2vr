@@ -43,7 +43,14 @@ void OnFrameStart(); // Present post-hook
 bool LocateViews(FrameViews& out); // Renderer::DoUpdate; false = no head pose this frame (render flat)
 void MarkRendered(int view, int eye); // ViewContext::InitFromCamera: view 0/1 was rendered from LocateViews' eye
 void SetSideBySide(bool sideBySide); // Renderer::DoUpdate: this frame's back buffer holds view 0 | view 1
-void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context); // Present pre-hook
+// The game's 2D HUD of this frame (game::HudCapture, PLAN Phase 7), drawn over black and over white (_SRGB views).
+struct HudSource {
+    ID3D11ShaderResourceView* black = nullptr;
+    ID3D11ShaderResourceView* white = nullptr;
+    std::uint32_t width = 0, height = 0;
+};
+// Present pre-hook. A two-view frame with a HUD adds the HUD panel ([hud]) as a quad layer over the projection layer.
+void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, const HudSource& hud = {});
 // Present pre-hook, after OnFrameEnd and before the overlay: while the session runs, redraws the back buffer for the
 // desktop window ([xr] desktop_view), letterboxed so the window's stretch gives the right shape.
 void DrawDesktopMirror(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, HWND window);
@@ -78,6 +85,7 @@ struct Status {
     bool tracked = false; // last located views had a valid orientation
     const char* presentation = "-"; // "stereo" / "head-tracked" (projection layer), "screen" (menu quad), "-"
     bool sideBySide = false; // last DoUpdate set up two views
+    bool hudLayer = false; // last frame showed the HUD panel (simulated headset: would have)
     const char* copyMode = "-"; // "copy" (raw CopySubresourceRegion), "blit" (stretch), "-" (nothing submitted)
     std::uint32_t backBufferW = 0, backBufferH = 0;
     double waitMs = 0; // xrWaitFrame, smoothed

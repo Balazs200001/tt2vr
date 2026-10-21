@@ -72,6 +72,7 @@ enum class Sig {
     RenderLoopPostUpdateLastFrameCamera,
     HudRendererRender,
     HudNodeGetTargetInfo,
+    RenderTargetManagerCreateRenderTarget,
     Count,
 };
 
@@ -294,6 +295,13 @@ inline constexpr Signature kSignatures[] = {
     {"HudNode::GetTargetInfo", "?GetTargetInfo@HudNode@Graphics@PlayAll@@SA?AUTargetInfo@123@XZ", nullptr, 0,
         "export; 0x140881ae0, static, struct returned through a hidden pointer: the 2D HUD layout for the current "
         "window (1920x1080 widened to its aspect) when HudRenderer+4/+8 are -1",
+        kBuild4989319},
+    {"RenderTargetManager::CreateRenderTarget",
+        "?CreateRenderTarget@RenderTargetManager@Graphics@PlayAll@@QEAAHAEAV?$StrongPtr@VRenderTarget@Graphics@PlayAll@@"
+        "@Core@3@AEBUDesc@RenderTarget@23@@Z",
+        nullptr, 0,
+        "export; 0x1408e1a30 (rtm, StrongPtr<RenderTarget>&, const Desc&) -> 0 on success; TextureBaker::Create makes "
+        "its sRGB 'TextureBakeSRGB' target with it (docs/re/frame-anatomy.md 8.6)",
         kBuild4989319},
 };
 
