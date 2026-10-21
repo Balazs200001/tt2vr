@@ -306,12 +306,12 @@ Implementation steps (proposed 2026-10-21, **waiting for Balazs's OK**; each ste
 ## Phase 6 — Temporal completeness
 
 - [x] Every inventory row implemented (per-eye via engine slot, or shared) and marked `confirmed` in `docs/re/temporal.md`, with evidence.
-  - 2026-10-21: 16 of 18 rows `confirmed` (`temporal.md` section 6 Status column, evidence in 11); N3 lens flares (fixed in 6e, visual check open) and N4 dynamic resolution (the player-setting-on case not exercised) are the two left.
+  - 2026-10-21: all 18 rows `confirmed` (`temporal.md` section 6 Status column, evidence in 11); N3 and N4 by Balazs's headset session (11.8).
 - [x] History reset: the engine has no camera-cut reset. Reset both eyes on the CLAUDE.md trigger list (TAA reset flag `RenderLoop+0xd08` / `ClearTAA`, last-frame buffers, froxel ping-pong index −1, exposure first-frame flags).
   - 2026-10-21 (6b): TAA byte, froxel −1, previous camera latched per view, both slots' last-frame buffers cleared; exposure deliberately not snapped (Decisions log). Triggers: recenter, `taareset`, two views on, IPD change, camera-mode change, cut detector (now catches crash camera and respawn), World Shift excluded.
 - [x] World Shift: confirm per-eye last-frame camera positions are rebased (`PreUpdateLastFrameCamera` handles both slots) and nothing smears across a 2048-unit shift.
   - 2026-10-21 (6c): `shifttest` PASS (`temporal.md` 11.3); the mod's own cut detector had reset TAA at every shift until 6b.
-- [x] Dynamic resolution forced off (or a fixed scale) in VR. (6d; the on-case is open for Balazs.)
+- [x] Dynamic resolution forced off (or a fixed scale) in VR. (6d; verified with the game's dynamic resolution on, headset 2026-10-21.)
 - [x] Overlay debug views: each eye's history, motion vectors and previous depth; a `[debug]` "freeze eye R history" option. (6f; remote `views`, `freeze`, `mvsave`.)
 - [x] VRAM readout for per-eye resources. (6f: 78.8 MB per eye at 1770x1892.)
 
@@ -342,6 +342,7 @@ Implementation steps (proposed 2026-10-21, **approved by Balazs 2026-10-21**: al
   - 2026-10-21 (`temporal.md` 11.4-11.7): leak tests **TAA PASS** (left 67.9% red, right +0.00%), **froxel PASS** (red excess left +6.13, right +0.006), **SSR INCONCLUSIVE** (SSR adds nothing visible on the dry road even with a 512 HDR tint; the binding audit covers it). Motion blur per eye: its constants hold the own view's previous VP (traces 9740/9741, motion blur on for the test, off again). Head shake: no ghost. Cut and World Shift: 6b, 6c. **Convergence: 7 PASS / 2 FAIL in 9 runs** (ratio 0.48-0.65, limit 0.60, always the right eye failing): `mvsave` shows the camera-attached helmet interior moving at idle in both eyes (left mean 2.4 px, right 7.9 px; 7.5 / 11.2 px with the helmet override off, so not the mod's), most likely the game's HelmetSprings sway; the lining fills about 40% of the image and dominates the measurement. Not a cross-eye leak (each view's MV camera inputs are its own).
 
 **Status 2026-10-21:** all six tasks done; 16 of 18 inventory rows `confirmed`. Open, for Balazs to accept or for a follow-up: (1) lens-flare A/B with a visible flare (6e, row N3); (2) dynamic resolution switched on once in the game options to see the forced path (6d, row N4); (3) SSR leak test on a wet road (rows P4/N2 are confirmed by bindings only); (4) the convergence test's margin: make it skip pixels with object motion (the per-eye MV copies exist now) and compare the helmet's motion vectors with flat play; (5) the headset check of the 6b/6e changes (comfort of the new cut resets, flares, dashboard).
+- 2026-10-21, Balazs's headset session (`temporal.md` 11.8): (1) flares look good, (2) dynamic resolution on: forced to 1.0 (log), (3) the game has no wet roads: the binding audit stands, (4) the helmet vectors are the bike's idle vibration (real motion), (5) cut resets look fine. **All 18 rows `confirmed`.** The same log showed **false cut resets at speed** (about 30 in 13 s, 0 deg: uneven headset frame pacing); fixed with `stereo::CutDetector` (limit from the longest of the last 32 steps; unit-tested; test mode still catches crash camera, respawn and road reset). Left: one headset ride to confirm no "camera cut ... 0-4 deg" lines at speed; optional, the convergence test ignoring moving pixels.
 
 **Done when:** all four temporal tests pass for every per-eye row, exposure is identical in both eyes, and no temporal effect is disabled.
 

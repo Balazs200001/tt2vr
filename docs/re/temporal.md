@@ -360,7 +360,7 @@ If H1 or H2 cannot be solved, fall back to A for Phase 4/5. If A's swap proves f
 | TAA history colour (incl. ping-pong) | P1 | per-eye | `RenderLoop+0xce8/+0xcf0 + idx*0x10` | C, else A (pointer swap), else B1 | confirmed (Phase 6): own-view history only (11.1), leak test PASS, reset and cut tests (11.3) |
 | TAA jitter index / offset | P2 | per-eye | `DAT_1413a88c4`, `ViewContext+0x448`, `RenderLoop+0xf70` | hook `InitFromCamera`, add jitter per eye | confirmed (Phase 6): previous jitter = own frame N value, same phase both eyes (11.1) |
 | Previous view/proj/VP | P3 | per-eye | `RenderLoop+0xed8`, `+0xf58`, `+0xf80..` | C | confirmed (Phase 6): previous VP / camera = own frame N values (11.1); reset latches previous = current (11.3) |
-| Previous depth / Hi-Z | P4 | per-eye (no Hi-Z found) | `RenderLoop+0x10e0` | C | confirmed (Phase 6, bindings, 11.1); functional leak test inconclusive: SSR invisible on the dry road (11.4) |
+| Previous depth / Hi-Z | P4 | per-eye (no Hi-Z found) | `RenderLoop+0x10e0` | C | confirmed (Phase 6, bindings, 11.1); a functional leak test is not possible: SSR adds nothing visible and the game has no wet roads (11.4, 11.8) |
 | Temporal AO / SSR / volumetric | P5 (+N1, N2) | per-eye | SSR via N2; froxel via N1; AO stateless (likely) | C | confirmed (Phase 6) via N1 / N2; SSAO is off in VR and stateless |
 | Motion blur camera matrices | P6 | per-eye | `RenderLoop+0xed8`, `+0xf58` | C | confirmed (Phase 6): motion-blur constants carry the own view's previous VP (11.5); motion blur off in VR by decision |
 | Per-object previous transforms | P7 | shared | `Mesh+0xc4/+0xf4/+0x70`, `SkinMesh+0x158` | engine idempotent per `frameId`; verify source | confirmed (Phase 5): Mesh once per frame, SkinMesh fixed (5a) |
@@ -369,12 +369,12 @@ If H1 or H2 cannot be solved, fall back to A for Phase 4/5. If A's swap proves f
 | Shadow cascades | P10 | shared (engine: per-slot) | `CSM+0x25b0 + idx` | force slot 1 = slot 0; verify fit | confirmed (5c; 11.1): one atlas per frame, read by view 1 in the same frame |
 | Probes | P11 | shared | `ProbeRenderer::Update`, `RenderProbe` | once per frame | confirmed (Phase 5): once per frame |
 | (new) Froxel history | N1 | per-eye | `DL+0x780`, `+0x760`, `+0x920` | C | confirmed (Phase 6): own-view history (11.1), leak test PASS (11.4), reset = index -1 (11.3) |
-| (new) Last-frame colour/depth | N2 | per-eye | `RenderLoop+0x10e0/+0x10f0` | C | confirmed (Phase 6, bindings, 11.1); reset clears both slots (11.3); leak test inconclusive (11.4) |
-| (new) Lens-flare queries | N3 | per-eye | `LensFlareInstance+0x64/+0x90` | C | per-slot by design; view 1's own flares since 6e (10.4); visual check open (no flare at the start line, 11.6) |
-| (new) Dynamic resolution | N4 | shared setting | 0x1413602d8, `FUN_1405b1270` | off / fixed 1.0 | held at 1.0 in VR (6d); the player-setting-on case not exercised (11.6) |
+| (new) Last-frame colour/depth | N2 | per-eye | `RenderLoop+0x10e0/+0x10f0` | C | confirmed (Phase 6, bindings, 11.1); reset clears both slots (11.3); no visible SSR to tint (11.4, 11.8) |
+| (new) Lens-flare queries | N3 | per-eye | `LensFlareInstance+0x64/+0x90` | C | confirmed (Phase 6): view 1 draws its own flares since 6e (10.4); headset check by Balazs 2026-10-21 (11.8) |
+| (new) Dynamic resolution | N4 | shared setting | 0x1413602d8, `FUN_1405b1270` | off / fixed 1.0 | confirmed (Phase 6): held at 1.0 with the player's dynamic resolution on (headset session 2026-10-21, 11.8) |
 | (new) World Shift fix-up | N5 | event | `PreUpdateLastFrameCamera` 0x1408dc6b0, `ShiftInfo` | rebase parked per-eye positions | confirmed (Phase 6): shifttest PASS (11.3) |
 | (new) TAA reset flag | N6 | mod-owned | `RenderLoop+0xd08`, `ClearTAA` | write per eye on every trigger | confirmed (Phase 6): full reset and in-ride cut triggers (11.3) |
-| (new) MV RT transient | N7 | shared transient | `RenderLoop+0xca8` | none | confirmed (Phase 6): rewritten and read within each view (11.1); helmet vectors at idle, 11.7 |
+| (new) MV RT transient | N7 | shared transient | `RenderLoop+0xca8` | none | confirmed (Phase 6): rewritten and read within each view (11.1); the helmet's vectors at idle are real motion (11.7, 11.8) |
 
 Phase 6 (2026-10-21): the Status column above holds the Phase 6 result per row (evidence in section 11).
 
@@ -576,3 +576,10 @@ Also seen in the crash camera: **the left eye is desaturated (grey) and the righ
 ### 11.7 Helmet-interior motion vectors and the convergence margin
 
 `mvsave` (both eyes' MV RT copies taken at each view's TAA draw), bike idle, head still: the world is 0 (not drawn by the MV pass), but the camera-attached helmet interior (top band and chin) moves: left eye mean 2.4 px (max 9 px), right 7.9 px (max 38 px); with `[camera] helmet_follows_view = false` 7.5 / 11.2 px (max 41 / 47 px), so the mod's helmet override is not the cause. Each view's MV-pass camera inputs are its own and consistent (current camera position = previous, previous VP close to the current, trace 11780). Reading: the game's HelmetSprings sway the helmet relative to the camera (real motion; `likely`), larger in the right eye at 10-20 cm through the asymmetric frustum (`guess`). Not a cross-eye leak. Consequence: the static convergence test is dominated by the moving lining (about 40% of the image, `convergence_diff.png`); its ratio was 0.48-0.65 over 9 runs (limit 0.60, 2 FAIL in the right eye), against 0.31 / 0.35 on 2026-10-21 before Phase 5. Open: compare with flat play (RenderDoc), and make the test ignore pixels with object motion (the MV copies exist now).
+
+### 11.8 Headset session (Balazs, 2026-10-21) and the cut detector at speed
+
+- **Lens flares (N3):** look right in both eyes with 6e. **Cut resets:** look fine. **Dynamic resolution (N4):** switched on in the game's options; log "the game's dynamic resolution was active (scale 1.000 x 1.000, upscale on); forced to 1.0 and off in VR, your setting is unchanged", back buffer 3540x1892 throughout, no warnings.
+- **SSR (P4, N2):** the game has no wet roads (Balazs), so a visible SSR leak test is not possible; the binding audit (11.1) and the reset (11.3) stand.
+- **Helmet motion vectors (N7, 11.7):** Balazs's reading, agreed: the bike's idle vibration shakes the helmet relative to the head (HelmetSprings), so the vectors are real motion.
+- **False cut resets at speed (fixed):** the same session logged about 30 resets in 13 s at speed ("2.5-2.9 m (limit 2.5), 0 deg"): with the headset's 72 / 36 Hz pacing the camera steps alternate between short and about 2.7 m, and the 6b limit (2 m + 1.5 x last speed x dt) followed the short ones. Every real in-ride cut turned 11-26 deg or jumped from a standstill, every false one 0-4 deg. `stereo::CutDetector` (pure, `tests/test_cut_detector.cpp` with these patterns) now takes the limit from the longest step of the last 32 frames (2 m + 2.5 x) and keeps the 10 deg turn rule. Test mode afterwards: crash camera (4.3 m, 17 deg), respawn (6.3 m, 16 deg) and a reset onto the road (8.0 m from a standstill) caught, no other reset. The uneven pacing exists only with the real headset: re-check in the next ride (the log should show no "camera cut" lines with 0-4 deg while riding).
