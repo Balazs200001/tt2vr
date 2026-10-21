@@ -228,6 +228,11 @@ void GpuTimersPresent(ID3D11Device* device, ID3D11DeviceContext* immediate)
     ++g_frame;
 }
 
+int GpuTimersOpenView()
+{
+    return g_recording ? g_openIndex : -1;
+}
+
 GpuTimes LastGpuTimes()
 {
     return g_last;

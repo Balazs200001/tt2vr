@@ -36,6 +36,9 @@ void GpuTimersView(const void* viewContext);
 // Thread: game main thread, Present post-hook (the frame's passes have executed).
 void GpuTimersPresent(ID3D11Device* device, ID3D11DeviceContext* immediate);
 
+// Camera index of the view whose passes are being recorded (0 or 1), or -1 outside the views (game::PassProfiler).
+int GpuTimersOpenView();
+
 // Last complete frame (for the overlay).
 GpuTimes LastGpuTimes();
 // Averages since the previous call, for the periodic perf log line; empty if no frame was measured.

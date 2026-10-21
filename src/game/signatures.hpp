@@ -95,6 +95,9 @@ enum class Sig {
     SettingFloatVftable,
     MemoryAllocAlignedInfo,
     MemoryFreeAlignedInfo,
+    RenderLayerDrawCommandBuffer,
+    RenderLayerDispatch,
+    RenderLayerCopyTextureSlice,
     Count,
 };
 
@@ -397,6 +400,14 @@ inline constexpr Signature kSignatures[] = {
         kBuild4989319},
     {"Memory::FreeAlignedInfo", "?FreeAlignedInfo@Memory@PlayAll@@YAXPEAX_N@Z", nullptr, 0,
         "export; 0x14081b830 (ptr, bool)", kBuild4989319},
+    // PLAN Phase 9, game::PassProfiler: the three pass appenders that cost GPU time (docs/re/renderer.md 9).
+    {"RenderLayer::DrawCommandBuffer", "?DrawCommandBuffer@RenderLayer@Graphics@PlayAll@@QEAAXPEAVDrawPass@23@@Z",
+        nullptr, 0, "export; 0x1408d6a10 (rl, DrawPass*): kind 0, queue 0; name at pass+0x18", kBuild4989319},
+    {"RenderLayer::Dispatch", "?Dispatch@RenderLayer@Graphics@PlayAll@@QEAAXPEAUDispatchCommand@23@@Z", nullptr, 0,
+        "export; 0x1408d68d0 (rl, DispatchCommand*): kind 1, queue 0; name at cmd+0x3b8", kBuild4989319},
+    {"RenderLayer::CopyTextureSlice",
+        "?CopyTextureSlice@RenderLayer@Graphics@PlayAll@@QEAAXPEAUCopySubRessourcePass@23@@Z", nullptr, 0,
+        "export; 0x1408d5db0 (rl, CopySubRessourcePass*): kind 4, queue 0; unnamed", kBuild4989319},
 };
 
 static_assert(std::size(kSignatures) == static_cast<std::size_t>(Sig::Count), "kSignatures must match Sig");

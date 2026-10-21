@@ -30,6 +30,7 @@ enum class CommandKind {
     Head,             // "head still | <yaw> [pitch] [roll] | shake <deg> <period s> [seconds]": simulated headset
     Comfort,          // "comfort [<setting> <value>]": show or change a comfort setting at runtime (PLAN 8)
     Drops,            // "drops [seconds]": [debug] rain on the visor (test mode only, game::ForceVisorRain)
+    GpuProfile,       // "gpuprofile [frames]": per-pass GPU time per eye over the next frames (game::PassProfiler)
     Unknown,
 };
 

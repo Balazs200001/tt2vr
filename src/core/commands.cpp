@@ -132,6 +132,10 @@ std::vector<Command> ParseCommands(std::string_view text)
             c.kind = CommandKind::Drops;
             c.arg = std::string(arg);
         }
+        else if (word == "gpuprofile") {
+            c.kind = CommandKind::GpuProfile;
+            c.arg = std::string(arg);
+        }
         commands.push_back(std::move(c));
     }
     return commands;
