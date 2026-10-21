@@ -2,8 +2,10 @@
 
 #include "core/config.hpp"
 #include "core/log.hpp"
+#include "core/test_mode.hpp"
 #include "d3d/blit.hpp"
 #include "d3d/internal.hpp"
+#include "xr/headset_profile.hpp"
 #include "xr/openxr.hpp"
 #include "xr/swapchain.hpp"
 
@@ -75,6 +77,14 @@ struct State {
 
     Status status;
     bool syncWarned = false;
+
+    // Simulated headset (test mode, core::TestMode): no OpenXR; views from the headset profile and a scripted head.
+    bool simulated = false;
+    HeadsetProfile profile;
+    bool profileSaved = false; // real session: profile written for this process
+    float simYaw = 0, simPitch = 0, simRoll = 0; // degrees; yaw left +, pitch up +
+    float shakeAmp = 0, shakePeriod = 1, shakeSeconds = 0; // yaw oscillation (degrees, s, s; 0 s = off)
+    Clock::time_point shakeStart{};
 };
 
 State g;
@@ -630,6 +640,31 @@ bool WriteScreen(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, XrComp
     return true;
 }
 
+// Test mode: a headset that needs no runtime. Eye size = profile recommendation * [xr] resolution_scale, as for a
+// real session; the session counts as running from the start.
+void StartSimulated()
+{
+    g.simulated = true;
+    g.profile = LoadHeadsetProfile();
+    const float scale = core::GetConfig().xr.resolution_scale;
+    const auto scaled = [scale](std::uint32_t recommended) {
+        const auto v = static_cast<std::uint32_t>(std::lround(static_cast<double>(recommended) * scale));
+        return std::max(16u, v) & ~1u;
+    };
+    g.status.recommendedW = g.profile.recommendedW;
+    g.status.recommendedH = g.profile.recommendedH;
+    g.status.eyeW = scaled(g.profile.recommendedW);
+    g.status.eyeH = scaled(g.profile.recommendedH);
+    g.status.runtime = "tt2vr simulated headset";
+    g.status.system = g.profile.system;
+    g.status.state = "simulated (test mode)";
+    g.status.tracked = true;
+    g.running = true;
+    TT2VR_LOG_INFO("xr: TEST MODE (-tt2vr-test): simulated headset, profile '{}', eye {}x{} (scale {}), ipd {:.4f} m; "
+                   "OpenXR is not started",
+        g.profile.system, g.status.eyeW, g.status.eyeH, scale, g.profile.ipd);
+}
+
 } // namespace
 
 void Init(ID3D11Device* device)
@@ -641,12 +676,26 @@ void Init(ID3D11Device* device)
     if (!g.status.enabled) {
         TT2VR_LOG_INFO("xr: disabled in config; the game stays flat");
     }
+    else if (core::TestMode()) {
+        StartSimulated();
+    }
 }
 
 void OnFrameStart()
 {
     g.sideBySide = false; // set again by this frame's DoUpdate (a movie frame has none)
     if (!g.configured || !g.status.enabled || !g.device) {
+        return;
+    }
+    if (g.simulated) {
+        // No runtime to wait for: the game's own pacing. Display time = steady clock (only compared with itself).
+        g.frameOpen = true;
+        g.displayTime = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count();
+        g.shouldRender = true;
+        g.status.shouldRender = true;
+        g.located = g.rendered = false;
+        g.viewEye[0] = 0;
+        g.viewEye[1] = 1;
         return;
     }
     try {
@@ -697,6 +746,72 @@ void OnFrameStart()
 
 namespace {
 
+XrQuaternionf QuatMul(const XrQuaternionf& a, const XrQuaternionf& b)
+{
+    return {a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y, a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+        a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w, a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z};
+}
+
+XrQuaternionf AxisAngle(float x, float y, float z, float degrees)
+{
+    const float h = degrees * 0.5f * 0.01745329f;
+    const float s = std::sin(h);
+    return {x * s, y * s, z * s, std::cos(h)};
+}
+
+XrVector3f Rotate(const XrQuaternionf& q, const XrVector3f& v)
+{
+    const XrQuaternionf p{v.x, v.y, v.z, 0.0f};
+    const XrQuaternionf r = QuatMul(QuatMul(q, p), {-q.x, -q.y, -q.z, q.w});
+    return {r.x, r.y, r.z};
+}
+
+// Simulated head at the LOCAL origin (XR axes: +y up, -z forward): yaw about +y, then pitch about +x, then roll about
+// -z; eyes at -/+ ipd/2 on the head's x axis; FOV from the profile.
+void SimulatedViews(XrView (&views)[2])
+{
+    float yaw = g.simYaw;
+    if (g.shakeSeconds > 0.0f) {
+        const float t = std::chrono::duration<float>(Clock::now() - g.shakeStart).count();
+        if (t < g.shakeSeconds) {
+            yaw += g.shakeAmp * std::sin(6.2831853f * t / g.shakePeriod);
+        }
+        else {
+            g.shakeSeconds = 0.0f;
+        }
+    }
+    const XrQuaternionf q =
+        QuatMul(QuatMul(AxisAngle(0, 1, 0, yaw), AxisAngle(1, 0, 0, g.simPitch)), AxisAngle(0, 0, -1, g.simRoll));
+    for (int i = 0; i < 2; ++i) {
+        views[i].pose.orientation = q;
+        views[i].pose.position = Rotate(q, {(i == 0 ? -0.5f : 0.5f) * g.profile.ipd, 0.0f, 0.0f});
+        views[i].fov = {g.profile.fov[i][0], g.profile.fov[i][1], g.profile.fov[i][2], g.profile.fov[i][3]};
+    }
+}
+
+// Real session: the located FOV, IPD and recommended size, for the simulated headset of later test runs.
+void SaveProfileFrom(const XrView (&views)[2])
+{
+    HeadsetProfile p;
+    p.system = g.status.system.empty() ? "unknown" : g.status.system;
+    p.recommendedW = g.status.recommendedW;
+    p.recommendedH = g.status.recommendedH;
+    const XrVector3f& a = views[0].pose.position;
+    const XrVector3f& b = views[1].pose.position;
+    const float ipd = std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) + (a.z - b.z) * (a.z - b.z));
+    if (ipd > 0.04f && ipd < 0.09f) {
+        p.ipd = ipd;
+    }
+    for (int i = 0; i < 2; ++i) {
+        const XrFovf& f = views[i].fov;
+        p.fov[i][0] = f.angleLeft;
+        p.fov[i][1] = f.angleRight;
+        p.fov[i][2] = f.angleUp;
+        p.fov[i][3] = f.angleDown;
+    }
+    SaveHeadsetProfile(p);
+}
+
 // xrLocateViews for the open frame (once), applying a pending recenter. Also used by the menu screen, which needs
 // the head pose for a recenter even though it renders nothing head-tracked.
 bool LocateInternal()
@@ -704,17 +819,23 @@ bool LocateInternal()
     if (g.located) {
         return true;
     }
-    XrViewLocateInfo info{XR_TYPE_VIEW_LOCATE_INFO};
-    info.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-    info.displayTime = g.displayTime;
-    info.space = g.local;
     XrViewState viewState{XR_TYPE_VIEW_STATE};
-    std::uint32_t count = 0;
     XrView views[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}};
-    if (!Ok(xrLocateViews(g.session, &info, &viewState, 2, &count, views), "xrLocateViews") || count != 2 ||
-        !(viewState.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT)) {
-        g.status.tracked = false;
-        return false;
+    if (g.simulated) {
+        SimulatedViews(views);
+        viewState.viewStateFlags = XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_POSITION_VALID_BIT;
+    }
+    else {
+        XrViewLocateInfo info{XR_TYPE_VIEW_LOCATE_INFO};
+        info.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+        info.displayTime = g.displayTime;
+        info.space = g.local;
+        std::uint32_t count = 0;
+        if (!Ok(xrLocateViews(g.session, &info, &viewState, 2, &count, views), "xrLocateViews") || count != 2 ||
+            !(viewState.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT)) {
+            g.status.tracked = false;
+            return false;
+        }
     }
     g.status.tracked = true;
     const bool positionValid = (viewState.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT) != 0;
@@ -734,6 +855,10 @@ bool LocateInternal()
         e.angleUp = views[i].fov.angleUp;
         e.angleDown = views[i].fov.angleDown;
         g.views[i] = views[i]; // submitted exactly as located (CLAUDE.md: pose and FOV actually rendered)
+    }
+    if (!g.simulated && !g.profileSaved && positionValid) {
+        g.profileSaved = true;
+        SaveProfileFrom(views);
     }
     if (g.recenterPending && g.displayTime >= g.recenterAfter) {
         // Head = midpoint of the eyes with the left eye's orientation (both eyes share it on current headsets).
@@ -781,6 +906,11 @@ void SetSideBySide(bool sideBySide)
 void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
 {
     if (!g.frameOpen) {
+        return;
+    }
+    if (g.simulated) {
+        g.status.presentation = !g.rendered ? "screen" : g.sideBySide ? "stereo" : "head-tracked";
+        g.frameOpen = false;
         return;
     }
     try {
@@ -850,12 +980,13 @@ void DrawDesktopMirror(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, 
             return;
         }
         const float uw = g.sideBySide && view == "left" ? 0.5f : 1.0f; // one-view frames: the whole image
-        // The window stretches the back buffer by (cw / bw, ch / bh). Fit the image's shape into the window, then
-        // map that rectangle back into back-buffer pixels.
+        // The window stretches the back buffer by (cw / bw, ch / bh). Fit the image's shape into the window (or cover
+        // it, cropping: [xr] desktop_fill), then map that rectangle back into back-buffer pixels. A covering viewport
+        // extends past the back buffer and the rasterizer clips it.
         const float cw = static_cast<float>(rc.right), ch = static_cast<float>(rc.bottom);
         const float bw = static_cast<float>(bd.Width), bh = static_cast<float>(bd.Height);
         const float aspect = uw * bw / bh;
-        const float dw = std::min(cw, ch * aspect);
+        const float dw = core::GetConfig().xr.desktop_fill ? std::max(cw, ch * aspect) : std::min(cw, ch * aspect);
         const float dh = dw / aspect;
         const D3D11_VIEWPORT dst{(cw - dw) * 0.5f * bw / cw, (ch - dh) * 0.5f * bh / ch, dw * bw / cw, dh * bh / ch,
             0.0f, 1.0f};
@@ -884,8 +1015,8 @@ void DrawDesktopMirror(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, 
 
 void RequestAlphaProbe(std::function<void(const std::string&)> done)
 {
-    if (!g.running) {
-        done("xrprobe FAILED: no XR session running");
+    if (!g.running || g.simulated) {
+        done(g.simulated ? "xrprobe FAILED: simulated headset (test mode)" : "xrprobe FAILED: no XR session running");
         return;
     }
     if (g_probe) {
@@ -911,8 +1042,33 @@ void RequestRecenter()
     TT2VR_LOG_INFO("xr: recenter requested");
 }
 
+bool Simulated()
+{
+    return g.simulated;
+}
+
+void SetSimulatedHead(float yawDeg, float pitchDeg, float rollDeg)
+{
+    g.simYaw = yawDeg;
+    g.simPitch = pitchDeg;
+    g.simRoll = rollDeg;
+    g.shakeSeconds = 0.0f;
+}
+
+void SimulatedHeadShake(float amplitudeDeg, float periodS, float seconds)
+{
+    g.shakeAmp = amplitudeDeg;
+    g.shakePeriod = std::max(periodS, 0.05f);
+    g.shakeSeconds = std::max(seconds, 0.0f);
+    g.shakeStart = Clock::now();
+}
+
 void RequestRestart()
 {
+    if (g.simulated) {
+        TT2VR_LOG_INFO("xr: restart ignored (simulated headset)");
+        return;
+    }
     TT2VR_LOG_INFO("xr: restart requested");
     DestroyAll();
     g.blitter.Release();

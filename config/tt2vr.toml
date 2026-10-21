@@ -70,9 +70,12 @@ force_render_size = true
 # the eye width; the desktop window shows both eyes). false = left eye only, right eye black (Phase 3 mode).
 stereo = true
 # What the desktop window shows while the headset session runs (the game renders at the headset's size, which the
-# window would show stretched): "left" = left eye, "both" = both eyes side by side, each letterboxed to the window's
-# shape; "game" = the raw rendered image, stretched.
+# window would show stretched): "left" = left eye, "both" = both eyes side by side, never stretched; "game" = the
+# raw rendered image, stretched.
 desktop_view = "left"
+# true: the desktop image covers the whole window (cropped at the edges, no black bars); false: the whole image fits
+# inside the window (black bars).
+desktop_fill = true
 # Shadow maps are created at this multiple of the size the game's shadow quality setting asks for (1..4, 1 = off).
 # The headset's wide view makes each shadow cascade cover twice the area, so 2 gives the flat game's shadow detail;
 # the distant shadow map is split per eye in VR, so 2 gives each eye the full size. Follows the in-game shadow

@@ -37,6 +37,35 @@ void HookedClientSize(HWND window, int* width, int* height)
     }
 }
 
+using SetWindowPosFn = BOOL(WINAPI*)(HWND, HWND, int, int, int, int, UINT);
+SetWindowPosFn g_setWindowPos = nullptr;
+
+// Thread: any (user32 export; the engine's SetSize 0x14095bc20 from SetScreenMode / DeviceReset). A resize of the
+// main window to exactly the forced size (+ frame) is the engine applying our render size to its window: keep the
+// window's own size (position and z-order changes still apply).
+BOOL WINAPI HookedSetWindowPos(HWND window, HWND after, int x, int y, int cx, int cy, UINT flags)
+{
+    const int w = g_width.load(std::memory_order_relaxed);
+    const int h = g_height.load(std::memory_order_relaxed);
+    if (w > 0 && h > 0 && window && window == g_window.load(std::memory_order_relaxed) && !(flags & SWP_NOSIZE)) {
+        RECT frame{0, 0, w, h};
+        AdjustWindowRectEx(&frame, static_cast<DWORD>(GetWindowLongW(window, GWL_STYLE)), FALSE,
+            static_cast<DWORD>(GetWindowLongW(window, GWL_EXSTYLE)));
+        if ((cx == frame.right - frame.left && cy == frame.bottom - frame.top) || (cx == w && cy == h)) {
+            flags |= SWP_NOSIZE;
+            static bool s_logged = false;
+            if (!s_logged) {
+                s_logged = true;
+                RECT rc{};
+                GetClientRect(window, &rc);
+                TT2VR_LOG_INFO("render size: the game's resize of its window to {}x{} blocked (window keeps {}x{})",
+                    cx, cy, rc.right, rc.bottom);
+            }
+        }
+    }
+    return g_setWindowPos(window, after, x, y, cx, cy, flags);
+}
+
 // Thread: game main thread (RenderWindowWin32::DefaultWndProc, WM_SIZE in Windowed mode).
 void HookedUpdateWindowResolution(void* videoDevice, HWND window)
 {
@@ -80,6 +109,11 @@ bool InstallRenderSizeHook()
                            &HookedUpdateWindowResolution, &g_updateWindowResolution) != core::hooks::Result::Ok) {
             TT2VR_LOG_WARN("render size: UpdateWindowResolution not hooked; in Windowed mode the game may resize its "
                            "window to the render size (use Borderless)");
+        }
+        void* setWindowPos = reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"user32.dll"), "SetWindowPos"));
+        if (!setWindowPos || core::hooks::Create("user32 SetWindowPos (main window, forced size)", setWindowPos,
+                                 &HookedSetWindowPos, &g_setWindowPos) != core::hooks::Result::Ok) {
+            TT2VR_LOG_WARN("render size: SetWindowPos not hooked; the game may resize its window to the render size");
         }
     }
     return g_active;

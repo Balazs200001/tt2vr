@@ -17,7 +17,9 @@
 //   Camera cut: the engine has none (temporal.md N6); a jump of the game camera by more than 15 m or 45 deg in one
 //     frame (race restart, teleport, camera switch) resets both eyes this frame and the next.
 //   Convergence test (remote "convergence"): 11 consecutive back-buffer readbacks; per eye the mean luma change
-//     between consecutive frames and the share of samples changing by more than 8/255. Head and bike still.
+//     between consecutive frames, then the same with the history reset before every frame as the reference. Pass:
+//     with history below 0.6 x the reference in each eye, and the eyes within 25% of each other. Head and bike still.
+//     Saves the change of the last frame pair as screens\convergence_diff.png.
 #pragma once
 
 #include <dxgi.h>
@@ -36,6 +38,10 @@ void OnTaaFrame(unsigned recenterCount);
 void RequestTaaReset(const char* reason);
 void RequestLeakTest(std::function<void(const std::string&)> done);
 void RequestConvergenceTest(std::function<void(const std::string&)> done);
+// Remote "cuttest [noreset]": waits up to 60 s for the next camera cut inside two-view riding, then reports each
+// eye's frame-to-frame change for 12 frames and saves screenshots of frames +1 and +2. noreset keeps the history for
+// that cut (A/B).
+void RequestCutTest(bool noReset, std::function<void(const std::string&)> done);
 // Thread: game main thread, InitFromCamera post-hook for view 0 (inside DoUpdate). `world` = the game camera's
 // world transform before the head pose (rows, translation in column 3). Resets both eyes' history on a cut.
 void OnMainCameraWorld(const float (&world)[3][4]);

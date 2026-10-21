@@ -397,6 +397,8 @@ Mod rule (`src/game/render_size.*`): hook the reader (post) and report the eye s
 
 Windowed-mode window resize (runtime 2026-10-20): `RenderWindowWin32::DefaultWndProc` (call 0x140709899) -> `UpdateWindowResolution` 0x14095c270 (only for ScreenMode 0 = Windowed, guard `this+0x4d9`) reads the client size through the hooked reader and calls `SetSize` 0x14095bc20, which `SetWindowPos`es the window to that client size (+ frame) and writes `+0x418/+0x500`. With the forced eye size this made the window ~3540 wide (wider than the monitor; Windows clamped only the height). Mod rule: skip `UpdateWindowResolution` for the main window while a size is forced (Borderless never reaches it).
 
+Window resize outside WM_SIZE (runtime 2026-10-21, Borderless, test mode): right after our forced device reset the engine `SetWindowPos`es its main window to the forced client size (log: forcing 3540x1892, WM_SIZE skip 4 ms later; window 3540x1100 on a 1920x1080 monitor, so the desktop image was off-centre and cut off). The caller is `SetSize` 0x14095bc20 reached from the screen-mode / reset path (`likely`; not traced). Mod rule: `user32!SetWindowPos` hook for the main window while a size is forced; a resize to exactly the forced size (+ `AdjustWindowRectEx` frame) gets `SWP_NOSIZE`. Verified: window stays 1920x1080, log "resize of its window to 3540x1892 blocked".
+
 Frame-structure rule for a VR hook: **a frame with a fullscreen movie contains no 3D render at all** (no `DeferredRenderLoop::Render` call), so any per-eye render loop must tolerate "no scene this frame" and fall back to the theater quad.
 
 ---

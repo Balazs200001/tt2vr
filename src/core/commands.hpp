@@ -19,12 +19,16 @@ enum class CommandKind {
     LeakTest,         // "leaktest": tint eye 0's TAA input for one frame, report red in each back-buffer half
     TaaReset,         // "taareset": reset both eyes' TAA history next frame
     Convergence,      // "convergence": per-eye frame-to-frame change over 10 frames (static TAA convergence test)
+    CutTest,          // "cuttest [noreset]": frame-to-frame change after the next camera cut (game::RequestCutTest)
+    Screenshot,       // "screenshot [name]" / "screen [name]": the engine's back buffer as a PNG (next frame)
+    Pad,              // "pad <steps>": virtual XInput pad script (test mode only, game::RunPadScript)
+    Head,             // "head still | <yaw> [pitch] [roll] | shake <deg> <period s> [seconds]": simulated headset
     Unknown,
 };
 
 struct Command {
     CommandKind kind = CommandKind::Unknown;
-    std::string arg;  // capture name ([A-Za-z0-9_-], max 64 chars; other characters become '_')
+    std::string arg;  // capture / screenshot name ([A-Za-z0-9_-], max 64 chars, others become '_'); pad / head: raw
     std::string text; // the original line
 };
 

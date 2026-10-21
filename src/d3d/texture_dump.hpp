@@ -4,8 +4,10 @@
 
 #include <atomic>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace d3d::dump {
 
@@ -13,6 +15,10 @@ using DoneFn = std::function<void(const std::string& result)>;
 
 // Arms a texture dump of the next frame. Thread: present thread.
 void Request(DoneFn onDone = {});
+bool Pending();
+
+// 24-bit BGR rows (width * 3 bytes each) to a PNG through WIC; COM must be initialised on this thread.
+bool WritePngBgr(const std::filesystem::path& path, UINT width, UINT height, std::vector<std::uint8_t>& bgr);
 bool Pending();
 
 // Present hook (present thread): Begin after Present returns, End before the next Present.

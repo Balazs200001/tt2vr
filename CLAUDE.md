@@ -97,6 +97,8 @@ Artifacts you can read afterwards (relative to `TT2_GAME_DIR`; hotkeys are in `c
 
 You can trigger these yourself while I hold the game in a state: `powershell -File tools/tt2vr-request.ps1 frametrace dump` (also `"capture <name>"` under RenderDoc, `shaders`). It prints the result paths.
 
+Without me or the headset: `tools/tt2vr-test.sh` (test mode, PLAN Decisions log 2026-10-21) launches the game with a simulated headset and a virtual pad (`launch`), drives it (`cmd "pad a wait:1500"`, `ride` from the main menu, `restart`), runs tests (`cmd leaktest`, `cmd convergence`, `cmd cuttest`), shows you the frame (`cmd "screenshot <name>"`, then open the PNG) or the desktop window (`window <png>`), and closes it (`quit`). Boot: three `pad a wait:1500` past the intros, one more past the autosave notice. Check the game is not running before you launch, and never kill it while the autosave icon shows.
+
 When I report a visual bug, ask for a frame trace or texture dump (or a RenderDoc capture) before guessing.
 
 ## Reverse-engineering workflow

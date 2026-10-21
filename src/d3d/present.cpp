@@ -19,6 +19,7 @@
 #include "d3d/frame_trace.hpp"
 #include "d3d/internal.hpp"
 #include "d3d/renderdoc.hpp"
+#include "d3d/screenshot.hpp"
 #include "d3d/shader_registry.hpp"
 #include "d3d/texture_dump.hpp"
 #include "d3d/vtable.hpp"
@@ -29,6 +30,7 @@
 #include "game/shared_exposure.hpp"
 #include "game/ssao_fix.hpp"
 #include "game/taa_control.hpp"
+#include "game/virtual_pad.hpp"
 #include "game/version.hpp"
 #include "ui/input_diag.hpp"
 #include "ui/overlay.hpp"
@@ -42,6 +44,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <sstream>
 
 namespace d3d {
 namespace {
@@ -97,6 +100,35 @@ auto Completion(const std::shared_ptr<Request>& req, std::size_t index)
     };
 }
 
+// Remote "head ...": the simulated headset's head (test mode).
+std::string HeadCommand(const std::string& arg)
+{
+    if (!xr::Simulated()) {
+        return "head FAILED: no simulated headset (launch with -tt2vr-test)";
+    }
+    std::istringstream in(arg);
+    std::string word;
+    in >> word;
+    if (word.empty() || word == "still") {
+        xr::SetSimulatedHead(0.0f, 0.0f, 0.0f);
+        return "head ok: still, facing forward";
+    }
+    if (word == "shake") {
+        float amplitude = 45.0f, period = 1.0f, seconds = 4.0f;
+        in >> amplitude >> period >> seconds;
+        xr::SimulatedHeadShake(amplitude, period, seconds);
+        return fmt::format("head ok: yaw shake +-{} deg, period {} s, for {} s", amplitude, period, seconds);
+    }
+    float yaw = 0.0f, pitch = 0.0f, roll = 0.0f;
+    std::istringstream angles(arg);
+    if (!(angles >> yaw)) {
+        return fmt::format("head FAILED: unknown '{}' (still | <yaw> [pitch] [roll] | shake <deg> <period> [s])", arg);
+    }
+    angles >> pitch >> roll;
+    xr::SetSimulatedHead(yaw, pitch, roll);
+    return fmt::format("head ok: yaw {} pitch {} roll {} deg", yaw, pitch, roll);
+}
+
 void RunCommands()
 {
     const auto& cfg = core::GetConfig().commands;
@@ -146,6 +178,22 @@ void RunCommands()
             case core::CommandKind::LeakTest:
                 game::RequestLeakTest([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;
+            case core::CommandKind::CutTest:
+                game::RequestCutTest(cmd.arg == "noreset",
+                    [done, origin](const std::string& r) { AddResult(origin, r); done(r); });
+                break;
+            case core::CommandKind::Screenshot:
+                screenshot::Request(cmd.arg, [done, origin](const std::string& r) { AddResult(origin, r); done(r); });
+                break;
+            case core::CommandKind::Pad:
+                game::RunPadScript(cmd.arg, [done, origin](const std::string& r) { AddResult(origin, r); done(r); });
+                break;
+            case core::CommandKind::Head: {
+                const std::string r = HeadCommand(cmd.arg);
+                AddResult(origin, r);
+                done(r);
+                break;
+            }
             case core::CommandKind::Convergence:
                 game::RequestConvergenceTest([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;
@@ -302,6 +350,7 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
             }
             trace::End(g_frame);
             dump::End(g_frame, self);
+            screenshot::OnPresent(self, g_device, g_immediate); // the engine's frame, before eyes and mirror
             game::OnTaaPresent(self, g_device, g_immediate); // reads the engine's frame, before eyes and mirror
             xr::OnFrameEnd(self, g_immediate); // before the overlay, so the overlay stays on the desktop
             xr::DrawDesktopMirror(self, g_immediate, g_window);
@@ -337,6 +386,7 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
             PollHotkeys();
             ui::TickInputDiagnostics(g_window);
             RunCommands();
+            game::TickVirtualPad();
             renderdoc::Tick(g_frame);
             trace::Begin(g_frame, g_immediate);
             dump::Begin(g_frame, g_device, g_immediate);
@@ -392,6 +442,7 @@ void OnDeviceCreated(ID3D11Device* device, ID3D11DeviceContext* immediate, IDXGI
     if (device) {
         shaders::InstallHooks(device);
         xr::Init(device);
+        game::InstallVirtualPad(); // test mode only
     }
     InstallContextHooks(device, immediate);
     if (!swapChain) {

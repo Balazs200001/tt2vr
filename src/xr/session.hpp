@@ -56,6 +56,14 @@ void RequestRecenter(); // hotkey / overlay; applied at the next LocateViews
 unsigned RecenterCount(); // increments whenever a recenter is applied (the view jumps; TAA history is reset)
 void RequestRestart(); // overlay: tear everything down and start again (also after the runtime asked us to exit)
 
+// Simulated headset (test mode, core::TestMode): OpenXR is never started; SessionRunning() is true from Init, views
+// come from the headset profile (xr/headset_profile.hpp) and the scripted head below, nothing is submitted.
+bool Simulated();
+// Head orientation in degrees (yaw left +, pitch up +, roll), held until changed; stops a shake.
+void SetSimulatedHead(float yawDeg, float pitchDeg, float rollDeg);
+// Adds a yaw oscillation of +-amplitudeDeg with period periodS for `seconds` (head-shake test).
+void SimulatedHeadShake(float amplitudeDeg, float periodS, float seconds);
+
 struct Status {
     bool enabled = false;
     std::string state; // human readable: "no runtime", "waiting for headset", "focused", ...

@@ -2,9 +2,12 @@
 
 #include "core/hooks.hpp"
 #include "core/log.hpp"
+#include "core/paths.hpp"
 #include "d3d/blit.hpp"
 #include "d3d/context_hooks.hpp"
 #include "d3d/internal.hpp"
+#include "d3d/screenshot.hpp"
+#include "d3d/texture_dump.hpp"
 #include "game/engine_layout.hpp"
 #include "game/signatures.hpp"
 #include "game/split_view.hpp"
@@ -13,9 +16,13 @@
 #include <wrl/client.h>
 
 #include <windows.h>
+#include <objbase.h>
 
 #include <algorithm>
+#include <filesystem>
+#include <system_error>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -62,10 +69,34 @@ int g_convFrames = 0; // frames still to read; 0 = idle
 std::vector<std::uint8_t> g_convPrev[2];
 std::uint64_t g_convSum[2] = {}, g_convHot[2] = {}, g_convCount[2] = {};
 std::function<void(const std::string&)> g_convDone;
+std::vector<std::uint8_t> g_convPrevFull; // whole back buffer, sample grid order
+std::vector<std::uint8_t> g_convDiff; // |d luma| * 8 of the last frame pair, sample grid order
+UINT g_convGridW = 0, g_convGridH = 0;
+float g_convCamMove = 0, g_convCamTurn = 0; // largest game-camera step between two frames while measuring (m, deg)
 constexpr int kConvFrames = 11; // 10 consecutive-frame differences per eye
 constexpr int kConvHot = 8; // a sample whose luma changes by more than this (of 255) counts as shimmering
-constexpr double kConvMaxMean = 2.0; // pass: mean |d luma| per eye below this (of 255)
-constexpr double kConvMaxHot = 2.0; // and fewer than this % of samples shimmering
+// Pass: per eye, the frame-to-frame change with history is below kConvMaxRatio x the change with the history reset
+// every frame, and the eyes' changes differ by less than kConvMaxAsym. An absolute limit does not work: wind in the
+// foliage and the bike's idle shake (0.4 mm / 0.04 deg per frame) keep changing in any frame (2026-10-21 diff image).
+constexpr double kConvMaxRatio = 0.6;
+constexpr double kConvMaxAsym = 0.25;
+int g_convPhase = 0; // 0 = with history, 1 = history reset every frame
+double g_convMeanA[2] = {}, g_convHotA[2] = {};
+std::string g_convImage;
+
+// Cut test (remote "cuttest [noreset]"), advanced at Present: waits for the detector's next cut, then reads the
+// frames after it. noreset = that one cut keeps its history (A/B: shows what the reset prevents).
+enum class CutTest { Idle, Waiting, After };
+CutTest g_cutTest = CutTest::Idle;
+bool g_cutNoReset = false;
+int g_cutFrame = 0;
+std::chrono::steady_clock::time_point g_cutDeadline{};
+std::vector<std::uint8_t> g_cutPrev[2];
+std::vector<double> g_cutDiff[2]; // mean |d luma| between consecutive frames after the cut, per eye
+std::string g_cutWhat; // the detector's line for the cut
+std::function<void(const std::string&)> g_cutDone;
+constexpr int kCutFrames = 12;
+constexpr auto kCutWait = std::chrono::seconds(60);
 
 // Camera-cut detector (main thread): view 0's game camera last frame (before the head pose).
 bool g_haveLastCamera = false;
@@ -227,24 +258,51 @@ bool RedShares(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceCont
     return ok;
 }
 
-// Luma (0..255) of each back-buffer half's samples.
+// Luma (0..255) of each back-buffer half's samples, and of the whole sample grid (`full`, gridW x gridH).
 bool LumaSamples(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext* context,
-    std::vector<std::uint8_t> (&out)[2])
+    std::vector<std::uint8_t> (&out)[2], std::vector<std::uint8_t>& full, UINT& gridW, UINT& gridH)
 {
     out[0].clear();
     out[1].clear();
+    full.clear();
     return ReadBackBuffer(swapChain, device, context,
         [&](const std::uint8_t* data, UINT pitch, UINT width, UINT height, bool bgra) {
             const UINT half = width / 2;
+            gridW = (width + kStep - 1) / kStep;
+            gridH = (height + kStep - 1) / kStep;
             for (UINT y = 0; y < height; y += kStep) {
                 const std::uint8_t* row = data + static_cast<std::size_t>(y) * pitch;
                 for (UINT x = 0; x < width; x += kStep) {
                     int r = 0, g = 0, b = 0;
                     Rgb(row + x * 4, bgra, r, g, b);
-                    out[x < half ? 0 : 1].push_back(static_cast<std::uint8_t>((2 * r + 5 * g + b) >> 3));
+                    const auto luma = static_cast<std::uint8_t>((2 * r + 5 * g + b) >> 3);
+                    out[x < half ? 0 : 1].push_back(luma);
+                    full.push_back(luma);
                 }
             }
         });
+}
+
+// The last frame pair's change (|d luma| x 8, both eyes side by side) for a look at where the image moves.
+std::string SaveConvergenceDiff()
+{
+    if (g_convDiff.size() != static_cast<std::size_t>(g_convGridW) * g_convGridH || g_convDiff.empty()) {
+        return "no diff image";
+    }
+    std::vector<std::uint8_t> bgr(g_convDiff.size() * 3);
+    for (std::size_t i = 0; i < g_convDiff.size(); ++i) {
+        bgr[i * 3] = bgr[i * 3 + 1] = bgr[i * 3 + 2] = g_convDiff[i];
+    }
+    const auto dir = core::CaptureDir() / "screens";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    const auto path = dir / "convergence_diff.png";
+    const HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const bool ok = d3d::dump::WritePngBgr(path, g_convGridW, g_convGridH, bgr);
+    if (SUCCEEDED(co)) {
+        CoUninitialize();
+    }
+    return ok ? "diff image " + path.string() : "diff image not written";
 }
 
 void FinishConvergence(const std::string& result)
@@ -253,6 +311,8 @@ void FinishConvergence(const std::string& result)
     g_convFrames = 0;
     g_convPrev[0].clear();
     g_convPrev[1].clear();
+    g_convPrevFull.clear();
+    g_convDiff.clear();
     if (g_convDone) {
         auto done = std::move(g_convDone);
         g_convDone = nullptr;
@@ -266,11 +326,19 @@ void ConvergenceFrame(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11Dev
         FinishConvergence("FAILED: not in two-view riding (stand still in the helmet camera, unpaused)");
         return;
     }
-    std::vector<std::uint8_t> current[2];
-    if (!LumaSamples(swapChain, device, context, current)) {
+    std::vector<std::uint8_t> current[2], full;
+    if (!LumaSamples(swapChain, device, context, current, full, g_convGridW, g_convGridH)) {
         FinishConvergence("FAILED: back buffer readback");
         return;
     }
+    if (g_convPrevFull.size() == full.size()) {
+        g_convDiff.resize(full.size());
+        for (std::size_t i = 0; i < full.size(); ++i) {
+            const int d = std::abs(static_cast<int>(full[i]) - static_cast<int>(g_convPrevFull[i]));
+            g_convDiff[i] = static_cast<std::uint8_t>(std::min(d * 8, 255));
+        }
+    }
+    g_convPrevFull = std::move(full);
     for (int e = 0; e < 2; ++e) {
         if (g_convPrev[e].size() == current[e].size()) {
             for (std::size_t i = 0; i < current[e].size(); ++i) {
@@ -291,12 +359,93 @@ void ConvergenceFrame(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11Dev
         mean[e] = n > 0 ? static_cast<double>(g_convSum[e]) / n : 0.0;
         hot[e] = n > 0 ? 100.0 * static_cast<double>(g_convHot[e]) / n : 0.0;
     }
-    const bool pass = g_convCount[0] > 0 && g_convCount[1] > 0 && mean[0] < kConvMaxMean && mean[1] < kConvMaxMean &&
-                      hot[0] < kConvMaxHot && hot[1] < kConvMaxHot;
-    FinishConvergence(fmt::format("{}: mean |d luma| between consecutive frames left {:.2f} right {:.2f} (of 255, "
-                                  "limit {:.1f}); samples changing by more than {}: left {:.2f}% right {:.2f}% (limit "
-                                  "{:.1f}%), {} frames",
-        pass ? "PASS" : "FAIL", mean[0], mean[1], kConvMaxMean, kConvHot, hot[0], hot[1], kConvMaxHot, kConvFrames));
+    if (g_convPhase == 0) {
+        // Phase 2: the same scene with the history reset before every frame (no temporal accumulation), the
+        // reference the normal frames must beat.
+        for (int e = 0; e < 2; ++e) {
+            g_convMeanA[e] = mean[e];
+            g_convHotA[e] = hot[e];
+            g_convSum[e] = g_convHot[e] = g_convCount[e] = 0;
+            g_convPrev[e].clear();
+        }
+        g_convImage = SaveConvergenceDiff();
+        g_convPrevFull.clear();
+        g_convPhase = 1;
+        g_convFrames = kConvFrames;
+        return;
+    }
+    double ratio[2] = {};
+    for (int e = 0; e < 2; ++e) {
+        ratio[e] = mean[e] > 0.0 ? g_convMeanA[e] / mean[e] : 1.0;
+    }
+    const double asym = std::abs(g_convMeanA[0] - g_convMeanA[1]) / std::max({g_convMeanA[0], g_convMeanA[1], 1e-6});
+    const bool pass = g_convCount[0] > 0 && g_convCount[1] > 0 && ratio[0] < kConvMaxRatio &&
+                      ratio[1] < kConvMaxRatio && asym < kConvMaxAsym;
+    FinishConvergence(fmt::format("{}: mean |d luma| frame to frame with history left {:.2f} right {:.2f}, history reset "
+                                  "every frame left {:.2f} right {:.2f} (of 255); ratio left {:.2f} right {:.2f} (limit "
+                                  "{:.2f}), eyes differ by {:.0f}% (limit {:.0f}%); samples changing by more than {}: "
+                                  "{:.2f}% / {:.2f}% with history, {:.2f}% / {:.2f}% without; {} frames each; game camera "
+                                  "moved up to {:.1f} mm / {:.3f} deg per frame; {}",
+        pass ? "PASS" : "FAIL", g_convMeanA[0], g_convMeanA[1], mean[0], mean[1], ratio[0], ratio[1], kConvMaxRatio,
+        asym * 100.0, kConvMaxAsym * 100.0, kConvHot, g_convHotA[0], g_convHotA[1], hot[0], hot[1], kConvFrames,
+        g_convCamMove * 1000.0f, g_convCamTurn, g_convImage));
+}
+
+void FinishCutTest(const std::string& result)
+{
+    TT2VR_LOG_INFO("cuttest: {}", result);
+    g_cutTest = CutTest::Idle;
+    g_cutNoReset = false;
+    if (g_cutDone) {
+        auto done = std::move(g_cutDone);
+        g_cutDone = nullptr;
+        done("cuttest " + result);
+    }
+}
+
+// After the cut: frame k's luma against frame k-1's, per eye; screenshots of the first two frames after the cut.
+void CutTestFrame(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext* context)
+{
+    if (g_cutTest == CutTest::Waiting) {
+        if (std::chrono::steady_clock::now() > g_cutDeadline) {
+            FinishCutTest("FAILED: no camera cut within 60 s");
+        }
+        return;
+    }
+    std::vector<std::uint8_t> current[2], full;
+    UINT w = 0, h = 0;
+    if (!LumaSamples(swapChain, device, context, current, full, w, h)) {
+        FinishCutTest("FAILED: back buffer readback");
+        return;
+    }
+    if (g_cutFrame < 2) {
+        // Captured at the next Present: frames +1 and +2 after the cut.
+        d3d::screenshot::Request(fmt::format("cut_{}_f{}", g_cutNoReset ? "noreset" : "reset", g_cutFrame + 1),
+            nullptr);
+    }
+    for (int e = 0; e < 2; ++e) {
+        if (g_cutPrev[e].size() == current[e].size() && !current[e].empty()) {
+            std::uint64_t sum = 0;
+            for (std::size_t i = 0; i < current[e].size(); ++i) {
+                sum += static_cast<std::uint64_t>(
+                    std::abs(static_cast<int>(current[e][i]) - static_cast<int>(g_cutPrev[e][i])));
+            }
+            g_cutDiff[e].push_back(static_cast<double>(sum) / static_cast<double>(current[e].size()));
+        }
+        g_cutPrev[e] = std::move(current[e]);
+    }
+    if (++g_cutFrame < kCutFrames) {
+        return;
+    }
+    std::string lines;
+    for (int e = 0; e < 2; ++e) {
+        lines += e == 0 ? " left" : "; right";
+        for (double d : g_cutDiff[e]) {
+            lines += fmt::format(" {:.1f}", d);
+        }
+    }
+    FinishCutTest(fmt::format("{} cut ({}), history {}: mean |d luma| frame to frame after the cut:{}",
+        g_cutNoReset ? "B" : "A", g_cutWhat, g_cutNoReset ? "kept (noreset)" : "reset", lines));
 }
 
 void FinishLeak(const std::string& result)
@@ -344,7 +493,7 @@ void OnTaaFrame(unsigned recenterCount)
         g_recenterSeen = recenterCount;
         RequestTaaReset("recenter");
     }
-    g_resetPending = g_resetNext;
+    g_resetPending = g_resetNext || (g_convFrames > 0 && g_convPhase == 1); // convergence reference phase
     g_resetNext = false;
 }
 
@@ -381,18 +530,53 @@ void OnMainCameraWorld(const float (&world)[3][4])
         const float dx = pos[0] - g_lastCameraPos[0], dy = pos[1] - g_lastCameraPos[1], dz = pos[2] - g_lastCameraPos[2];
         const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
         const float cosTurn = fwd[0] * g_lastCameraFwd[0] + fwd[1] * g_lastCameraFwd[1] + fwd[2] * g_lastCameraFwd[2];
+        if (g_convFrames > 0) {
+            g_convCamMove = std::max(g_convCamMove, dist);
+            g_convCamTurn = std::max(g_convCamTurn, std::acos(std::clamp(cosTurn, -1.0f, 1.0f)) * 57.29578f);
+        }
         if (dist > kCutDistance || cosTurn < kCutCos) {
-            // The engine has no cut detection (docs/re/temporal.md N6). This frame's views are recorded after
-            // DoUpdate; the next frame is reset too, in case its recording is the first to see the new camera.
-            g_resetPending = true;
-            g_resetNext = true;
-            TT2VR_LOG_INFO("taa: history reset for both eyes (camera cut: {:.1f} m, {:.0f} deg)", dist,
-                std::acos(std::clamp(cosTurn, -1.0f, 1.0f)) * 57.29578f);
+            const float deg = std::acos(std::clamp(cosTurn, -1.0f, 1.0f)) * 57.29578f;
+            // The cut test counts only cuts inside two-view riding (menu and loading cameras jump too).
+            const bool testCut = g_cutTest == CutTest::Waiting && SplitViewActive();
+            const bool suppress = testCut && g_cutNoReset;
+            if (!suppress) {
+                // The engine has no cut detection (docs/re/temporal.md N6). This frame's views are recorded after
+                // DoUpdate; the next frame is reset too, in case its recording is the first to see the new camera.
+                g_resetPending = true;
+                g_resetNext = true;
+            }
+            TT2VR_LOG_INFO("taa: {} (camera cut: {:.1f} m, {:.0f} deg)",
+                suppress ? "cut test: history KEPT for this cut (noreset)" : "history reset for both eyes", dist, deg);
+            if (testCut) {
+                g_cutTest = CutTest::After;
+                g_cutFrame = 0;
+                g_cutWhat = fmt::format("{:.1f} m, {:.0f} deg", dist, deg);
+            }
         }
     }
     std::copy(pos, pos + 3, g_lastCameraPos);
     std::copy(fwd, fwd + 3, g_lastCameraFwd);
     g_haveLastCamera = true;
+}
+
+void RequestCutTest(bool noReset, std::function<void(const std::string&)> done)
+{
+    if (!g_active) {
+        done("cuttest FAILED: RenderTAA hook not installed");
+        return;
+    }
+    if (g_cutDone) {
+        g_cutDone("cuttest FAILED: superseded by a newer request");
+    }
+    g_cutDone = std::move(done);
+    g_cutNoReset = noReset;
+    g_cutPrev[0].clear();
+    g_cutPrev[1].clear();
+    g_cutDiff[0].clear();
+    g_cutDiff[1].clear();
+    g_cutDeadline = std::chrono::steady_clock::now() + kCutWait;
+    g_cutTest = CutTest::Waiting;
+    TT2VR_LOG_INFO("cuttest: armed{}; waiting up to 60 s for a camera cut", noReset ? " (noreset)" : "");
 }
 
 void RequestConvergenceTest(std::function<void(const std::string&)> done)
@@ -406,6 +590,10 @@ void RequestConvergenceTest(std::function<void(const std::string&)> done)
     for (int e = 0; e < 2; ++e) {
         g_convSum[e] = g_convHot[e] = g_convCount[e] = 0;
     }
+    g_convPrevFull.clear();
+    g_convDiff.clear();
+    g_convCamMove = g_convCamTurn = 0;
+    g_convPhase = 0;
     g_convFrames = kConvFrames;
 }
 
@@ -416,6 +604,9 @@ void OnTaaPresent(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceC
     }
     if (g_convFrames > 0) {
         ConvergenceFrame(swapChain, device, context);
+    }
+    if (g_cutTest != CutTest::Idle) {
+        CutTestFrame(swapChain, device, context);
     }
     if (g_leak == Leak::Idle) {
         return;

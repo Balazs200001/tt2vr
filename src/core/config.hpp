@@ -62,6 +62,7 @@ struct Config {
         bool force_render_size = true; // render the game at the eye swapchain size while a headset is connected
         bool stereo = true; // both eyes as the engine's two split-screen views (Phase 4); false = left eye only
         std::string desktop_view = "left"; // window while the session runs: "left" eye, "both" eyes, "game" (raw)
+        bool desktop_fill = true; // desktop image covers the window (cropped, no bars); false = fits (letterboxed)
         int shadow_scale = 2; // shadow maps created at this multiple of the game's shadow quality size (1 = off)
         bool ssao = false; // keep the game's SSAO while the headset session runs (screen-space AO swims in VR)
         bool motion_blur = false; // keep the game's motion blur while the headset session runs (smears in VR)

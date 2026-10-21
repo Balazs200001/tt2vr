@@ -88,6 +88,22 @@ std::vector<Command> ParseCommands(std::string_view text)
         else if (word == "convergence") {
             c.kind = CommandKind::Convergence;
         }
+        else if (word == "cuttest") {
+            c.kind = CommandKind::CutTest;
+            c.arg = Lower(arg);
+        }
+        else if (word == "screenshot" || word == "screen") {
+            c.kind = CommandKind::Screenshot;
+            c.arg = SafeName(arg);
+        }
+        else if (word == "pad") {
+            c.kind = CommandKind::Pad;
+            c.arg = std::string(arg);
+        }
+        else if (word == "head") {
+            c.kind = CommandKind::Head;
+            c.arg = std::string(arg);
+        }
         commands.push_back(std::move(c));
     }
     return commands;

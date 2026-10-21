@@ -24,6 +24,18 @@ TEST_CASE("ParseCommands: keywords, aliases, comments, blank lines")
     CHECK(cmds[7].kind == CommandKind::Convergence);
 }
 
+TEST_CASE("ParseCommands: screenshot, pad and head arguments")
+{
+    const auto cmds = core::ParseCommands("screenshot main menu\npad a, wait:500 rt=1+lx=-0.5:2000\nhead shake 30 2\n");
+    REQUIRE(cmds.size() == 3);
+    CHECK(cmds[0].kind == CommandKind::Screenshot);
+    CHECK(cmds[0].arg == "main_menu");
+    CHECK(cmds[1].kind == CommandKind::Pad);
+    CHECK(cmds[1].arg == "a, wait:500 rt=1+lx=-0.5:2000");
+    CHECK(cmds[2].kind == CommandKind::Head);
+    CHECK(cmds[2].arg == "shake 30 2");
+}
+
 TEST_CASE("ParseCommands: capture names are sanitized")
 {
     const auto cmds = core::ParseCommands("capture snaefell_helmet-01\nrenderdoc ../evil name\ncapture\n");

@@ -12,6 +12,9 @@
 // Second hook: UpdateWindowResolution is skipped for the main window while a size is forced. In Windowed mode it
 // passes the (forced) client size to SetSize, which SetWindowPos'es the real window to it (runtime 2026-10-20: the
 // window became ~3540 wide, wider than the monitor). The forced size reaches the RTs through DeviceReset anyway.
+// Third hook: user32 SetWindowPos for the main window. The engine also sizes its window from the (forced) render
+// size outside WM_SIZE (SetScreenMode / DeviceReset -> SetSize; runtime 2026-10-21: window 3540x1100 on a 1920x1080
+// monitor, image off-centre and cut off). A resize to exactly the forced size (+ frame) keeps the window's own size.
 #pragma once
 
 #include <windows.h>

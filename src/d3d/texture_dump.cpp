@@ -315,6 +315,8 @@ bool IsGrayFormat(DXGI_FORMAT f)
     return f == DXGI_FORMAT_R8_UNORM || f == DXGI_FORMAT_A8_UNORM || f == DXGI_FORMAT_R16_UNORM;
 }
 
+} // namespace
+
 bool WritePngBgr(const std::filesystem::path& path, UINT width, UINT height, std::vector<std::uint8_t>& bgr)
 {
     ComPtr<IWICImagingFactory> factory;
@@ -337,6 +339,8 @@ bool WritePngBgr(const std::filesystem::path& path, UINT width, UINT height, std
     return SUCCEEDED(frame->WritePixels(height, width * 3, static_cast<UINT>(bgr.size()), bgr.data())) &&
            SUCCEEDED(frame->Commit()) && SUCCEEDED(encoder->Commit());
 }
+
+namespace {
 
 // Decodes texel channels to floats. Returns the channel count, 0 if the format has no preview.
 int DecodeTexel(DXGI_FORMAT f, const std::uint8_t* p, float out[4], bool& hdrColour)
