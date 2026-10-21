@@ -31,6 +31,11 @@ inline constexpr std::ptrdiff_t kViewCamera = 0x450; // Camera*
 inline constexpr std::ptrdiff_t kViewCullingPass = 0x460; // int (ECullingPass), 0 = main view, else shadow etc.
 inline constexpr std::ptrdiff_t kViewCameraIndex = 0x464; // ushort, selects the per-slot history (0 / 1)
 inline constexpr std::ptrdiff_t kViewHudList = 0x5e8; // HudItemList* (3D HUD flags 8 / 0x14, per-view 2D HUD 0x22)
+// HudItemList (size 0x1e0): Array<HudList3D*> drawn after post (flag 4 / 0x14) and before post (flag 8); an Array is
+// {+0 capacity, +4 count, +8 data}, 0x10 bytes. The 2D root HudNode (lens-flare sprites, flag 0x22) is at +0x18.
+inline constexpr std::ptrdiff_t kHudList3DAfterPost = 0x1b8;
+inline constexpr std::ptrdiff_t kHudList3DBeforePost = 0x1c8;
+inline constexpr std::size_t kEngineArraySize = 0x10;
 
 // TransformMatrix slots (4x4, engine layout, stride 0x40)
 inline constexpr std::ptrdiff_t kTmView = 0x00;

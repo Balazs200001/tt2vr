@@ -11,6 +11,7 @@
 
 #include <bit>
 #include <cstdint>
+#include <cstring>
 
 namespace game {
 namespace {
@@ -64,7 +65,11 @@ Desc g_written;
 const void* g_savedScene1 = nullptr; // Renderer+0xd88 before we pointed it at view 0's scene
 const void* g_writtenScene1 = nullptr;
 const void* g_savedHud1 = nullptr; // view 1's HudItemList during the current DeferredRenderLoop::Render
-bool g_hudSwapped = false;
+bool g_hudSwapped = false; // fallback: view 1 draws camera 0's whole list
+char* g_hud1 = nullptr; // view 1's list whose 3D arrays hold camera 0's during Render
+std::uint8_t g_saved3d[2][kEngineArraySize] = {}; // its own after-post / before-post array headers
+bool g_hud3dSwapped = false;
+bool g_hudFallbackLogged = false;
 void* g_borderLoop = nullptr; // DeferredRenderLoop whose 'Split border' byte we cleared (was 1)
 bool g_possibleSet = false;
 bool g_active = false;
@@ -346,31 +351,58 @@ bool SplitViewActive()
     return g_active;
 }
 
-// View 1 draws view 0's HUD list: the cockpit dashboard is a 3D HUD registered in camera 0's list only
+// View 1 draws camera 0's 3D HUD lists: the cockpit dashboard is a 3D HUD registered in camera 0's list only
 // (TTDashboardHUD via GetHudItemList(0)->Add3DList; frame trace 13970: its quads drawn in view 0 only), and
-// DeferredRenderLoop::Render takes each view's list from ViewContext+0x5e8 (0x1408485de). The engine sets that field
-// again every frame after DoUpdate's pre-hook (runtime 2026-10-20: still camera 1's list), so it is swapped only for
-// the duration of Render and put back after. Caveat: lens flares are added per view into that view's list, so eye 1
-// gets eye 0's flares (Phase 7 HUD work).
+// DeferredRenderLoop::Render takes each view's list from ViewContext+0x5e8 (0x1408485de). View 1 keeps its own list
+// otherwise: LensFlareManager::Update adds each camera's flare sprites to that camera's list (2D root), so swapping the
+// whole list gave eye 1 eye 0's flares (PLAN 6e, docs/re/temporal.md 10.4). For the duration of Render, view 1's list
+// takes camera 0's two Array<HudList3D*> headers (after / before post) and gets its own back after; HudRenderer::Render
+// draws them with view 1's camera (RenderContext+0x130) and only sorts them in place. Only while view 1's own 3D arrays
+// are empty (no second player registers a 3D HUD); otherwise the whole list is swapped as before (flares of eye 0).
 void BeginLoopRender(void* renderer)
 {
     g_hudSwapped = false;
+    g_hud3dSwapped = false;
     if (!g_active || !renderer) {
         return;
     }
     char* vc0 = static_cast<char*>(renderer) + kRendererViewContexts;
     char* vc1 = vc0 + kViewContextSize;
-    const void* hud0 = Read<const void*>(vc0, kViewHudList);
-    if (!hud0) {
+    auto* hud0 = Read<char*>(vc0, kViewHudList);
+    auto* hud1 = Read<char*>(vc1, kViewHudList);
+    if (!hud0 || hud0 == hud1) {
         return;
     }
-    g_savedHud1 = Read<const void*>(vc1, kViewHudList);
-    Write(vc1, kViewHudList, hud0);
+    constexpr std::ptrdiff_t kArrays[2] = {kHudList3DAfterPost, kHudList3DBeforePost};
+    const bool ownEmpty = hud1 && Read<int>(hud1, kHudList3DAfterPost + kArrayCount) == 0 &&
+                          Read<int>(hud1, kHudList3DBeforePost + kArrayCount) == 0;
+    if (ownEmpty) {
+        for (int i = 0; i < 2; ++i) {
+            std::memcpy(g_saved3d[i], hud1 + kArrays[i], kEngineArraySize);
+            std::memcpy(hud1 + kArrays[i], hud0 + kArrays[i], kEngineArraySize);
+        }
+        g_hud1 = hud1;
+        g_hud3dSwapped = true;
+        return;
+    }
+    if (!g_hudFallbackLogged) {
+        g_hudFallbackLogged = true;
+        TT2VR_LOG_WARN("split view: view 1's HUD list has its own 3D lists; view 1 draws camera 0's whole list (eye 1 "
+                       "shows eye 0's lens flares)");
+    }
+    g_savedHud1 = hud1;
+    Write(vc1, kViewHudList, static_cast<const void*>(hud0));
     g_hudSwapped = true;
 }
 
 void EndLoopRender(void* renderer)
 {
+    if (g_hud3dSwapped && g_hud1) {
+        std::memcpy(g_hud1 + kHudList3DAfterPost, g_saved3d[0], kEngineArraySize);
+        std::memcpy(g_hud1 + kHudList3DBeforePost, g_saved3d[1], kEngineArraySize);
+        g_hud3dSwapped = false;
+        g_hud1 = nullptr;
+    }
     if (!g_hudSwapped || !renderer) {
         return;
     }
