@@ -34,6 +34,7 @@
 #include "game/shared_exposure.hpp"
 #include "game/shared_shadows.hpp"
 #include "game/skin_motion.hpp"
+#include "game/slot_mirror.hpp"
 #include "game/ssao_fix.hpp"
 #include "game/taa_control.hpp"
 #include "game/temporal_debug.hpp"
@@ -239,6 +240,18 @@ void RunCommands()
                 done(r);
                 break;
             }
+            case core::CommandKind::Drops: {
+                float seconds = 20.0f;
+                try {
+                    seconds = cmd.arg.empty() ? 20.0f : std::stof(cmd.arg);
+                }
+                catch (...) {
+                }
+                const std::string r = game::ForceVisorRain(seconds);
+                AddResult(origin, r);
+                done(r);
+                break;
+            }
             case core::CommandKind::Comfort: {
                 const std::string r = game::ComfortCommand(cmd.arg);
                 AddResult(origin, r);
@@ -349,6 +362,7 @@ void InstallEngineHooksOnce()
         game::InstallSharedShadows();
         game::InstallParticleMedium();
         game::InstallHudCapture();
+        game::InstallSlotMirror();
     }
     else {
         TT2VR_LOG_WARN("engine hooks skipped: unknown game version");

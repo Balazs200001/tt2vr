@@ -119,6 +119,9 @@ world_scale = 1.0
 # Eye separation multiplier (0.5..2) on top of the world scale: above 1 everything looks smaller and closer in depth,
 # below 1 flatter. 1 = your headset's IPD.
 ipd_scale = 1.0
+# Rain drops on the helmet visor: both eyes show the same drops. false = each eye simulates its own drops (the
+# right eye's then get no streaks from the bike's speed).
+visor_drops_shared = true
 
 [hud]
 # While riding in the headset, the game's 2D HUD (map, speed, gear, times, messages) is taken out of the eye images

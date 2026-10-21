@@ -113,6 +113,19 @@ inline constexpr std::ptrdiff_t kKTUCameraMode = 0x48; // active KTUCameraMode*;
 inline constexpr std::ptrdiff_t kKTUCameraOverrideMode = 0x68; // Ansel / free camera mode; non-null replaces +0x48
 inline constexpr int kModeManageSlot = 6; // vtable slot (+0x30): Manage, called at 0x1409d9125
 
+// Slot-1 mirror (PLAN 8f / 8g, docs/re/renderer.md 6 B / D)
+inline constexpr std::ptrdiff_t kRenderLoopWaterDrop = 0x1ec0; // WaterDrop*
+inline constexpr std::ptrdiff_t kWaterDropSlots = 0x60; // per-slot state, stride kWaterDropSlotSize
+inline constexpr std::ptrdiff_t kWaterDropSlotSize = 0x68;
+inline constexpr std::ptrdiff_t kWaterDropSlotRain = 0x40; // float rain intensity
+inline constexpr std::ptrdiff_t kWaterDropSlotAlive = 0x60; // byte, written by WaterDrop::Render
+inline constexpr std::ptrdiff_t kGameEngineCollisionEffect = 0x778; // TTCollisionEffect* (FUN_1401279d0)
+inline constexpr std::ptrdiff_t kCollisionEffectPostProcess = 0x88; // PostProcessManager*
+inline constexpr std::ptrdiff_t kCollisionEffectPpIndex = 0x94; // uint, "FadeToColor" (-1 = none)
+inline constexpr std::ptrdiff_t kCollisionEffectMaterial = 0xe8; // SplitViewMaterial*
+inline constexpr std::ptrdiff_t kSplitViewSlotHolder = 0x18; // *(SplitViewMaterial + slot*8) + this -> holder
+inline constexpr std::ptrdiff_t kHolderMaterialDefinition = 0x30; // holder + this = MaterialDefinition (0x1401acf70)
+
 // PlayAll::Game::Renderer
 inline constexpr std::ptrdiff_t kRendererSplitMode = 0xe40; // cameraDesc.splitMode (0 = one view)
 inline constexpr std::ptrdiff_t kRendererSplitCameras = 0xe48; // Camera*[2]

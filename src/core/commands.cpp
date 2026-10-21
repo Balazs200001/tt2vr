@@ -128,6 +128,10 @@ std::vector<Command> ParseCommands(std::string_view text)
             c.kind = CommandKind::Comfort;
             c.arg = std::string(arg);
         }
+        else if (word == "drops") {
+            c.kind = CommandKind::Drops;
+            c.arg = std::string(arg);
+        }
         commands.push_back(std::move(c));
     }
     return commands;

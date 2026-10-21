@@ -281,6 +281,7 @@ void ReadXr(const toml::table& t, Config::Xr& out, Warnings& w)
         else if (key == "shared_shadows") s.Bool(key, node, out.shared_shadows);
         else if (key == "world_scale") s.Float(key, node, out.world_scale, 0.5, 2.0);
         else if (key == "ipd_scale") s.Float(key, node, out.ipd_scale, 0.5, 2.0);
+        else if (key == "visor_drops_shared") s.Bool(key, node, out.visor_drops_shared);
         else if (key == "desktop_fill") s.Bool(key, node, out.desktop_fill);
         else if (key == "desktop_view") {
             s.String(key, node, out.desktop_view);

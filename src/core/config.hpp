@@ -75,6 +75,7 @@ struct Config {
         bool shared_shadows = true; // one cascaded shadow render per frame for both eyes (read at startup)
         float world_scale = 1.0f; // PLAN 8e: the world looks this much larger (head motion and IPD / this), 0.5..2
         float ipd_scale = 1.0f; // PLAN 8e: eye separation multiplier on top of world_scale, 0.5..2
+        bool visor_drops_shared = true; // PLAN 8f: the right eye shows the left eye's visor drops
     } xr;
     struct Hud {
         bool enabled = true; // the game's 2D HUD on its own panel while riding in the headset (Phase 7)

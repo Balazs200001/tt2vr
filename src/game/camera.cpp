@@ -12,6 +12,7 @@
 #include "game/menu_state.hpp"
 #include "game/rider_view.hpp"
 #include "game/signatures.hpp"
+#include "game/slot_mirror.hpp"
 #include "game/split_view.hpp"
 #include "game/shared_exposure.hpp"
 #include "game/taa_control.hpp"
@@ -682,6 +683,7 @@ void HookedLoopRender(void* renderLoop, void* renderDesc)
     if (renderer) {
         ForceVrResolution(xr::SessionRunning());
         OnTaaLoopRender(renderLoop); // history reset: froxel index, last-frame buffers
+        OnSlotMirrorLoopRender(renderLoop, SplitViewActive()); // visor drops, crash grey for the right eye
         OnTemporalDebugLoopRender(renderLoop);
     }
     GpuTimersLoopBegin(renderer);

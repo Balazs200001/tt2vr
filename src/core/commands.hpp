@@ -29,6 +29,7 @@ enum class CommandKind {
     Pad,              // "pad <steps>": virtual XInput pad script (test mode only, game::RunPadScript)
     Head,             // "head still | <yaw> [pitch] [roll] | shake <deg> <period s> [seconds]": simulated headset
     Comfort,          // "comfort [<setting> <value>]": show or change a comfort setting at runtime (PLAN 8)
+    Drops,            // "drops [seconds]": [debug] rain on the visor (test mode only, game::ForceVisorRain)
     Unknown,
 };
 

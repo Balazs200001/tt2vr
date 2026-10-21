@@ -50,6 +50,7 @@ bool SameConfig(const Config& a, const Config& b)
            a.camera.shake == b.camera.shake && a.camera.seat_forward == b.camera.seat_forward &&
            a.camera.seat_up == b.camera.seat_up && a.camera.seat_right == b.camera.seat_right &&
            a.xr.world_scale == b.xr.world_scale && a.xr.ipd_scale == b.xr.ipd_scale &&
+           a.xr.visor_drops_shared == b.xr.visor_drops_shared &&
            SameHotkey(a.hotkeys.seat_forward, b.hotkeys.seat_forward) &&
            SameHotkey(a.hotkeys.seat_back, b.hotkeys.seat_back) && SameHotkey(a.hotkeys.seat_up, b.hotkeys.seat_up) &&
            SameHotkey(a.hotkeys.seat_down, b.hotkeys.seat_down) &&
