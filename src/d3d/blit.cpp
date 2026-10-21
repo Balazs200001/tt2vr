@@ -38,6 +38,7 @@ const FormatFamily* FamilyOf(DXGI_FORMAT f)
 // Fullscreen triangle; the source is read through a non-sRGB view (raw stored values).
 constexpr char kShaderSource[] = R"(
 Texture2D src : register(t0);
+Texture2D src1 : register(t1);
 SamplerState smp : register(s0);
 struct V { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
 V VS(uint id : SV_VertexID)
@@ -75,6 +76,14 @@ float4 PSDepth(V i) : SV_Target
 {
     return float4(saturate(1.0 + log10(max(src.Sample(smp, i.uv).r, 1e-7)) / 6.0).xxx, 1);
 }
+float4 PSMatte(V i) : SV_Target
+{
+    // The same image over black (t0) = C and over white (t1) = C + (1 - a), linear and premultiplied: a = 1 - (W - B).
+    float3 b = src.Sample(smp, i.uv).rgb;
+    float3 w = src1.Sample(smp, i.uv).rgb;
+    float a = saturate(1.0 - dot(w - b, 1.0 / 3.0));
+    return float4(min(b, a), a);
+}
 )";
 
 ComPtr<ID3DBlob> Compile(const char* entry, const char* target)
@@ -104,7 +113,7 @@ public:
         c->GSGetShader(&m_gs, m_gsInst, &m_gsCount);
         c->HSGetShader(&m_hs, m_hsInst, &m_hsCount);
         c->DSGetShader(&m_ds, m_dsInst, &m_dsCount);
-        c->PSGetShaderResources(0, 1, &m_srv);
+        c->PSGetShaderResources(0, 2, m_srvs);
         c->PSGetSamplers(0, 1, &m_sampler);
         c->RSGetState(&m_raster);
         m_viewportCount = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
@@ -125,8 +134,7 @@ public:
         m_c->GSSetShader(m_gs.Get(), m_gsInst, m_gsCount);
         m_c->HSSetShader(m_hs.Get(), m_hsInst, m_hsCount);
         m_c->DSSetShader(m_ds.Get(), m_dsInst, m_dsCount);
-        ID3D11ShaderResourceView* srv = m_srv.Get();
-        m_c->PSSetShaderResources(0, 1, &srv);
+        m_c->PSSetShaderResources(0, 2, m_srvs);
         ID3D11SamplerState* sampler = m_sampler.Get();
         m_c->PSSetSamplers(0, 1, &sampler);
         m_c->RSSetState(m_raster.Get());
@@ -137,6 +145,9 @@ public:
         m_c->OMSetDepthStencilState(m_depth.Get(), m_stencilRef);
         // The Get* calls above added references; drop them now that the state is back.
         for (auto* p : m_rtvs) {
+            if (p) p->Release();
+        }
+        for (auto* p : m_srvs) {
             if (p) p->Release();
         }
         ReleaseInstances(m_vsInst, m_vsCount);
@@ -174,7 +185,7 @@ private:
     ID3D11ClassInstance* m_hsInst[kMaxInstances] = {};
     ID3D11ClassInstance* m_dsInst[kMaxInstances] = {};
     UINT m_vsCount = 0, m_psCount = 0, m_gsCount = 0, m_hsCount = 0, m_dsCount = 0;
-    ComPtr<ID3D11ShaderResourceView> m_srv;
+    ID3D11ShaderResourceView* m_srvs[2] = {}; // PS slots 0 and 1, raw references like m_rtvs
     ComPtr<ID3D11SamplerState> m_sampler;
     ComPtr<ID3D11RasterizerState> m_raster;
     UINT m_viewportCount = 0;
@@ -231,7 +242,8 @@ bool Blitter::Init(ID3D11Device* device)
     const auto psOver = Compile("PSOver", "ps_5_0");
     const auto psMotion = Compile("PSMotion", "ps_5_0");
     const auto psDepth = Compile("PSDepth", "ps_5_0");
-    if (!vs || !psRaw || !psDecode || !psOpaque || !psOver || !psMotion || !psDepth) {
+    const auto psMatte = Compile("PSMatte", "ps_5_0");
+    if (!vs || !psRaw || !psDecode || !psOpaque || !psOver || !psMotion || !psDepth || !psMatte) {
         return false;
     }
     D3D11_SAMPLER_DESC sd{};
@@ -267,6 +279,7 @@ bool Blitter::Init(ID3D11Device* device)
         FAILED(device->CreatePixelShader(
             psMotion->GetBufferPointer(), psMotion->GetBufferSize(), nullptr, &m_psMotion)) ||
         FAILED(device->CreatePixelShader(psDepth->GetBufferPointer(), psDepth->GetBufferSize(), nullptr, &m_psDepth)) ||
+        FAILED(device->CreatePixelShader(psMatte->GetBufferPointer(), psMatte->GetBufferSize(), nullptr, &m_psMatte)) ||
         FAILED(device->CreateBlendState(&ad, &m_blendAlpha)) || FAILED(device->CreateBlendState(&od, &m_blendOver)) ||
         FAILED(device->CreateSamplerState(&sd, &m_sampler)) || FAILED(device->CreateRasterizerState(&rd, &m_raster)) ||
         FAILED(device->CreateBlendState(&bd, &m_blend)) || FAILED(device->CreateDepthStencilState(&dd, &m_depth))) {
@@ -432,6 +445,38 @@ bool Blitter::Visualize(ID3D11DeviceContext* context, ID3D11ShaderResourceView* 
     return true;
 }
 
+bool Blitter::Matte(ID3D11DeviceContext* context, ID3D11ShaderResourceView* black, ID3D11ShaderResourceView* white,
+    ID3D11RenderTargetView* target, UINT width, UINT height)
+{
+    if (!m_ready || !context || !black || !white || !target || width == 0 || height == 0) {
+        return false;
+    }
+    InternalScope internal;
+    StateBackup backup(context);
+    const D3D11_VIEWPORT vp{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f};
+    const D3D11_RECT scissor{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+    ID3D11ShaderResourceView* sources[2] = {black, white};
+    context->IASetInputLayout(nullptr);
+    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    context->VSSetShader(m_vs.Get(), nullptr, 0);
+    context->PSSetShader(m_psMatte.Get(), nullptr, 0);
+    context->GSSetShader(nullptr, nullptr, 0);
+    context->HSSetShader(nullptr, nullptr, 0);
+    context->DSSetShader(nullptr, nullptr, 0);
+    context->RSSetState(m_raster.Get());
+    context->RSSetViewports(1, &vp);
+    context->RSSetScissorRects(1, &scissor);
+    context->OMSetRenderTargets(1, &target, nullptr);
+    context->OMSetBlendState(m_blend.Get(), nullptr, 0xffffffff);
+    context->OMSetDepthStencilState(m_depth.Get(), 0);
+    context->PSSetShaderResources(0, 2, sources);
+    context->PSSetSamplers(0, 1, m_sampler.GetAddressOf());
+    context->Draw(3, 0);
+    ID3D11ShaderResourceView* none[2] = {};
+    context->PSSetShaderResources(0, 2, none);
+    return true;
+}
+
 bool Blitter::FillAlpha(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, UINT width, UINT height)
 {
     if (!m_ready || !context || !target) {
@@ -461,6 +506,7 @@ bool Blitter::FillAlpha(ID3D11DeviceContext* context, ID3D11RenderTargetView* ta
 void Blitter::Release()
 {
     m_ready = false;
+    m_psMatte.Reset();
     m_blendOver.Reset();
     m_psOver.Reset();
     m_psDepth.Reset();

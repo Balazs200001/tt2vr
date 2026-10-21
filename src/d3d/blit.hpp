@@ -41,6 +41,11 @@ public:
     // the target, linear filtering: colour = src + dst * (1 - src.a); the target's alpha is untouched. No copy.
     bool Composite(ID3D11DeviceContext* context, ID3D11ShaderResourceView* source, ID3D11RenderTargetView* target,
         const D3D11_VIEWPORT& dst);
+    // HUD matte (PLAN Phase 7): `black` / `white` hold the same image drawn over black and over white, read through
+    // _SRGB views (linear values). Writes premultiplied colour = black and alpha = 1 - (white - black) over the whole
+    // target (width x height), no blending.
+    bool Matte(ID3D11DeviceContext* context, ID3D11ShaderResourceView* black, ID3D11ShaderResourceView* white,
+        ID3D11RenderTargetView* target, UINT width, UINT height);
     // Sets alpha to 1 in the whole target, colour untouched (a raw copy carries the game's back-buffer alpha,
     // which a compositor may blend with).
     bool FillAlpha(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, UINT width, UINT height);
@@ -67,6 +72,7 @@ private:
     ComPtr<ID3D11PixelShader> m_psOver;
     ComPtr<ID3D11PixelShader> m_psMotion;
     ComPtr<ID3D11PixelShader> m_psDepth;
+    ComPtr<ID3D11PixelShader> m_psMatte;
     ComPtr<ID3D11BlendState> m_blendAlpha;
     ComPtr<ID3D11BlendState> m_blendOver;
     ComPtr<ID3D11SamplerState> m_sampler;
