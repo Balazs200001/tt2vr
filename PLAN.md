@@ -283,8 +283,9 @@ Implementation steps (proposed 2026-10-16, **waiting for Balazs's OK**; each ste
   - 2026-10-21: **5a done** (`src/game/skin_motion.*`). Test mode, two views, standing on the Time Attack start line: log "skin motion: second view's palette latch skipped"; frame trace 12270: all 10 skinned MV draws (5 per view) have prev != cur (idle-animation deltas around 1e-4), identical between the views. Open for Balazs: bike/rider sharpness under TAA while riding in the headset, and whether motion blur can come back on (Decisions log 2026-10-20).
 - [ ] Re-entrancy/state audit for slot 1 (globals and RenderLoop fields that only assumed split-screen use).
   - 2026-10-21, static (`renderer.md` 6): environment (fog, ambient, bloom, grading, wind, weather, sky), per-slot CVars and post-process lists are fed for both slots every frame. Gaps: (A) PopcornFX medium 2 (per-camera effect pairs) stays disabled without `GameEngine+0x184`; (B) water-drop camera speed/acceleration slot 1 (rain only); (C) DOF focus slot 1 (cutscenes with a mask-1 DOF target). Fix: 5d.
-- [ ] GPU timestamp queries per eye, shown in the overlay.
+- [x] GPU timestamp queries per eye, shown in the overlay.
   - 2026-10-21, static (`renderer.md` 7): the engine's exported, never-called `RenderLayer::Begin/EndProfilingEvent` queue a timestamp + marker pass at the current point of the record queue, executed on whichever context runs that job. Design: 5b.
+  - 2026-10-21: **5b done** (`src/game/gpu_timers.*`; overlay line "GPU: view 0 / view 1 / frame", perf log line every 10 s). Test mode, Debug DLL, scale 0.7 (eye 1770x1892), Time Attack start line, bike idle: **view 0 9.90 ms, view 1 9.60 ms, frame 19.76 ms GPU** (the views plus 0.26 ms of per-frame work make the frame total) at 49.6 fps / 20.2 ms: GPU-bound. Baseline for 5c.
 
 Implementation steps (proposed 2026-10-21, **waiting for Balazs's OK**; each step is built, deployed and runtime-tested before the next):
 
