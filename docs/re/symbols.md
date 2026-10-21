@@ -158,7 +158,7 @@ Verdict (confirmed): no dedicated render thread. The main thread runs simulation
 | Renderer.view1Type | +0xc60 | field | = ViewContext[1]+0x610 (view-type int; 0 = ordinary, non-zero only on the external-scene path). Jitter gate `[+0x640]==0 && ([+0xc90]==0 \|\| [+0xc60]==0)` (disasm 0x1405adfc6); +0x640 = ViewContext[0]+0x610. Not RenderDesc+0xc60 | confirmed |
 | Renderer.splitMode | +0xc90 | field | = RenderDesc+0xc60; 0 single, 1 vertical, 2 horizontal, 3/4 other | confirmed |
 | Renderer.viewMask | +0xd18 | field | = RenderDesc+0xce8; bit i set -> ViewContext[i] active | confirmed |
-| Renderer.shiftInfo | +0xd1c..+0xd24, flag +0xd28 | field | World Shift vec3 + flag, later RenderDesc+0xcec/+0xcf8 | confirmed |
+| Renderer.shiftInfo | +0xd1c..+0xd24, flag +0xd28 | field | World Shift vec3 + flag = RenderDesc (Renderer+0x30) +0xcec/+0xcf8, the same bytes (no copy). Written only by `UpdateShift`: flag cleared at the start of every call, set with the vector after a shift (one-frame pulse while UpdateShift runs every frame). Positions -= vector (grid cell * 2048) | confirmed (2026-10-21) |
 | Renderer.activeRenderLoop | +0xd30 | field | via FUN_140528660 | confirmed |
 | Renderer.deferredLoop / forwardLoop | +0xd38 / +0xd40 | field | chosen by RendererDesc+0x90 (0 deferred, 1 forward). Deferred is almost certainly active | likely (RC) |
 | Renderer.window | +0xd90 | field | Window*; swapchain at Window+0x48, HWND at *(+0xd90)+0x40, viewport source +0x30 | confirmed |
@@ -648,8 +648,11 @@ Headline (confirmed): all view-dependent temporal state lives in fixed 2-slot ar
 | `RenderLoop::RenderTAA` | 0x1408ddf70 | function | resolve + ping-pong by pointer swap; at motion pause swaps at entry and uses stored +0x1028.. data | confirmed |
 | `RenderLoop::NoMotionVectorFixTAA` | 0x1408dc0e0 | function | call at 0x1408de874; stencil-gated overwrite of history for pixels with no MV | likely (RC) |
 | `RenderLoop::ClearTAA` | 0x1404f5b10 | function | sets reset flag +0xd08; NO in-binary callers | confirmed |
-| `RenderLoop::PreUpdateLastFrameCamera` | 0x1408dc6b0 | function | subtracts ShiftInfo from stored cam positions (+0xf58.., +0x1000..) only; call 0x140848bf4 | confirmed |
-| `RenderLoop::PostUpdateLastFrameCamera` | 0x1408dc2f0 | function | latches lastVP/camPos/jitter AFTER TAA+motion blur per slot; skipped under s_bMotionPause; call 0x140848c58 | confirmed |
+| `RenderLoop::PreUpdateLastFrameCamera` | 0x1408dc6b0 | function | (this, ShiftInfo*, idx): if the flag (ShiftInfo+0xc) is set, subtracts the vector from slot idx's +0xf58 and +0x1000 positions only (lastVP is camera-relative); clears nothing, so both views of a frame rebase their own slot once. Call 0x140848bf4 is inside the per-view TAA/post branch (`local_728 != 0`): a view without it is not rebased | confirmed (2026-10-21) |
+| `RenderLoop::PostUpdateLastFrameCamera` | 0x1408dc2f0 (export `?PostUpdateLastFrameCamera@RenderLoop@Graphics@PlayAll@@IEAAXAEBVRenderContext@23@@Z`) | function | (this, RenderContext& = RenderLoop+0x1f00): for idx = ctx+0x594, unless s_bMotionPause: camera world = inverse(view at ctx+0x148); lastCamPos = its translation; lastVP = GetProjectionNoOffset(ctx+0x130) x rotation-only view; lastJitter = (ctx+0x578, ctx+0x57c) x (0.5, -0.5); front-pass set (+0xf80/+0x1000/+0x1018, from the ViewContext at +0x1590) if `this[0x1e70]` or (`this[0x111c]` and Camera+0x98). Call 0x140848c58 after TAA + motion blur. First readers in a view: `UpdateLastFrameCameraCB` (MV passes in RenderGBuffer, 0x140843549 / 0x1408435b4), RenderSSR, RenderTAA, RenderMotionBlur. Calling it right after `RenderContext::Prepare(view)` latches previous = current for that slot (camera-motion reset) | confirmed |
+| CVar `CreateSSR` / `EnableRaymarchingSSRNextFrame` | 0x1413cbda0 / 0x1413cc2f0[idx] | global | `DeferredLighting::IsUsingRaymarchingSSRNextFrame(idx)` 0x1404fd620; with `WaterDrop::HasAliveParticles(idx)` or view flag [0x61e] they gate `CopyBuffersForNextFrame` | confirmed |
+| DeferredLighting.ssrOn[idx] | +0x21+idx | byte | gate of `DeferredLighting::RenderSSR` 0x14083bd50; written at the end of `DeferredRenderLoop::Render` (near 0x1408497d7) from last frame's CVars. No history-valid check: after a cut SSR samples the pre-cut last-frame buffers | confirmed |
+| CVar `UseFroxelLighting` | 0x1413cc6c0 | global | 0 skips `LightFroxel` (index unchanged) | confirmed |
 | `RenderLoop::UpdateLastFrameCameraCB` | 0x1408df3c0 | function | uploads 0x50 B (matrix + pos) into shared CB cbVSCameraLastFrameStd (StringId 0x1414075b0); flag picks front-pass set | confirmed |
 | `RenderLoop::GetLastFrameViewProj` | 0x1404f8890 | function | `this+idx*0x40+0xed8`; no callers | confirmed |
 | `RenderLoop::GetLastFrameBuffer` / `GetLastFrameDepth` | 0x1408db290 / 0x1408db2a0 | function | only caller RenderSSR | confirmed |
@@ -661,7 +664,9 @@ Headline (confirmed): all view-dependent temporal state lives in fixed 2-slot ar
 | `IsUsingTAA` | 0x1404fd660 | function | `mode - 2 < 2` | confirmed |
 | `g_jitterParity` | 0x1413a88c4 | global | frame parity counter; +1 per DoUpdate, held when dt == 0 | confirmed |
 | `DrawPass::s_vResolutionScaling` | 0x1413602d8 (y at 0x1413602dc) | global | dynamic-res scale; written by FUN_1405b1270 (0x1405b16b1/0x1405b16c7); read by TAA, FillCSLightCB, LightFroxel, RenderSSR, SkyRenderer, IntelSSAO, luminance | confirmed |
-| `s_bDynamicResolutionEnabled` | (adjacent to scale) | global | | likely |
+| `DrawPass::s_bDynamicResolutionEnabled` | 0x1414082ea (export) | global | written only by the controller `FUN_1405b1270`; gates `UpscaleDynamicResolution`, `GetDrawPassViewport`, `PrepareRenderInputPostProcess`, `FUN_1409120b0` | confirmed |
+| dynamic-resolution controller | `FUN_1405b1270` (only call 0x1405af618 in `Renderer::OnRender`, after DoUpdate, before the render loop) | function | returns early (scale untouched) if `GameEngine+0x185`; `GameContext+0x23` -> enabled = false; else enabled = (mode != 0); mode 0 writes the scale 1.0 / 1.0, mode 1 fixed `DAT_1413a7f40`, mode 2 GPU-time controller clamped to [`DAT_1413a80e0`, `DAT_1413a8010`] | confirmed |
+| CVar DynamicResolutionMode | object 0x1413a7d80, live value 0x1413a7e08 (object+0x88) | global | `ICVar("DynamicResolutionMode", "Engine.Renderer.DynamicResolution", 3)` + LoadValue (UserSettings); the controller reads the live value, not the per-slot values | confirmed |
 | dynamic-res controller (FUN_1405b1270) | 0x1405b1270 | function | 10-sample GPU-time ring, clamps [DAT_1413a80e0, DAT_1413a8010]; modes DAT_1413a7e08 / DAT_1413a8568 | likely |
 | `Renderer::EnableDynamicResolution` / `SetDynamicResolutionRange` | 0x1403de740 / 0x1405b03d0 | function | | confirmed |
 | `UpscaleDynamicResolution` | 0x1408df750 | function | see Render loop | confirmed |
@@ -728,8 +733,9 @@ Headline (confirmed): all view-dependent temporal state lives in fixed 2-slot ar
 
 | Our name | Offset | Stride | Notes | Confidence |
 |---|---|---|---|---|
-| DeferredLighting.froxelPingPong[idx] | +0x780 | 4 | -1 = no history -> non-temporal technique ids +0x5d8/+0x5dc; else 0/1 toggled per frame, technique ids +0x5e0/+0x5e4 | confirmed (reproject method unknown, RC) |
-| DeferredLighting.froxelVolumes[pp][idx] | +0x760 + (pp*2+idx)*8 | | 4 Texture3D 'LightedFroxel'; slot 4 RO = previous, slot 0 RW = current | confirmed |
+| DeferredLighting.froxelPingPong[idx] | +0x780 | 4 | -1 = no history -> non-temporal technique ids +0x5d8/+0x5dc, then set to 0; else (old+1)&1 per frame, technique ids +0x5e0/+0x5e4. Writing -1 gives exactly one non-temporal frame (the stale volume is not read). Skipped frames (CVar `UseFroxelLighting` 0x1413cc6c0 off) leave it unchanged. No previous matrix in `FillCSLightCB` 0x140836ab0 (only the previous resolution scale): likely a same-cell blend | confirmed (index, 2026-10-21); likely (no reprojection) |
+| DeferredLighting.froxelVolumes[pp][idx] | +0x760 + (pp*2+idx)*8 | | 4 Texture3D 'LightedFroxel' (concrete class `Texture3DDX11`, ID3D11Texture3D* at +0x68, likely from its Destroy `FUN_140955210` / GetDesc use); written this frame: pp = the new index, read as previous: (pp+1)&1 | confirmed (layout); likely (+0x68) |
+| Last-frame, tonemap and MV render targets | RenderLoop+0x10e0/+0x10f0+idx*8, tm+0x110/+0x130/+0x138+idx*8, RenderLoop+0xca8 | | all `RenderTarget*` (StrongPtr from `RenderTargetManager::CreateRenderTarget`): D3D texture via vtable +0x40 -> Texture2DDX11+0x68. Getters exported: `GetLastFrameBuffer` 0x1408db290, `GetLastFrameDepth` 0x1408db2a0, `GetMotionVectorsRenderTarget` 0x1404f89e0 | confirmed |
 | DeferredLighting.froxelAccumulation | +0x890 | | single shared accumulation volume (GetFroxelScatteringAccumulation) | likely |
 | DeferredLighting.froxelNoiseTime[idx] | +0x920 | 4 | GetFroxelNoiseTime 0x1408390a0; accumulates Wind::GetStrength | confirmed |
 | `DeferredLighting::GetFroxelLightedVolume` | 0x1404f8550 | | | confirmed |
@@ -737,10 +743,10 @@ Headline (confirmed): all view-dependent temporal state lives in fixed 2-slot ar
 | Tonemap.currentLum | +0x130 | | 1x1 RT, ping-pong with previous | confirmed |
 | Tonemap.prevLum[idx] | +0x138 | 8 | bound as texture slot 3 in HDR_LuminanceFinal | confirmed |
 | Tonemap.cpuLuminance | +0x148 | | single shared float (debug text, clamp FUN_140914500) | confirmed |
-| Tonemap.firstFrame[idx] | +0x14e | 1 | when set the pass snaps (blend 1.0) | confirmed |
+| Tonemap.firstFrame[idx] | +0x14e | 1 | set for both slots by init `FUN_1409126c0` and the debug "Reset luminance" callback 0x140914dd0 (`mov word [rcx+0x14e], 0x101`); cleared at the end of every `FUN_140914680` call for its idx; when set, `HDR_LuminanceFinal` gets history weight 0 (snap). No engine path sets it on level load or restart | confirmed (writers, readers); likely (shader meaning) |
 | Tonemap.lumaChainEnable | +0x150 | | gate for FUN_1409120b0; Ansel capture clears it | guess |
 | Tonemap staging | +0x128 | | staging copy mapped to CPU | confirmed |
-| LensFlareInstance.fade[idx] / queries[idx] | +0x64+idx*4 / +0x90+idx*8 | | per eye | confirmed |
+| LensFlareInstance.fade[idx] / node[idx] / queries | +0x84+idx*4 / +0x90+idx*8 | | per camera index. 2026-10-21: +0x90+idx*8 is the per-camera flare HudNode that `FUN_140898a40` adds to (alpha > 0) or removes from that camera's HudItemList 2D root (`HudItemList+0x18`); earlier reading "+0x64 fade, +0x90 queries" superseded. The occlusion query and 'Lens flares render' draws come from `LensFlareManager::Render` 0x14089a3a0 (RT, RenderContext, camIdx) | confirmed |
 | CSM per-camera arrays | CascadedShadowMapRenderer+0x25b0 | 0x11a0 | static shadow cache per camera index | confirmed |
 | Mesh.curWorld / prevWorld / lastFrameId | +0xc4 / +0xf4 / +0x70 | | frame-id guarded; prev may be stale (old coordinates) for one frame at a World Shift | confirmed / guess for stale |
 
@@ -758,6 +764,9 @@ Pipeline (confirmed): one `HudRenderer` (RenderLoop+0x410) is called with flag b
 | `RenderLoop::GetHudRenderer` | 0x140283a00 | function | | likely |
 | `HudItemList::Get3DBeforePostProcessList` / `Get3DList` / `Add3DList` | 0x1408797c0 / 0x140879820 / 0x140879730 | function | array at HudItemList+0x1b8, flag +0x1d8; error 'doesn't support 3D hud, are you trying to add hud3D in Camera -1 ?' | confirmed |
 | `Renderer::GetHudItemList` | 0x1403de850 | function | `Renderer+0xdf8+idx*8` | confirmed |
+| HudItemList layout (size 0x1e0, ctor 0x140878e70) | +0x18 2D root HudNode, +0xe8 second HudNode, +0x1b8 `Array<HudList3D*>` drawn with flag 4 / 0x14 (after post), +0x1c8 `Array<HudList3D*>` drawn with flag 8 (before post, so inside the TAA history), +0x1d8 supports-3D byte (both camera lists: true, `Renderer::Create` 0x1405ace80) | struct | `Add3DList` appends to +0x1c8 if `HudList3D+0x151 == 1`, else +0x1b8; raw pointers, no refcount; `Array` = {+4 count, +8 data}. A HudList3D in two lists is safe: `HudRenderer::Render` rebuilds node layout per call and draws with the RenderContext's own ViewContext (+0x130) | confirmed (2026-10-21) |
+| `LensFlareManager::Update` | 0x14089a770 | function | call 0x1405ae3a7 in `DoUpdate`, once per camera bit of `Renderer+0xd18`: (ViewContext, camIdx, that camera's HudItemList, dt) -> `LensFlareInstance::Update` 0x140898df0 -> `FUN_140898a40` (add/remove the camera's flare HudNode in the list's 2D root). The flare sprites are drawn by `HudRenderer::Render` flag 0x22 from `ViewContext+0x5e8`: the mod's HUD-list swap (view 1 draws list 0) shows eye 0's flares in eye 1 | confirmed |
+| `MeshPainter::Update` | 0x1408a7920 (call 0x140847cff, per view) | function | livery editor (singleton 0x141405600; RTs 'CarPainterRenderTarget' etc., `VehicleLivery.PFX`); body only if `this+0x38` (set while painting, nulled by `Stop` 0x1408a74d0); latches brush prev <- cur, consumes the stroke on the first view. Not a temporal effect; a second view paints nothing | likely (the +0x38 writer not found) |
 | `GameContext::GetHudItemList` | 0x14048b4c0 | function | -1 -> GameContext+0x88 (global list) | confirmed |
 | `GuiManager::CreateDefaultMaterials` | 0x140888ef0 | function | loads QUADTEXTURECOLOR3D.PFX (0x140fe9f00); error string 0x140fe9f30 | confirmed |
 | `TTDashboardHUD::Create` (FUN_140202260) | 0x140202260 | function | Flash gauges (J_HUD_AnalogGauge, TXT_KMPH, TXT_Speed); registers a HudList3D via Add3DList: world-placed 3D HUD, gets per-eye ViewContext | likely (RC) |

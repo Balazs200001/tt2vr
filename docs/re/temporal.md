@@ -467,3 +467,42 @@ Split mode 1 through the mod (Phase 4a: both views from eye 0's pose, 1770x1892 
 | HUD | After view 1: 80 draws at 3540x1892 into the back buffer with view 1's camera buffer (the global HUD list across both eyes). | 046411..047417 |
 
 - 2026-10-20, Phase 4c (`game::SharedExposure`): frame trace 4400 (stereo, riding) shows both views' `HDR_FinalCompose` (ps `c654fff3722b5843`) binding the same luminance texture `srv1718` at t2; view 1 no longer runs `HDR_Luminance*`. **P8 shared exposure: confirmed (runtime, two views).**
+
+---
+
+## 10. Phase 6 static findings (2026-10-21)
+
+Ghidra decompile/disasm of the snapshot exe (query server); names and addresses in `symbols.md` sections 1b, 6, 7. Confidence per item.
+
+### 10.1 What a full history reset needs (T4)
+
+| Row | Reset mechanism | Evidence | Confidence |
+|---|---|---|---|
+| P1 TAA | shared byte `RenderLoop+0xd08` before each view's `RenderTAA` (in place since 4d) | N6 | confirmed |
+| N1 froxel | write -1 to `DeferredLighting+0x780+idx*4` for both idx before the views render: `LightFroxel` then runs the non-temporal technique once, sets the index to 0 and continues temporally from that frame's volume. The stale volume is never read, so no clear | `LightFroxel` 0x140839120: `if (pp[idx] == -1) {... new = 0} else new = (old+1)&1` | confirmed |
+| P3/P6 previous camera | call `PostUpdateLastFrameCamera(renderLoop, renderLoop+0x1f00)` right after `RenderContext::Prepare(view)` for each view: slot idx latches previous = current, so the cut frame's motion vectors, SSR and TAA reprojection see zero camera motion instead of the jump. The engine's own call after motion blur still runs | `PostUpdateLastFrameCamera` 0x1408dc2f0 reads only the prepared RenderContext; first readers are the MV passes in `RenderGBuffer` | confirmed (static); runtime check |
+| P4/N2 last-frame colour/depth (SSR) | no engine validity check exists: SSR samples whatever the slot's last-frame RTs hold (the pre-cut frame). Candidate: clear both slots' 'Last Frame Depth' to the far value and 'Last Frame Buffer' to 0 before the cut frame executes (rays find no hit, as on fresh RTs); A/B in the cut test | `DeferredLighting::RenderSSR` 0x14083bd50 gated only by `DL+0x21+idx` (last frame's CVars) | confirmed (no check); the clear's visual result is a runtime check |
+| P8 exposure | shared since 4c; `tm+0x14e` (word 0x0101) snaps both slots on the next luminance pass. The engine never snaps on restarts or cuts (only init and a debug menu item) | 10.1 decision in PLAN | confirmed |
+| N3 lens flares | queries and fades are per slot; nothing to reset (the engine has none; results lag a few frames after a cut) | | likely |
+
+**The two-view toggle is not a full reset.** `OnSplitChanged` 0x1408dc2b0 = `InitializeTAA(true, p)` + `InitializeLastFrameBuffers(p)`: both slots' TAA pair and last-frame RTs are recreated (uninitialised content), but the TAA reset byte is **not** set, and the froxel index and volumes, `lastVP`/`lastCamPos`/`lastJitter`, the previous resolution scale, the tonemap state and the SSR flags persist (slot 1's from the previous two-view session). The mod must treat "two views switched on" as a reset trigger. `confirmed (static)`.
+
+### 10.2 World Shift (N5)
+
+- Order: `GameContext::RenderOneFrame` calls `GameEngine::UpdateShift` (vtable +0x420, only if `GameEngine+0x48 == 1`) **before** `Renderer::DoUpdate` (0x14048c536) in the same frame, so DoUpdate's `InitFromCamera` already sees the shifted camera. `UpdateShift`'s own `InitFromCamera` calls (0x1404d5a41) run outside DoUpdate, so the mod's view override and cut detector ignore them. `confirmed`.
+- Flag: `Renderer+0xd28` (= RenderDesc+0xcf8, same bytes) is cleared at the start of every `UpdateShift` and set with the vector (`+0xd1c..+0xd24`, grid cell x 2048) after a shift: a one-frame pulse. `confirmed`.
+- Rebase: `PreUpdateLastFrameCamera` (call 0x140848bf4, per view inside the TAA/post branch) subtracts the vector from **its own slot's** `lastCamPos` and front-pass position and clears nothing, so in a two-view frame each slot is rebased exactly once. `lastVP` is camera-relative and needs nothing. A view that skips the TAA/post branch would keep the old origin (not the case while TAA is on). `confirmed`.
+- **Mod hazard:** the camera-cut detector compares the game camera position frame to frame; on a shift frame it moves by about 2048 m and the detector resets both eyes' TAA. The vector must be subtracted from the stored position when the flag is set. `confirmed (static)`; runtime check.
+- `Mesh+0xf4` (previous world) is not rebased: possibly one frame of wrong object motion vectors at a shift (engine behaviour, flat too). `guess`; runtime check.
+
+### 10.3 Dynamic resolution (N4)
+
+The only writer of `DrawPass::s_vResolutionScaling` (export, 0x1413602d8) and `DrawPass::s_bDynamicResolutionEnabled` (export, 0x1414082ea) is the controller `FUN_1405b1270`, called once per frame from `Renderer::OnRender` (0x1405af618) after DoUpdate and before the render loop. Mode 0 writes exactly 1.0 / 1.0; modes 1 and 2 scale. `UpscaleDynamicResolution` runs whenever the enabled flag is set (even at scale 1.0). All readers except `LensFlareInstance::Update` (DoUpdate) are inside the render loop. So writing scale 1.0 / 1.0 and enabled = false in the `DeferredRenderLoop::Render` pre-hook covers every reader in that frame and the next DoUpdate; the controller rewrites both from the untouched mode CVar once the mod stops writing. Do not write the mode CVar (0x1413a7e08: loaded from UserSettings; the Ansel-style restore `FUN_1405aee10` only knows modes 0 and 2). `confirmed (static)`.
+
+### 10.4 Lens flares (N3) and the HUD-list swap
+
+Each camera's flare sprites are HudNodes that `LensFlareManager::Update` (in DoUpdate, per camera index) adds to that camera's HudItemList 2D root; the occlusion queries and 'Lens flares render' are drawn per view by `LensFlareManager::Render` with the camera index. Since 4b the mod points view 1's `ViewContext+0x5e8` at camera 0's list during `Render` (the dashboard is a 3D list in camera 0 only), so **eye 1 draws eye 0's flare sprites**: a T2-style cross-eye leak of view-dependent state. Fix: keep view 1's own list and, for the duration of `Render`, append camera 0's `HudList3D*` entries (arrays `+0x1b8` / `+0x1c8`) to camera 1's list, restoring the array headers after. `confirmed (static)`; runtime check.
+
+### 10.5 MeshPainter
+
+`MeshPainter::Update` (per view, unguarded latch) is the livery editor, active only while painting (`this+0x38`); not a temporal effect, and the second view paints nothing. No action. `likely`.
