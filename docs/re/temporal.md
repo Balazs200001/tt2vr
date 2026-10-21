@@ -4,6 +4,8 @@ Build 4989319 (see `README.md`). Rules come from `CLAUDE.md` (hard rule 1: never
 
 **Status of this document: mostly static; the single-view TAA, motion-vector, exposure and last-frame resources are confirmed at runtime** by RenderDoc capture `tt2_snaefell_helmet_moving_taa_f8323.rdc` (frame 8323, helmet camera, moving, AA = FXAA_TAA, 1920x1080, dynamic resolution off, one view; details in section 9). Everything else is from decompilation of the snapshot exe. Confidence tags (`confirmed` / `likely` / `guess`) keep what the source analysis gave: they describe how well the *static reading* is established, not whether a mechanism works in the mod. **Every per-eye mechanism status in this file is `candidate`**; rows whose resource, format, binding or constant the capture observed are tagged `confirmed (runtime, single view)` on the *observation* only (the capture has one view, so per-eye behaviour is untested). PLAN's inventory needs `confirmed` for each row in Phase 6; nothing below qualifies until the listed runtime check passes. Rows that depend on a RenderDoc or debugger observation say so.
 
+**Phase 6 (2026-10-21):** the per-row results (two-view runtime evidence) are the Status column of section 6 and section 11; the row tables in section 3 keep their earlier static text and status lines.
+
 Companion: `frame-anatomy.md` (pass order, split-screen path, threading). Names: `symbols.md`.
 
 ---
@@ -355,24 +357,26 @@ If H1 or H2 cannot be solved, fall back to A for Phase 4/5. If A's swap proves f
 
 | PLAN row | This file | Scope | Engine location (short) | Preferred candidate | Status |
 |---|---|---|---|---|---|
-| TAA history colour (incl. ping-pong) | P1 | per-eye | `RenderLoop+0xce8/+0xcf0 + idx*0x10` | C, else A (pointer swap), else B1 | confirmed (runtime, single view); per-eye candidate |
-| TAA jitter index / offset | P2 | per-eye | `DAT_1413a88c4`, `ViewContext+0x448`, `RenderLoop+0xf70` | hook `InitFromCamera`, add jitter per eye | confirmed (runtime, single view); per-eye candidate |
-| Previous view/proj/VP | P3 | per-eye | `RenderLoop+0xed8`, `+0xf58`, `+0xf80..` | C | confirmed (runtime, single view); per-eye candidate |
-| Previous depth / Hi-Z | P4 | per-eye (no Hi-Z found) | `RenderLoop+0x10e0` | C | confirmed (runtime, single view); per-eye candidate |
-| Temporal AO / SSR / volumetric | P5 (+N1, N2) | per-eye | SSR via N2; froxel via N1; AO stateless (likely) | C | candidate |
-| Motion blur camera matrices | P6 | per-eye | `RenderLoop+0xed8`, `+0xf58` | C | confirmed (runtime, single view); per-eye candidate |
-| Per-object previous transforms | P7 | shared | `Mesh+0xc4/+0xf4/+0x70`, `SkinMesh+0x158` | engine idempotent per `frameId`; verify source | candidate |
-| Auto-exposure | P8 | shared (engine: per-slot) | `tm+0x130/+0x138/+0x14e/+0x30` | sync slot 1 to slot 0 | confirmed (runtime, single view); per-eye candidate |
-| GPU particles / simulations | P9 | shared | `HHParticlesManager` | engine idx == 0 guards | candidate |
-| Shadow cascades | P10 | shared (engine: per-slot) | `CSM+0x25b0 + idx` | force slot 1 = slot 0; verify fit | candidate |
-| Probes | P11 | shared | `ProbeRenderer::Update`, `RenderProbe` | once per frame | candidate |
-| (new) Froxel history | N1 | per-eye | `DL+0x780`, `+0x760`, `+0x920` | C | candidate |
-| (new) Last-frame colour/depth | N2 | per-eye | `RenderLoop+0x10e0/+0x10f0` | C | confirmed (runtime, single view); per-eye candidate |
-| (new) Lens-flare queries | N3 | per-eye | `LensFlareInstance+0x64/+0x90` | C | candidate |
-| (new) Dynamic resolution | N4 | shared setting | 0x1413602d8, `FUN_1405b1270` | off / fixed 1.0 | candidate |
-| (new) World Shift fix-up | N5 | event | `PreUpdateLastFrameCamera` 0x1408dc6b0, `ShiftInfo` | rebase parked per-eye positions | candidate |
-| (new) TAA reset flag | N6 | mod-owned | `RenderLoop+0xd08`, `ClearTAA` | write per eye on every trigger | candidate |
-| (new) MV RT transient | N7 | shared transient | `RenderLoop+0xca8` | none | confirmed (runtime, single view); per-eye candidate |
+| TAA history colour (incl. ping-pong) | P1 | per-eye | `RenderLoop+0xce8/+0xcf0 + idx*0x10` | C, else A (pointer swap), else B1 | confirmed (Phase 6): own-view history only (11.1), leak test PASS, reset and cut tests (11.3) |
+| TAA jitter index / offset | P2 | per-eye | `DAT_1413a88c4`, `ViewContext+0x448`, `RenderLoop+0xf70` | hook `InitFromCamera`, add jitter per eye | confirmed (Phase 6): previous jitter = own frame N value, same phase both eyes (11.1) |
+| Previous view/proj/VP | P3 | per-eye | `RenderLoop+0xed8`, `+0xf58`, `+0xf80..` | C | confirmed (Phase 6): previous VP / camera = own frame N values (11.1); reset latches previous = current (11.3) |
+| Previous depth / Hi-Z | P4 | per-eye (no Hi-Z found) | `RenderLoop+0x10e0` | C | confirmed (Phase 6, bindings, 11.1); functional leak test inconclusive: SSR invisible on the dry road (11.4) |
+| Temporal AO / SSR / volumetric | P5 (+N1, N2) | per-eye | SSR via N2; froxel via N1; AO stateless (likely) | C | confirmed (Phase 6) via N1 / N2; SSAO is off in VR and stateless |
+| Motion blur camera matrices | P6 | per-eye | `RenderLoop+0xed8`, `+0xf58` | C | confirmed (Phase 6): motion-blur constants carry the own view's previous VP (11.5); motion blur off in VR by decision |
+| Per-object previous transforms | P7 | shared | `Mesh+0xc4/+0xf4/+0x70`, `SkinMesh+0x158` | engine idempotent per `frameId`; verify source | confirmed (Phase 5): Mesh once per frame, SkinMesh fixed (5a) |
+| Auto-exposure | P8 | shared (engine: per-slot) | `tm+0x130/+0x138/+0x14e/+0x30` | sync slot 1 to slot 0 | confirmed (4c; 11.1): both views compose with view 0's same-frame luminance; not reset (Decisions log) |
+| GPU particles / simulations | P9 | shared | `HHParticlesManager` | engine idx == 0 guards | confirmed (Phase 5): once per frame, medium 2 kept on (5d) |
+| Shadow cascades | P10 | shared (engine: per-slot) | `CSM+0x25b0 + idx` | force slot 1 = slot 0; verify fit | confirmed (5c; 11.1): one atlas per frame, read by view 1 in the same frame |
+| Probes | P11 | shared | `ProbeRenderer::Update`, `RenderProbe` | once per frame | confirmed (Phase 5): once per frame |
+| (new) Froxel history | N1 | per-eye | `DL+0x780`, `+0x760`, `+0x920` | C | confirmed (Phase 6): own-view history (11.1), leak test PASS (11.4), reset = index -1 (11.3) |
+| (new) Last-frame colour/depth | N2 | per-eye | `RenderLoop+0x10e0/+0x10f0` | C | confirmed (Phase 6, bindings, 11.1); reset clears both slots (11.3); leak test inconclusive (11.4) |
+| (new) Lens-flare queries | N3 | per-eye | `LensFlareInstance+0x64/+0x90` | C | per-slot by design; view 1's own flares since 6e (10.4); visual check open (no flare at the start line, 11.6) |
+| (new) Dynamic resolution | N4 | shared setting | 0x1413602d8, `FUN_1405b1270` | off / fixed 1.0 | held at 1.0 in VR (6d); the player-setting-on case not exercised (11.6) |
+| (new) World Shift fix-up | N5 | event | `PreUpdateLastFrameCamera` 0x1408dc6b0, `ShiftInfo` | rebase parked per-eye positions | confirmed (Phase 6): shifttest PASS (11.3) |
+| (new) TAA reset flag | N6 | mod-owned | `RenderLoop+0xd08`, `ClearTAA` | write per eye on every trigger | confirmed (Phase 6): full reset and in-ride cut triggers (11.3) |
+| (new) MV RT transient | N7 | shared transient | `RenderLoop+0xca8` | none | confirmed (Phase 6): rewritten and read within each view (11.1); helmet vectors at idle, 11.7 |
+
+Phase 6 (2026-10-21): the Status column above holds the Phase 6 result per row (evidence in section 11).
 
 Rows tagged `confirmed (runtime, single view)` are observed once in capture f8323; nothing above is `confirmed` in the PLAN sense (per-eye cross-leak test T2). Phase 6 turns each row to `confirmed` with a runtime evidence line (RenderDoc event, debugger watch, or a passing cross-eye leak test, T2).
 
@@ -542,3 +546,33 @@ So for P1 (TAA history), P2 (jitter), P3 (previous VP / camera position), P4 + N
 Same session, after the bike moved off (one of A / X is the pad's gear-up) and crashed: the switch to the crash camera and the respawn back into the helmet camera produced **no** "camera cut" line, so neither reset the history. The 15 m / 45 deg thresholds only catch menu/loading jumps (log: 180.7 m, 1574 m, 1512 m, 3.8 m with 131 deg). Fix in 6b: a speed-relative distance limit, a lower turn limit, and the player camera's active mode (`KTUCamera+0x48` / `+0x68`) changing as a trigger.
 
 Also seen in the crash camera: **the left eye is desaturated (grey) and the right eye is in colour**. A crash post effect reaches camera slot 0 only (not temporal; per-slot post-process state, `renderer.md` 6). Recorded for Phase 8 (crash and chase cameras).
+
+### 11.3 Full reset, cuts and World Shift (6b, 6c; test mode, 2026-10-21)
+
+- **Reset coverage** (log "a history reset covers TAA, froxel (index -1), previous camera (latched per view) and SSR's last-frame buffers (2 of 4 cleared)": slot 1's buffers exist only with two views). The convergence reference resets TAA only.
+- **Triggers seen:** "two views on" at ride entry; camera-mode changes (menu -> riding); the reworked distance / turn detector caught the crash camera (4.3 m, limit 3.5, 16 deg), the respawn (6.8 m, 7.0 m, 7.7 m, 16-19 deg) and pairs of crash + respawn on every attempt; **no false reset** in 10 s idle or 40 s of riding up to 144 km/h. Limits after the first runs: 2 m + 1.5 x speed x dt, 10 deg.
+- **Cut test:** A (reset) after a respawn: frames +1 / +2 clean in both eyes; B (`cuttest noreset`, crash camera): no visible smear either (the neighbourhood clamp hides most of it), so the reset matters mainly for SSR, froxel and motion blur, which have no clamp.
+- **World Shift** (`shifttest` PASS): shift (0 -2048 0) while riding at about 67 km/h; the cut detector rebased its stored position (camera step 0.31 m, 2048 m without) and did not fire; both slots' previous camera positions 0.31 m from the current after `PreUpdateLastFrameCamera` (one frame of motion); 0 resets in the 12 frames after; frame-to-frame change 8-18 / 255 (normal riding); screenshots clean.
+
+### 11.4 Leak tests per row (6g)
+
+| Row | Tint (eye 0's history) | Left eye | Right eye | Result |
+|---|---|---|---|---|
+| TAA (P1) | eye 0's TAA input red for one frame | 0.0% -> 67.9% red | +0.00% | PASS |
+| Froxel (N1) | slot 0's froxel volume written this frame cleared to (2, 0, 0, 0.05) through a UAV | red excess +6.13 / 255 | +0.006 | PASS |
+| SSR (P4, N2) | slot 0's 'Last Frame Buffer' (all mips) cleared to red (8, then 512 HDR) between frames | +0.023 / +0.006 | +0.039 / +0.018 | INCONCLUSIVE: SSR adds nothing visible on the dry start-line road; the per-slot binding audit (11.1) is the evidence. Re-test on a wet road |
+
+### 11.5 Motion blur (P6), test mode with `[xr] motion_blur = true`, traces 9740 / 9741
+
+'Render MotionBlur' = `ps:d325d05c25da1a12` (reads depth, colour and the MV RT after TAA). In both frames and both views its `$Globals` (PS slot 7) holds, from float 12, the **same** previous VP as that view's 'TAA resolve' `g_viewProjLastFrame`, and from float 44 its previous camera position; neither view's buffer contains the other view's matrix (0.36 apart). Slot 6 carries each eye's own asymmetric projection (m02 -0.269 / +0.269).
+
+### 11.6 VRAM, debug views, open visual checks (6d-6f)
+
+- **Per-eye history VRAM** (log, eye 1770x1892): 78.8 MB per eye = TAA pair 25.5, last-frame depth + colour 46.8, froxel volumes 6.4, previous luminance < 0.01; the debug copies and thumbnails add 27 MB while shown.
+- Debug views (overlay "Temporal (Phase 6)", remote `views on`): history, motion vectors and previous depth per eye render; `freeze on` softens eye R during a head shake while eye L stays sharp.
+- Lens flares (6e): the dashboard still draws in eye 1 (camera 0's 3D lists); no flare sprite was on screen at the start line (both views draw the same 7 post-TAA passes in trace 11190), so the flare A/B needs a spot with a visible sun or lamp.
+- Dynamic resolution (6d): Balazs's setting is off; traces show `resolutionScaling` (1, 1, 1, 1) and no upscale draw; the forced path for a player with dynamic resolution on is not exercised.
+
+### 11.7 Helmet-interior motion vectors and the convergence margin
+
+`mvsave` (both eyes' MV RT copies taken at each view's TAA draw), bike idle, head still: the world is 0 (not drawn by the MV pass), but the camera-attached helmet interior (top band and chin) moves: left eye mean 2.4 px (max 9 px), right 7.9 px (max 38 px); with `[camera] helmet_follows_view = false` 7.5 / 11.2 px (max 41 / 47 px), so the mod's helmet override is not the cause. Each view's MV-pass camera inputs are its own and consistent (current camera position = previous, previous VP close to the current, trace 11780). Reading: the game's HelmetSprings sway the helmet relative to the camera (real motion; `likely`), larger in the right eye at 10-20 cm through the asymmetric frustum (`guess`). Not a cross-eye leak. Consequence: the static convergence test is dominated by the moving lining (about 40% of the image, `convergence_diff.png`); its ratio was 0.48-0.65 over 9 runs (limit 0.60, 2 FAIL in the right eye), against 0.31 / 0.35 on 2026-10-21 before Phase 5. Open: compare with flat play (RenderDoc), and make the test ignore pixels with object motion (the MV copies exist now).
