@@ -104,6 +104,9 @@ inline constexpr std::ptrdiff_t kRenderLoopLastFrameDepth = 0x10e0;
 inline constexpr std::ptrdiff_t kRenderLoopLastFrameBuffer = 0x10f0;
 inline constexpr int kRenderTargetTextureSlot = 8; // vtable +0x40: BaseTexture* (int index)
 inline constexpr std::ptrdiff_t kTexture2DDeviceTexture = 0x68; // Texture2DDX11: ID3D11Texture2D* (GetDeviceTexture)
+inline constexpr std::ptrdiff_t kTexture3DDeviceTexture = 0x68; // Texture3DDX11: ID3D11Texture3D* (Destroy, GetDesc)
+inline constexpr std::ptrdiff_t kRenderLoopMotionVectors = 0xca8; // RenderTarget*, one transient rewritten per view
+inline constexpr std::ptrdiff_t kRenderLoopTonemap = 0x1ed0; // tonemap object (FUN_140914680's `this`)
 inline constexpr std::ptrdiff_t kRenderContextCameraIndex = 0x594; // ushort (= its ViewContext+0x464)
 inline constexpr std::ptrdiff_t kRenderContextView = 0x130; // ViewContext copy (RenderContext::Prepare)
 // CascadedShadowContext (built at the end of CascadedShadowMapRenderer::Render, copied whole into RenderContext+0x5d0
@@ -117,6 +120,7 @@ inline constexpr std::ptrdiff_t kLightingFrontPassSsr = 0x1e; // byte[2], 0 in f
 inline constexpr std::ptrdiff_t kLightingProbeFactor = 0x34; // float[2], 0.35 in first person, else 1.0
 // Froxel history ping-pong index per camera index: -1 = no history (one non-temporal frame, then 0), else 0 / 1.
 inline constexpr std::ptrdiff_t kLightingFroxelIndex = 0x780; // int[2]
+inline constexpr std::ptrdiff_t kLightingFroxelVolumes = 0x760; // Texture3D*[(pp*2 + idx)], 'LightedFroxel'
 
 // Tonemap object (*(RenderLoop+0x1ed0), FUN_140914680 / FUN_1409120b0 / FUN_1409131d0)
 inline constexpr std::ptrdiff_t kTonemapOutput = 0x130; // RT* the luminance chain writes and HDR_FinalCompose reads

@@ -9,6 +9,7 @@
 #include "d3d/screenshot.hpp"
 #include "d3d/texture_dump.hpp"
 #include "game/engine_layout.hpp"
+#include "game/engine_textures.hpp"
 #include "game/signatures.hpp"
 #include "game/split_view.hpp"
 
@@ -36,7 +37,6 @@ using namespace layout;
 using Microsoft::WRL::ComPtr;
 
 using RenderTaaFn = void (*)(void* renderLoop, void* renderContext);
-using GetTextureFn = void* (*)(void* renderTarget, int index); // RenderTarget vtable slot 8 (+0x40): BaseTexture*
 
 using PostUpdateFn = void (*)(void* renderLoop, const void* renderContext); // RenderLoop::PostUpdateLastFrameCamera
 
@@ -52,13 +52,22 @@ std::atomic<bool> g_tintApplied{false};
 
 // Main thread state.
 bool g_resetPending = false; // this frame: reset both eyes' TAA history
+bool g_fullReset = false; // ... and the other histories (froxel, previous camera, SSR); not for the convergence
+                          // reference, which measures TAA alone
 bool g_resetNext = false;
 unsigned g_recenterSeen = 0;
 bool g_recenterInit = false;
 
-// Leak test state machine, advanced at Present.
+// Leak test state machine, advanced at Present. The row says whose eye-0 history is tinted: taa (eye 0's TAA input
+// for one frame, so its history turns red), ssr (slot 0's 'Last Frame Buffer', SSR's history) or froxel (slot 0's
+// froxel volume written this frame, read as history by the next one); the two last ones are overwritten between two
+// frames on the immediate context (PLAN 6g).
 enum class Leak { Idle, Baseline, Tint, After };
+enum class LeakRow { Taa, Ssr, Froxel };
 Leak g_leak = Leak::Idle;
+LeakRow g_leakRow = LeakRow::Taa;
+void* g_lastRenderLoop = nullptr; // the RenderLoop of the last RenderTAA (main thread)
+double g_baseExcess[2] = {}, g_maxExcessDelta[2] = {};
 bool g_tintThisFrame = false; // armed for the coming frame's recording
 int g_afterFrames = 0;
 std::vector<std::string> g_leakLines;
@@ -139,28 +148,10 @@ float Distance(const float (&a)[3], const float (&b)[3])
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-// The D3D texture of the RenderTarget* at renderLoop+offset (RenderLoop+0xce8 TAA history, +0x10e0 / +0x10f0 last-frame
-// depth / colour): RenderTarget vtbl+0x40(0) -> Texture2DDX11, GetDeviceTexture = +0x68. SEH: engine objects.
-ID3D11Texture2D* SlotTexture(void* renderLoop, std::ptrdiff_t offset)
-{
-    __try {
-        void* rt = Read<void*>(renderLoop, offset);
-        if (!rt) {
-            return nullptr;
-        }
-        const auto get = reinterpret_cast<GetTextureFn>((*static_cast<void* const* const*>(rt))[kRenderTargetTextureSlot]);
-        void* texture = get(rt, 0);
-        return texture ? Read<ID3D11Texture2D*>(texture, kTexture2DDeviceTexture) : nullptr;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) {
-        return nullptr;
-    }
-}
-
 // Eye 0's TAA history RT (read by RenderTAA as LastFrameBuffer).
 ID3D11Texture2D* Eye0History(void* renderLoop)
 {
-    return SlotTexture(renderLoop, kRenderLoopTaaHistory);
+    return RenderTargetTextureAt(renderLoop, kRenderLoopTaaHistory);
 }
 
 // Froxel history of both camera indices: -1 makes LightFroxel run its non-temporal technique once (temporal.md 10.1).
@@ -182,9 +173,9 @@ bool ResetFroxelHistory(void* renderLoop)
     }
 }
 
-// Clears every mip of a last-frame RT to 0 (far depth for 'Last Frame Depth', black for 'Last Frame Buffer') on the
-// immediate context. Thread: game main thread, before the frame's command lists are executed on that context.
-bool ClearToZero(ID3D11Texture2D* texture)
+// Clears every mip of a render-target texture to `color` on the immediate context (a reset clears the last-frame RTs to
+// 0: far depth, black). Thread: game main thread, outside the engine's recording and execution of a frame.
+bool ClearTexture(ID3D11Texture2D* texture, const float (&color)[4])
 {
     D3D11_TEXTURE2D_DESC d{};
     texture->GetDesc(&d);
@@ -201,16 +192,71 @@ bool ClearToZero(ID3D11Texture2D* texture)
                                                                  : d.Format;
     rd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
     d3d::InternalScope internal;
-    constexpr float kZero[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     for (UINT mip = 0; mip < d.MipLevels; ++mip) {
         rd.Texture2D.MipSlice = mip;
         ComPtr<ID3D11RenderTargetView> rtv;
         if (FAILED(device->CreateRenderTargetView(texture, &rd, &rtv))) {
             return false;
         }
-        context->ClearRenderTargetView(rtv.Get(), kZero);
+        context->ClearRenderTargetView(rtv.Get(), color);
     }
     return true;
+}
+
+// The froxel volume (Texture3D*) camera index `idx` wrote this frame: index DeferredLighting+0x780+idx*4 holds the
+// volume just written, which the next frame reads as its history. SEH: engine objects.
+void* CurrentFroxelVolume(void* renderLoop, int idx)
+{
+    __try {
+        void* lighting = Read<void*>(renderLoop, kRenderLoopDeferredLighting);
+        if (!lighting) {
+            return nullptr;
+        }
+        const int pp = Read<int>(lighting, kLightingFroxelIndex + idx * 4);
+        return pp == 0 || pp == 1 ? Read<void*>(lighting, kLightingFroxelVolumes + (pp * 2 + idx) * 8) : nullptr;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return nullptr;
+    }
+}
+
+// Leak-test tint of eye 0's SSR or froxel history, between two frames. Returns an error, or empty.
+std::string TintRow(LeakRow row)
+{
+    void* loop = g_lastRenderLoop;
+    if (!loop) {
+        return "no RenderTAA seen yet";
+    }
+    if (row == LeakRow::Ssr) {
+        // HDR, far brighter than the scene: dry-road reflections are weak (an 8.0 tint changed the image by 0.02).
+        constexpr float kRed[4] = {512.0f, 0.0f, 0.0f, 1.0f};
+        ID3D11Texture2D* texture = RenderTargetTextureAt(loop, kRenderLoopLastFrameBuffer); // slot 0
+        return !texture ? "slot 0 'Last Frame Buffer' missing" : ClearTexture(texture, kRed) ? "" : "clear failed";
+    }
+    ID3D11Resource* volume = Texture3DResource(CurrentFroxelVolume(loop, 0));
+    ComPtr<ID3D11Texture3D> texture;
+    if (!volume || FAILED(volume->QueryInterface(IID_PPV_ARGS(&texture)))) {
+        return "slot 0 froxel volume missing";
+    }
+    D3D11_TEXTURE3D_DESC d{};
+    texture->GetDesc(&d);
+    D3D11_UNORDERED_ACCESS_VIEW_DESC ud{};
+    ud.Format = d.Format == DXGI_FORMAT_R16G16B16A16_TYPELESS ? DXGI_FORMAT_R16G16B16A16_FLOAT : d.Format;
+    ud.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE3D;
+    ud.Texture3D.WSize = static_cast<UINT>(-1);
+    ComPtr<ID3D11Device> device;
+    texture->GetDevice(&device);
+    ComPtr<ID3D11DeviceContext> context;
+    device->GetImmediateContext(&context);
+    ComPtr<ID3D11UnorderedAccessView> uav;
+    if (!(d.BindFlags & D3D11_BIND_UNORDERED_ACCESS) ||
+        FAILED(device->CreateUnorderedAccessView(texture.Get(), &ud, &uav))) {
+        return "no UAV on the froxel volume";
+    }
+    d3d::InternalScope internal;
+    constexpr float kRed[4] = {2.0f, 0.0f, 0.0f, 0.05f}; // in-scattered light, small extinction (layout: guess)
+    context->ClearUnorderedAccessViewFloat(uav.Get(), kRed);
+    return "";
 }
 
 // Thread: any context's Draw (deferred contexts record on job threads). Set only while a leak test runs.
@@ -262,6 +308,7 @@ void TintPreDraw(ID3D11DeviceContext* c)
 void HookedRenderTaa(void* renderLoop, void* renderContext)
 {
     if (renderLoop && renderContext) {
+        g_lastRenderLoop = renderLoop;
         if (g_resetPending) {
             Write<std::uint8_t>(renderLoop, kRenderLoopTaaReset, 1); // cleared again at the end of this view's TAA
         }
@@ -333,11 +380,12 @@ bool ReadBackBuffer(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11Devic
     return true;
 }
 
-// Red-dominant share (%) of each back-buffer half.
+// Red-dominant share (%) of each back-buffer half, and its mean red excess max(0, r - max(g, b)) (of 255), which also
+// sees a tint that only reaches part of the image (SSR reflections, thin fog).
 bool RedShares(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext* context, double& left,
-    double& right)
+    double& right, double (&excess)[2])
 {
-    std::uint64_t red[2] = {0, 0}, total[2] = {0, 0};
+    std::uint64_t red[2] = {0, 0}, total[2] = {0, 0}, excessSum[2] = {0, 0};
     const bool ok = ReadBackBuffer(swapChain, device, context,
         [&](const std::uint8_t* data, UINT pitch, UINT width, UINT height, bool bgra) {
             const UINT half = width / 2;
@@ -351,11 +399,15 @@ bool RedShares(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceCont
                     if (r > 128 && r * 2 > g * 5 && r * 2 > b * 5) {
                         ++red[side];
                     }
+                    excessSum[side] += static_cast<std::uint64_t>(std::max(0, r - std::max(g, b)));
                 }
             }
         });
     left = total[0] ? 100.0 * static_cast<double>(red[0]) / static_cast<double>(total[0]) : 0.0;
     right = total[1] ? 100.0 * static_cast<double>(red[1]) / static_cast<double>(total[1]) : 0.0;
+    for (int e = 0; e < 2; ++e) {
+        excess[e] = total[e] ? static_cast<double>(excessSum[e]) / static_cast<double>(total[e]) : 0.0;
+    }
     return ok;
 }
 
@@ -575,6 +627,7 @@ void ResetNow(const std::string& why)
         return;
     }
     g_resetPending = true;
+    g_fullReset = true;
     g_resetNext = true;
     if (g_cutTest == CutTest::After) {
         ++g_resetsDuringTest;
@@ -653,7 +706,8 @@ void OnTaaFrame(void* renderer, unsigned recenterCount)
         g_recenterSeen = recenterCount;
         RequestTaaReset("recenter");
     }
-    g_resetPending = g_resetNext || (g_convFrames > 0 && g_convPhase == 1); // convergence reference phase
+    g_fullReset = g_resetNext;
+    g_resetPending = g_resetNext || (g_convFrames > 0 && g_convPhase == 1); // convergence reference: TAA only
     g_resetNext = false;
 }
 
@@ -666,8 +720,12 @@ void RequestTaaReset(const char* reason)
     TT2VR_LOG_INFO("taa: history reset for both eyes ({})", reason);
 }
 
-void RequestLeakTest(std::function<void(const std::string&)> done)
+void RequestLeakTest(const std::string& row, std::function<void(const std::string&)> done)
 {
+    if (row != "" && row != "taa" && row != "ssr" && row != "froxel") {
+        done("leaktest FAILED: unknown row '" + row + "' (taa, ssr, froxel)");
+        return;
+    }
     if (!g_active) {
         done("leaktest FAILED: RenderTAA hook not installed");
         return;
@@ -676,8 +734,10 @@ void RequestLeakTest(std::function<void(const std::string&)> done)
         g_leakDone("leaktest FAILED: superseded by a newer request");
     }
     g_leakDone = std::move(done);
+    g_leakRow = row == "ssr" ? LeakRow::Ssr : row == "froxel" ? LeakRow::Froxel : LeakRow::Taa;
     g_leakLines.clear();
     g_maxRightDelta = 0;
+    g_maxExcessDelta[0] = g_maxExcessDelta[1] = 0;
     g_tintApplied = false;
     g_leak = Leak::Baseline;
 }
@@ -763,15 +823,16 @@ void OnTaaTwoViews(bool twoViews)
 
 void OnTaaLoopRender(void* renderLoop)
 {
-    if (!g_resetPending || !renderLoop || !g_active) {
+    if (!g_fullReset || !renderLoop || !g_active) {
         return;
     }
     const bool froxel = ResetFroxelHistory(renderLoop);
     int cleared = 0;
     for (int idx = 0; idx < 2; ++idx) {
         for (const std::ptrdiff_t slot : {kRenderLoopLastFrameDepth, kRenderLoopLastFrameBuffer}) {
-            if (ID3D11Texture2D* texture = SlotTexture(renderLoop, slot + idx * 8)) {
-                cleared += ClearToZero(texture) ? 1 : 0;
+            if (ID3D11Texture2D* texture = RenderTargetTextureAt(renderLoop, slot + idx * 8)) {
+                constexpr float kZero[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+                cleared += ClearTexture(texture, kZero) ? 1 : 0;
             }
         }
     }
@@ -785,7 +846,7 @@ void OnTaaLoopRender(void* renderLoop)
 
 void OnTaaViewPrepared(void* renderLoop, void* renderContext)
 {
-    if (!g_resetPending || !g_postUpdate || !renderLoop || !renderContext) {
+    if (!g_fullReset || !g_postUpdate || !renderLoop || !renderContext) {
         return;
     }
     const unsigned idx = Read<std::uint16_t>(renderContext, kRenderContextCameraIndex);
@@ -887,44 +948,76 @@ void OnTaaPresent(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceC
         FinishLeak("FAILED: not in two-view riding (ride in the helmet camera, unpaused)");
         return;
     }
-    double left = 0, right = 0;
-    if (!RedShares(swapChain, device, context, left, right)) {
+    double left = 0, right = 0, excess[2] = {};
+    if (!RedShares(swapChain, device, context, left, right, excess)) {
         FinishLeak("FAILED: back buffer readback");
         return;
+    }
+    if (g_leak != Leak::Baseline) {
+        for (int e = 0; e < 2; ++e) {
+            g_maxExcessDelta[e] = std::max(g_maxExcessDelta[e], excess[e] - g_baseExcess[e]);
+        }
     }
     switch (g_leak) {
     case Leak::Baseline:
         g_baseLeft = left;
         g_baseRight = right;
-        g_leakLines.push_back(fmt::format("baseline: left {:.2f}% right {:.2f}% red", left, right));
-        g_tintThisFrame = true; // the next frame's eye-0 TAA input becomes red
-        g_tintApplied = false;
-        d3d::SetPreDrawCallback(&TintPreDraw);
+        g_baseExcess[0] = excess[0];
+        g_baseExcess[1] = excess[1];
+        g_leakLines.push_back(fmt::format("baseline: left {:.2f}% right {:.2f}% red, red excess {:.3f} / {:.3f}", left,
+            right, excess[0], excess[1]));
+        if (g_leakRow == LeakRow::Taa) {
+            g_tintThisFrame = true; // the next frame's eye-0 TAA input becomes red
+            g_tintApplied = false;
+            d3d::SetPreDrawCallback(&TintPreDraw);
+        }
+        else if (const std::string error = TintRow(g_leakRow); !error.empty()) {
+            FinishLeak("FAILED: " + error);
+            return;
+        }
         g_leak = Leak::Tint;
         break;
     case Leak::Tint:
-        d3d::SetPreDrawCallback(nullptr);
-        if (!g_tintApplied) {
-            FinishLeak(g_tintHistory.load() ? "FAILED: eye 0's TAA draw was not found (history texture not bound)"
-                                            : "FAILED: no eye-0 RenderTAA this frame (TAA off?)");
-            return;
+        if (g_leakRow == LeakRow::Taa) {
+            d3d::SetPreDrawCallback(nullptr);
+            if (!g_tintApplied) {
+                FinishLeak(g_tintHistory.load() ? "FAILED: eye 0's TAA draw was not found (history texture not bound)"
+                                                : "FAILED: no eye-0 RenderTAA this frame (TAA off?)");
+                return;
+            }
         }
         g_tintLeft = left;
         g_maxRightDelta = std::max(g_maxRightDelta, right - g_baseRight);
-        g_leakLines.push_back(fmt::format("tint frame: left {:.2f}% right {:.2f}%", left, right));
+        g_leakLines.push_back(fmt::format("tint frame: left {:.2f}% right {:.2f}%, red excess {:.3f} / {:.3f}", left,
+            right, excess[0], excess[1]));
         g_afterFrames = 0;
         g_leak = Leak::After;
         break;
     case Leak::After:
         g_maxRightDelta = std::max(g_maxRightDelta, right - g_baseRight);
-        g_leakLines.push_back(fmt::format("frame +{}: left {:.2f}% right {:.2f}%", ++g_afterFrames, left, right));
+        g_leakLines.push_back(fmt::format("frame +{}: left {:.2f}% right {:.2f}%, red excess {:.3f} / {:.3f}",
+            ++g_afterFrames, left, right, excess[0], excess[1]));
         if (g_afterFrames >= kAfterFrames) {
-            const bool tintSeen = g_tintLeft - g_baseLeft > 20.0;
-            const bool noLeak = g_maxRightDelta < 1.0;
-            FinishLeak(fmt::format("{}: left eye {:.1f}% -> {:.1f}% red on the tint frame, right eye max +{:.2f}% "
-                                   "over its baseline {:.2f}%",
-                tintSeen && noLeak ? "PASS" : !tintSeen ? "INCONCLUSIVE (tint not visible in the left eye)" : "FAIL",
-                g_baseLeft, g_tintLeft, g_maxRightDelta, g_baseRight));
+            const char* name = g_leakRow == LeakRow::Ssr ? "ssr" : g_leakRow == LeakRow::Froxel ? "froxel" : "taa";
+            constexpr const char* kInconclusive = "INCONCLUSIVE (tint not visible in the left eye)";
+            if (g_leakRow == LeakRow::Taa) {
+                const bool tintSeen = g_tintLeft - g_baseLeft > 20.0;
+                const bool noLeak = g_maxRightDelta < 1.0;
+                FinishLeak(fmt::format("{} {}: left eye {:.1f}% -> {:.1f}% red on the tint frame, right eye max "
+                                       "+{:.2f}% over its baseline {:.2f}%",
+                    name, tintSeen && noLeak ? "PASS" : !tintSeen ? kInconclusive : "FAIL", g_baseLeft, g_tintLeft,
+                    g_maxRightDelta, g_baseRight));
+                break;
+            }
+            // SSR and froxel tints reach part of the image only: judged on the mean red excess. Pass: eye 0 gains
+            // more than 0.5 (of 255), eye 1 less than 0.15 or 5% of eye 0's gain (frame noise), and no red share jump.
+            const double l = g_maxExcessDelta[0], r = g_maxExcessDelta[1];
+            const bool tintSeen = l > 0.5;
+            const bool noLeak = r < std::max(0.15, 0.05 * l) && g_maxRightDelta < 1.0;
+            FinishLeak(fmt::format("{} {}: red excess (of 255) left eye +{:.3f}, right eye +{:.3f} over the baselines "
+                                   "{:.3f} / {:.3f}; red share right eye max +{:.2f}%",
+                name, tintSeen && noLeak ? "PASS" : !tintSeen ? kInconclusive : "FAIL", l, r, g_baseExcess[0],
+                g_baseExcess[1], g_maxRightDelta));
         }
         break;
     case Leak::Idle:

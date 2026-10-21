@@ -82,6 +82,7 @@ std::vector<Command> ParseCommands(std::string_view text)
         }
         else if (word == "leaktest") {
             c.kind = CommandKind::LeakTest;
+            c.arg = Lower(arg); // row: taa (default), ssr, froxel
         }
         else if (word == "taareset") {
             c.kind = CommandKind::TaaReset;
@@ -91,6 +92,14 @@ std::vector<Command> ParseCommands(std::string_view text)
         }
         else if (word == "shifttest") {
             c.kind = CommandKind::ShiftTest;
+        }
+        else if (word == "views") {
+            c.kind = CommandKind::Views;
+            c.arg = Lower(arg);
+        }
+        else if (word == "freeze") {
+            c.kind = CommandKind::Freeze;
+            c.arg = Lower(arg);
         }
         else if (word == "cuttest") {
             c.kind = CommandKind::CutTest;

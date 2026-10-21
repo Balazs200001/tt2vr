@@ -20,6 +20,7 @@
 #include "game/menu_state.hpp"
 #include "game/render_size.hpp"
 #include "game/split_view.hpp"
+#include "game/temporal_debug.hpp"
 #include "game/version.hpp"
 #include "xr/session.hpp"
 
@@ -295,6 +296,65 @@ void XrSection()
     }
 }
 
+// PLAN 6f: per-eye history VRAM, history / motion-vector / previous-depth views, [debug] freeze of eye R's history.
+void TemporalSection()
+{
+    static bool s_wasShown = false;
+    if (game::TemporalViewsShown() && !s_wasShown) {
+        ImGui::SetNextItemOpen(true); // views switched on (also by the remote "views on"): show them
+    }
+    s_wasShown = game::TemporalViewsShown();
+    if (!ImGui::CollapsingHeader("Temporal (Phase 6)")) {
+        return;
+    }
+    const game::TemporalVram v = game::TemporalVramUsage();
+    if (!v.valid) {
+        ImGui::TextDisabled("per-eye history: only while two views render");
+    }
+    else {
+        ImGui::Text("per-eye history VRAM: eye L %.1f MB, eye R %.1f MB", v.totalMB[0], v.totalMB[1]);
+        ImGui::Text("  TAA %.1f / %.1f, last frame %.1f / %.1f, froxel %.1f / %.1f, luminance %.3f / %.3f MB",
+            v.taaMB[0], v.taaMB[1], v.lastFrameMB[0], v.lastFrameMB[1], v.froxelMB[0], v.froxelMB[1], v.luminanceMB[0],
+            v.luminanceMB[1]);
+        ImGui::Text("  debug views and copies: %.1f MB", v.debugMB);
+    }
+    bool shown = game::TemporalViewsShown();
+    if (ImGui::Checkbox("Show history views", &shown)) {
+        game::SetTemporalViewsShown(shown);
+    }
+    bool freeze = game::FreezeRightHistory();
+    if (ImGui::Checkbox("[debug] Freeze eye R TAA history", &freeze)) {
+        game::SetFreezeRightHistory(freeze);
+    }
+    unsigned w = 0, h = 0;
+    game::TemporalThumbnailSize(w, h);
+    if (!shown || w == 0 || !ImGui::BeginTable("temporal_views", 4, ImGuiTableFlags_SizingFixedFit)) {
+        return;
+    }
+    ImGui::TableNextRow();
+    for (const char* header : {"", "TAA history", "motion vectors", "previous depth"}) {
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(header);
+    }
+    for (int eye = 0; eye < 2; ++eye) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(eye == 0 ? "L" : "R");
+        using game::TemporalView;
+        for (const auto view : {TemporalView::History, TemporalView::Motion, TemporalView::PreviousDepth}) {
+            ImGui::TableNextColumn();
+            if (ID3D11ShaderResourceView* srv = game::TemporalThumbnail(eye, view)) {
+                ImGui::Image(static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(srv)),
+                    ImVec2(static_cast<float>(w), static_cast<float>(h)));
+            }
+            else {
+                ImGui::TextDisabled("-");
+            }
+        }
+    }
+    ImGui::EndTable();
+}
+
 void DrawPanel()
 {
     const auto stats = d3d::Stats();
@@ -350,6 +410,7 @@ void DrawPanel()
     }
     XrSection();
     CameraSection();
+    TemporalSection();
     ImGui::Checkbox(fmt::format("Show mouse cursor ({})", core::FormatHotkey(hk.cursor)).c_str(), &g_cursor);
     bool verbose = core::GetVerbose();
     if (ImGui::Checkbox("Verbose per-frame log", &verbose)) {
@@ -415,6 +476,7 @@ void Render(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext
             return;
         }
     }
+    game::UpdateTemporalViews(device, context); // thumbnails for this frame's panel
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
     const Target target = MatchWindow(swapChain);

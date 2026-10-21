@@ -27,7 +27,8 @@
 //     or turning more than 10 deg in one frame resets both eyes this frame and the next. A World Shift (Renderer+0xd28,
 //     set before DoUpdate) is subtracted from the stored position first, so the 2048 m rebase is no cut.
 //   Convergence test (remote "convergence"): 11 consecutive back-buffer readbacks; per eye the mean luma change
-//     between consecutive frames, then the same with the history reset before every frame as the reference. Pass:
+//     between consecutive frames, then the same with the TAA history reset before every frame as the reference (TAA
+//     only: the full reset would also take SSR and the froxel history out of the reference image). Pass:
 //     with history below 0.6 x the reference in each eye, and the eyes within 25% of each other. Head and bike still.
 //     Saves the change of the last frame pair as screens\convergence_diff.png.
 #pragma once
@@ -55,7 +56,9 @@ void OnTaaLoopRender(void* renderLoop);
 void OnTaaViewPrepared(void* renderLoop, void* renderContext);
 // Thread: game main thread.
 void RequestTaaReset(const char* reason);
-void RequestLeakTest(std::function<void(const std::string&)> done);
+// Remote "leaktest [taa|ssr|froxel]" (default taa): eye 0's history of that row is tinted red once; pass = eye 1 does
+// not change (invariant T2).
+void RequestLeakTest(const std::string& row, std::function<void(const std::string&)> done);
 void RequestConvergenceTest(std::function<void(const std::string&)> done);
 // Remote "cuttest [noreset]": waits up to 60 s for the next camera cut inside two-view riding, then reports each
 // eye's frame-to-frame change for 12 frames and saves screenshots of frames +1 and +2. noreset keeps the history for

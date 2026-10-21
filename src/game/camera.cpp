@@ -10,6 +10,7 @@
 #include "game/split_view.hpp"
 #include "game/shared_exposure.hpp"
 #include "game/taa_control.hpp"
+#include "game/temporal_debug.hpp"
 #include "game/vr_effects.hpp"
 #include "stereo/math/projection.hpp"
 #include "stereo/math/xr_to_engine.hpp"
@@ -514,6 +515,7 @@ void HookedLoopRender(void* renderLoop, void* renderDesc)
     if (renderer) {
         ForceVrResolution(xr::SessionRunning());
         OnTaaLoopRender(renderLoop); // history reset: froxel index, last-frame buffers
+        OnTemporalDebugLoopRender(renderLoop);
     }
     GpuTimersLoopBegin(renderer);
     g_loopRender(renderLoop, renderDesc);

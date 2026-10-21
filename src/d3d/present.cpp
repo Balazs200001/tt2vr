@@ -34,6 +34,7 @@
 #include "game/skin_motion.hpp"
 #include "game/ssao_fix.hpp"
 #include "game/taa_control.hpp"
+#include "game/temporal_debug.hpp"
 #include "game/virtual_pad.hpp"
 #include "game/version.hpp"
 #include "ui/input_diag.hpp"
@@ -182,12 +183,22 @@ void RunCommands()
                 break;
             }
             case core::CommandKind::LeakTest:
-                game::RequestLeakTest([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
+                game::RequestLeakTest(cmd.arg, [done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;
             case core::CommandKind::CutTest:
                 game::RequestCutTest(cmd.arg == "noreset",
                     [done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;
+            case core::CommandKind::Views:
+            case core::CommandKind::Freeze: {
+                const bool on = cmd.arg != "off";
+                const bool views = cmd.kind == core::CommandKind::Views;
+                views ? game::SetTemporalViewsShown(on) : game::SetFreezeRightHistory(on);
+                const std::string r = fmt::format("{} {}", views ? "views" : "freeze", on ? "on" : "off");
+                AddResult(origin, r);
+                done(r);
+                break;
+            }
             case core::CommandKind::ShiftTest:
                 game::RequestShiftTest([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;
