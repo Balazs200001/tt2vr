@@ -70,6 +70,12 @@ void OnPresent();
 bool BeginHeadCenterView(void* viewContext);
 void EndHeadCenterView(void* viewContext);
 
+// [debug] Menu freeze (PLAN 7e feasibility, remote "menufreeze on|off", default off): in menus with a 3D scene, render
+// two head-tracked views from the menu camera's pose held when the freeze began (the game's menu camera keeps
+// cutting elsewhere), the menu UI on the HUD panel at the menu screen's place. Main thread.
+void SetMenuFreeze(bool on);
+bool MenuFreezeActive(); // this frame renders the held menu vantage
+
 // Multi-line description of LastCameraInfo for the log, and a one-line summary for remote requests.
 std::string DescribeCamera();
 std::string CameraSummary();

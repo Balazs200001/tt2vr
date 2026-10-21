@@ -215,6 +215,14 @@ void RunCommands()
             case core::CommandKind::MvSave:
                 game::RequestMotionSave([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;
+            case core::CommandKind::MenuFreeze: {
+                const bool on = cmd.arg != "off";
+                game::SetMenuFreeze(on);
+                const std::string r = fmt::format("menufreeze {}", on ? "on" : "off");
+                AddResult(origin, r);
+                done(r);
+                break;
+            }
             case core::CommandKind::Hud:
                 if (cmd.arg == "save") {
                     game::RequestHudSave([done, origin](const std::string& r) { AddResult(origin, r); done(r); });

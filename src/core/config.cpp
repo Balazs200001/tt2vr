@@ -348,6 +348,8 @@ void ReadDebug(const toml::table& t, Config::Debug& out, Warnings& w)
             }
         } else if (key == "input_log") {
             s.Bool(key, node, out.input_log);
+        } else if (key == "menu_freeze") {
+            s.Bool(key, node, out.menu_freeze);
         } else {
             s.Warn(key, "unknown key, ignored", node);
         }

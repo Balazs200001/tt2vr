@@ -24,6 +24,7 @@ enum class CommandKind {
     Views,            // "views on|off": the overlay's per-eye history views (game::TemporalDebug)
     Freeze,           // "freeze on|off": [debug] freeze eye R's TAA history (game::TemporalDebug)
     MvSave,           // "mvsave": both eyes' motion vectors: statistics and a PNG (game::TemporalDebug)
+    MenuFreeze,       // "menufreeze on|off": [debug] menus from a held head-tracked vantage (game::SetMenuFreeze)
     Hud,              // "hud [save]": the HUD render calls of the next frame (game::HudCapture); save: the captured HUD
     Screenshot,       // "screenshot [name]" / "screen [name]": the engine's back buffer as a PNG (next frame)
     Pad,              // "pad <steps>": virtual XInput pad script (test mode only, game::RunPadScript)
