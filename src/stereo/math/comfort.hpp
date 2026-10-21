@@ -15,6 +15,11 @@ float HorizonRoll(const Mat34& camera);
 // fades out between 60 and 80 deg of pitch, where the roll is undefined (looking straight up or down).
 Mat34 HorizonLock(const Mat34& camera, float share);
 
+// World scale, IPD scale and seat offset (PLAN 8d / 8e) on camera-local eye transforms (stereo::EyeLocal, relative to
+// the recentered head): translations become t_i' = (t_head + (t_i - t_head) * ipdScale) / worldScale + seat, the head
+// (eye midpoint) t_head / worldScale + seat; rotations are unchanged. worldScale 2 = the world looks twice as large.
+void ScaleEyes(Mat34 eyes[2], Mat34& head, float worldScale, float ipdScale, const Vec3& seat);
+
 // Rotation angle of a rigid transform's rotation part, radians (0..pi).
 float RotationAngle(const Mat34& r);
 // The rotation part of `r` raised to the power t: the same axis, t times the angle (t = 0 identity, 1 the rotation,

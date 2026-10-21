@@ -55,6 +55,33 @@ TEST_CASE("HorizonLock removes the given share of the roll and keeps position an
     CHECK(std::fabs(HorizonRoll(Mul(lean, HorizonLock(lean, 1.0f)))) < 1e-4f);
 }
 
+TEST_CASE("ScaleEyes: world scale divides head motion and IPD, ipd scale only the separation, seat adds")
+{
+    // Head 10 cm right and 5 cm up of the recentered point, eyes 64 mm apart, turned 30 deg.
+    const Mat34 turn = CameraLocalTransform(30.0f * kDeg, 0, 0, {0, 0, 0});
+    Mat34 head = turn;
+    head.m[0][3] = 0.10f;
+    head.m[1][3] = 0.05f;
+    Mat34 eyes[2] = {head, head};
+    eyes[0].m[0][3] -= 0.032f;
+    eyes[1].m[0][3] += 0.032f;
+    Mat34 h = head, e[2] = {eyes[0], eyes[1]};
+    ScaleEyes(e, h, 2.0f, 1.0f, {0, 0, 0});
+    CHECK(h.m[0][3] == doctest::Approx(0.05f));
+    CHECK(h.m[1][3] == doctest::Approx(0.025f));
+    CHECK(e[1].m[0][3] - e[0].m[0][3] == doctest::Approx(0.032f)); // IPD halved with the world
+    CHECK(e[0].m[0][0] == doctest::Approx(turn.m[0][0])); // rotation kept
+    h = head;
+    e[0] = eyes[0];
+    e[1] = eyes[1];
+    ScaleEyes(e, h, 1.0f, 1.5f, {0.0f, -0.02f, -0.01f});
+    CHECK(h.m[0][3] == doctest::Approx(0.10f));
+    CHECK(h.m[1][3] == doctest::Approx(0.03f));
+    CHECK(h.m[2][3] == doctest::Approx(-0.01f));
+    CHECK(e[1].m[0][3] - e[0].m[0][3] == doctest::Approx(0.096f));
+    CHECK((e[0].m[0][3] + e[1].m[0][3]) * 0.5f == doctest::Approx(0.10f)); // still centred on the head
+}
+
 TEST_CASE("ScaleRotation scales the angle about the same axis")
 {
     const Mat34 shake = CameraLocalTransform(0.0f, 1.5f * kDeg, -2.0f * kDeg, {0.3f, 0, 0}); // pitch + roll, like a shake

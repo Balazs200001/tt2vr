@@ -22,6 +22,22 @@ Mat34 HorizonLock(const Mat34& camera, float share)
     return CameraLocalTransform(0.0f, 0.0f, -roll, {0.0f, 0.0f, 0.0f});
 }
 
+void ScaleEyes(Mat34 eyes[2], Mat34& head, float worldScale, float ipdScale, const Vec3& seat)
+{
+    const float inv = 1.0f / std::max(worldScale, 1e-3f);
+    const float s[3] = {seat.x, seat.y, seat.z};
+    float mid[3];
+    for (int r = 0; r < 3; ++r) {
+        mid[r] = head.m[r][3];
+        head.m[r][3] = mid[r] * inv + s[r];
+    }
+    for (int e = 0; e < 2; ++e) {
+        for (int r = 0; r < 3; ++r) {
+            eyes[e].m[r][3] = (mid[r] + (eyes[e].m[r][3] - mid[r]) * ipdScale) * inv + s[r];
+        }
+    }
+}
+
 float RotationAngle(const Mat34& r)
 {
     const float c = (r.m[0][0] + r.m[1][1] + r.m[2][2] - 1.0f) * 0.5f;
