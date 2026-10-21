@@ -55,6 +55,29 @@ TEST_CASE("HorizonLock removes the given share of the roll and keeps position an
     CHECK(std::fabs(HorizonRoll(Mul(lean, HorizonLock(lean, 1.0f)))) < 1e-4f);
 }
 
+TEST_CASE("ScaleRotation scales the angle about the same axis")
+{
+    const Mat34 shake = CameraLocalTransform(0.0f, 1.5f * kDeg, -2.0f * kDeg, {0.3f, 0, 0}); // pitch + roll, like a shake
+    const float angle = RotationAngle(shake);
+    CHECK(angle > 0.0f);
+    CHECK(RotationAngle(ScaleRotation(shake, 0.5f)) == doctest::Approx(angle * 0.5f).epsilon(1e-3));
+    const Mat34 none = ScaleRotation(shake, 0.0f);
+    CHECK(none.m[0][0] == doctest::Approx(1.0f));
+    CHECK(none.m[1][2] == doctest::Approx(0.0f));
+    // r^-1 * r = identity; r^0.5 * r^0.5 = r; translation dropped.
+    const Mat34 back = Mul(ScaleRotation(shake, -1.0f), ScaleRotation(shake, 1.0f));
+    CHECK(RotationAngle(back) == doctest::Approx(0.0f).epsilon(1e-3));
+    const Mat34 half = ScaleRotation(shake, 0.5f);
+    const Mat34 whole = Mul(half, half);
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            CHECK(whole.m[r][c] == doctest::Approx(shake.m[r][c]).epsilon(1e-4));
+        }
+        CHECK(whole.m[r][3] == 0.0f);
+    }
+    CHECK(RotationAngle(ScaleRotation(Identity34(), 0.5f)) == doctest::Approx(0.0f));
+}
+
 TEST_CASE("HorizonLock fades out when looking nearly straight up or down")
 {
     const Mat34 steep = RoadCamera(0, 85, 30);

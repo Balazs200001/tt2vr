@@ -15,4 +15,10 @@ float HorizonRoll(const Mat34& camera);
 // fades out between 60 and 80 deg of pitch, where the roll is undefined (looking straight up or down).
 Mat34 HorizonLock(const Mat34& camera, float share);
 
+// Rotation angle of a rigid transform's rotation part, radians (0..pi).
+float RotationAngle(const Mat34& r);
+// The rotation part of `r` raised to the power t: the same axis, t times the angle (t = 0 identity, 1 the rotation,
+// -1 its inverse). Translation is dropped. For camera shakes (PLAN 8c), which are small rotations.
+Mat34 ScaleRotation(const Mat34& r, float t);
+
 } // namespace stereo

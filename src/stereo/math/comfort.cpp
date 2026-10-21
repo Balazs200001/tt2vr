@@ -22,4 +22,28 @@ Mat34 HorizonLock(const Mat34& camera, float share)
     return CameraLocalTransform(0.0f, 0.0f, -roll, {0.0f, 0.0f, 0.0f});
 }
 
+float RotationAngle(const Mat34& r)
+{
+    const float c = (r.m[0][0] + r.m[1][1] + r.m[2][2] - 1.0f) * 0.5f;
+    return std::acos(std::clamp(c, -1.0f, 1.0f));
+}
+
+Mat34 ScaleRotation(const Mat34& r, float t)
+{
+    // Axis from the skew-symmetric part: (R - R^T) / 2 = sin(angle) [axis]x. Fine for angles well below pi.
+    const float angle = RotationAngle(r);
+    const float x = r.m[2][1] - r.m[1][2], y = r.m[0][2] - r.m[2][0], z = r.m[1][0] - r.m[0][1];
+    const float len = std::sqrt(x * x + y * y + z * z);
+    if (angle < 1e-6f || len < 1e-9f) {
+        return Identity34();
+    }
+    const float ax = x / len, ay = y / len, az = z / len;
+    const float a = angle * t, c = std::cos(a), s = std::sin(a), k = 1.0f - c;
+    return {{
+        {c + ax * ax * k, ax * ay * k - az * s, ax * az * k + ay * s, 0.0f},
+        {ay * ax * k + az * s, c + ay * ay * k, ay * az * k - ax * s, 0.0f},
+        {az * ax * k - ay * s, az * ay * k + ax * s, c + az * az * k, 0.0f},
+    }};
+}
+
 } // namespace stereo
