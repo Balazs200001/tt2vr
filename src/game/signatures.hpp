@@ -67,6 +67,8 @@ enum class Sig {
     CsmRender,
     RenderContextSetCascadedShadowContext,
     HHParticlesManagerEnableMedium,
+    ResolutionScaling,
+    DynamicResolutionEnabled,
     Count,
 };
 
@@ -265,6 +267,13 @@ inline constexpr Signature kSignatures[] = {
     {"HHParticlesManager::EnableMedium", "?EnableMedium@HHParticlesManager@Graphics@PlayAll@@QEAAXH_N@Z", nullptr, 0,
         "export; 0x1409a3100, mgr[0x2c+medium] = enable (9 bytes, too short for a pattern); only caller "
         "RenderOneFrame: medium 2 = GameEngine+0x184 each frame (docs/re/renderer.md 6 A)",
+        kBuild4989319},
+    {"DrawPass::s_vResolutionScaling", "?s_vResolutionScaling@DrawPass@Graphics@PlayAll@@2VVector2@Math@3@A", nullptr, 0,
+        "data export; 0x1413602d8, Vector2 dynamic-resolution scale; written only by the controller FUN_1405b1270 "
+        "(Renderer::OnRender, before the render loop); mode 0 = 1.0 / 1.0 (docs/re/temporal.md 10.3)",
+        kBuild4989319},
+    {"DrawPass::s_bDynamicResolutionEnabled", "?s_bDynamicResolutionEnabled@DrawPass@Graphics@PlayAll@@2_NA", nullptr, 0,
+        "data export; 0x1414082ea, bool; same writer; gates UpscaleDynamicResolution and GetDrawPassViewport",
         kBuild4989319},
 };
 
