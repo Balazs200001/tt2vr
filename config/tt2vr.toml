@@ -138,7 +138,3 @@ fake_exe_sha256 = ""
 # [debug] Log every foreground-window change and, once per second, each XInput pad's sticks/triggers/buttons and
 # whether the game window has focus (to diagnose lost steering input). Read-only; off by default.
 input_log = false
-# [debug] Trial (PLAN Phase 7e): in menus with a 3D scene, stay head-tracked in 3D from the menu camera's view when the
-# menu appeared (the game's own menu camera keeps cutting elsewhere), with the menu on a floating panel. Off = menus
-# on the flat screen.
-menu_freeze = false

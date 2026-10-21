@@ -121,13 +121,6 @@ thread_local const void* t_helmetActor = nullptr; // non-null only inside TTCame
 // Last local-player TT2 camera controller seen in its physics step; split view mirrors its per-camera-index state
 // into view 1.
 std::atomic<const void*> g_riderCamera{nullptr};
-// [debug] menu freeze (PLAN 7e): wanted by the remote command; active in this frame's DoUpdate; the held engine camera
-// world (from view 0's InitFromCamera on the first frozen frame). Main thread.
-bool g_menuFreezeWanted = false; // [debug] menu_freeze at startup
-bool g_menuFreeze = false;
-bool g_frozenValid = false;
-Mat34 g_frozenWorld = stereo::Identity34();
-const void* g_frozenMode = nullptr; // the player camera's mode when the vantage was taken (a new menu changes it)
 
 constexpr float kDegToRad = std::numbers::pi_v<float> / 180.0f;
 constexpr float kRadToDeg = 180.0f / std::numbers::pi_v<float>;
@@ -195,24 +188,7 @@ bool BeginMainView(const void* camera)
     // are not head-tracked: xr shows the flat frame on a world-fixed screen instead. The TT2 pause over the riding
     // view stays head-tracked in two views while the HUD capture takes its UI onto a panel (PLAN 7d).
     const MenuState state = ReadMenuState(camera);
-    bool menu = core::GetConfig().xr.menu_screen && state.Active() && !(state.RidingPause() && HudCaptureReady());
-    // [debug] 7e: a menu with a 3D scene (this camera renders) from the held vantage, head-tracked in two views.
-    g_menuFreeze = g_menuFreezeWanted && menu && !state.springCamera && HudCaptureReady() && xr::SessionRunning();
-    if (g_menuFreeze) {
-        menu = false;
-        // A new menu screen or a level load switches the menu camera's mode (runtime 2026-10-21: the main menu's own
-        // shot cuts never did): take a new vantage there instead of holding coordinates from another scene.
-        const void* mode = CameraModeKey(LastPlayerCamera());
-        if (g_frozenValid && mode != g_frozenMode) {
-            g_frozenValid = false;
-            TT2VR_LOG_INFO("camera: menu freeze takes a new vantage (camera mode changed)");
-        }
-        g_frozenMode = mode;
-    }
-    else if (g_frozenValid) {
-        g_frozenValid = false; // the next freeze takes a new vantage
-        TT2VR_LOG_INFO("camera: menu freeze released");
-    }
+    const bool menu = core::GetConfig().xr.menu_screen && state.Active() && !(state.RidingPause() && HudCaptureReady());
     xr::FrameViews views;
     g_head = !menu && xr::LocateViews(views);
     if (g_head) {
@@ -260,8 +236,7 @@ void BeginFrame(void* renderer)
     if (camera && Read<int>(camera, kCameraProjType) == 0) {
         twoViews = BeginMainView(camera);
     }
-    // No rider in a menu: the last ride's controller may be gone.
-    ApplySplitView(renderer, camera, twoViews, g_menuFreeze ? nullptr : g_riderCamera.load(std::memory_order_relaxed));
+    ApplySplitView(renderer, camera, twoViews, g_riderCamera.load(std::memory_order_relaxed));
     OnTaaTwoViews(SplitViewActive());
     xr::SetSideBySide(SplitViewActive());
     // Per-eye views need every projection rebuild to know its eye (the context hooks); without them both views keep
@@ -349,8 +324,7 @@ void RecordCamera(void* viewContext, const void* camera)
 // camera position, view (= inverse world), SetViewProjection with the projection already built, RebuildFrustum.
 void ApplyViewOverride(void* viewContext, int eye)
 {
-    const Mat34 world = g_menuFreeze && g_frozenValid ? g_frozenWorld
-                                                      : stereo::ToMat34(Read<Mat44>(viewContext, kViewTransform + kTmWorld));
+    const Mat34 world = stereo::ToMat34(Read<Mat44>(viewContext, kViewTransform + kTmWorld));
     const Mat34 moved = stereo::ComposeCameraLocal(world, stereo::Mul(g_autoLookFix, ViewLocal(eye)));
     alignas(16) const Mat44 view = stereo::ViewFromWorld(moved);
     alignas(16) const Mat44 proj = Read<Mat44>(viewContext, kViewTransform + kTmProj);
@@ -399,17 +373,8 @@ void HookedInitFromCamera(void* viewContext, const void* camera, const void* vie
     }
     try {
         RecordCamera(viewContext, camera);
-        if (g_menuFreeze && !g_frozenValid && view == 0) {
-            g_frozenWorld = stereo::ToMat34(Read<Mat44>(viewContext, kViewTransform + kTmWorld));
-            g_frozenValid = true;
-            TT2VR_LOG_INFO("camera: menu freeze holds the vantage at [{:.2f} {:.2f} {:.2f}]", g_frozenWorld.m[0][3],
-                g_frozenWorld.m[1][3], g_frozenWorld.m[2][3]);
-        }
         if (view == 0) {
-            // The cut detector follows the rendered vantage: menu camera cuts behind a held vantage are not cuts.
-            float held[3][4];
-            std::memcpy(held, g_frozenWorld.m, sizeof(held));
-            OnMainCameraWorld(g_menuFreeze && g_frozenValid ? held : g_info.world);
+            OnMainCameraWorld(g_info.world);
         }
         if (g_settings.viewEnabled || g_head) {
             ApplyViewOverride(viewContext, eye);
@@ -617,7 +582,6 @@ bool InstallCameraHooks()
     }
     s_done = true;
     g_settings.helmetFollows = core::GetConfig().camera.helmet_follows_view;
-    g_menuFreezeWanted = core::GetConfig().debug.menu_freeze;
     ResolveSignatures();
     g_springManage = SignatureAddress(Sig::SpringCameraModeManage);
     for (const Sig required : {Sig::RendererDoUpdate, Sig::ViewContextInitFromCamera, Sig::MatrixPerspectiveFovRH,
@@ -682,17 +646,6 @@ bool InstallCameraHooks()
         TT2VR_LOG_WARN("camera: per-eye context hooks missing; both views use the left eye");
     }
     return ok;
-}
-
-void SetMenuFreeze(bool on)
-{
-    g_menuFreezeWanted = on;
-    TT2VR_LOG_INFO("camera: [debug] menu freeze {}", on ? "on" : "off");
-}
-
-bool MenuFreezeActive()
-{
-    return g_menuFreeze && g_frozenValid;
 }
 
 bool CameraHooksActive()

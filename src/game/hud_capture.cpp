@@ -7,7 +7,6 @@
 #include "d3d/blit.hpp"
 #include "d3d/internal.hpp"
 #include "d3d/texture_dump.hpp"
-#include "game/camera.hpp"
 #include "game/engine_layout.hpp"
 #include "game/engine_textures.hpp"
 #include "game/menu_state.hpp"
@@ -200,7 +199,7 @@ void HookedHudRender(void* hud, void* rt, void* list, void* loop, void* ctx, con
     g_render(hud, g_targets[1].rt, list, loop, ctx, cameraDesc, flags, flag);
     SetHudSize(hud, old[0], old[1], nullptr);
     g_captured = true;
-    g_capturedMenu = LastMenuState().RidingPause() || MenuFreezeActive();
+    g_capturedMenu = LastMenuState().RidingPause();
 }
 
 std::string KindName(const Call& c)
