@@ -18,7 +18,7 @@ v1 is done when all of these hold during a 30-minute offline session on the Snae
 - [x] Phase 1 — Skeleton mod (flat)
 - [x] Phase 2 — Camera control (flat)
 - [x] Phase 3 — OpenXR, left eye head-tracked
-- [ ] Phase 4 — Dual-view stereo via the split-screen path (milestone)
+- [x] Phase 4 — Dual-view stereo via the split-screen path (milestone)
 - [ ] Phase 5 — Synchronous stereo: shared per-frame work
 - [ ] Phase 6 — Temporal completeness
 - [ ] Phase 7 — HUD, menus, desktop mirror
@@ -26,7 +26,7 @@ v1 is done when all of these hold during a 30-minute offline session on the Snae
 - [ ] Phase 9 — Performance
 - [ ] Phase 10 — Robustness & release
 
-**Active phase: Phase 4** (Phase 3 completed 2026-10-16; Phase 2 completed 2026-10-16; Phase 1 completed 2026-10-16; Phase 0 completed 2026-10-16)
+**Active phase: Phase 5** (Phase 4 completed 2026-10-21; Phase 3 completed 2026-10-16; Phase 2 completed 2026-10-16; Phase 1 completed 2026-10-16; Phase 0 completed 2026-10-16)
 
 ---
 
@@ -265,7 +265,8 @@ Implementation steps (proposed 2026-10-16, **waiting for Balazs's OK**; each ste
 4. **4d Tests and resets.** `[debug] leak_tint` (default off): eye L's 'TAA resolve' input tinted red for one frame (shader hash, first resolve of the frame = view 0). TAA reset for both slots on recenter and a hotkey: set `RenderLoop+0xd08` before each view's `RenderTAA`. Static convergence threshold set from dumps. Frame trace: one `DoUpdate`, two views per frame.
 
    - 2026-10-20: **4d code done, runtime pending** (`src/game/taa_control.*`): `RenderTAA` pre-hook writes the shared reset flag `RenderLoop+0xd08` before each view while a reset is pending (recenter, `taareset` command); `leaktest` command queues `RenderLayer::ClearRT(red)` on the post-process current RT before eye 0's TAA for one frame and reads both back-buffer halves at Present (baseline, tint frame, 6 after; pass = left jumps, right within 1% of its baseline).
-   - 2026-10-21: **Leak test passed** (left eye 0.0% -> 99.7% red on the tint frame, back to 0.06% one frame later; right eye at its 0.15% baseline, max +0.01%). The engine-queued `ClearRT` was invisible (its pass queue executes before the main queue), so the tint is now a D3D clear: eye 0's history texture is resolved at record time (`RenderLoop+0xce8` -> RenderTarget vtbl+0x40 -> `Texture2DDX11+0x68`) and a pre-draw callback clears `t1` of the draw that reads it in `t2`. The red is gone after one frame because the resolve clamps history to the current neighbourhood. **Recenter reset verified** by Balazs (three F7 presses while riding, each logged "history reset for both eyes (recenter)", no smear). **Camera-cut reset added** (the engine has none, `temporal.md` N6): the game camera jumping more than 15 m or 45 deg in one frame resets both eyes, this frame and the next. **Still to run:** cut test (restart a race in VR) and `convergence` (per-eye mean frame-to-frame luma change over 10 frames, head and bike still; provisional limits 2.0/255 mean and 2% of samples changing by more than 8/255, to be set from the first measurement).
+   - 2026-10-21: **Leak test passed** (left eye 0.0% -> 99.7% red on the tint frame, back to 0.06% one frame later; right eye at its 0.15% baseline, max +0.01%). The engine-queued `ClearRT` was invisible (its pass queue executes before the main queue), so the tint is now a D3D clear: eye 0's history texture is resolved at record time (`RenderLoop+0xce8` -> RenderTarget vtbl+0x40 -> `Texture2DDX11+0x68`) and a pre-draw callback clears `t1` of the draw that reads it in `t2`. The red is gone after one frame because the resolve clamps history to the current neighbourhood. **Recenter reset verified** by Balazs (three F7 presses while riding, each logged "history reset for both eyes (recenter)", no smear). **Camera-cut reset added** (the engine has none, `temporal.md` N6): the game camera jumping more than 15 m or 45 deg in one frame resets both eyes, this frame and the next. **Not run (waived by Balazs 2026-10-21 when closing the phase):** the race-restart cut test and the `convergence` measurement (per-eye mean frame-to-frame luma change over 10 frames, head and bike still; provisional limits 2.0/255 mean and 2% of samples changing by more than 8/255). Both tools are deployed for Phase 6, which repeats the tests for every per-eye row.
+   - 2026-10-21: **Phase 4 closed** by Balazs: stereo, dashboard, bike and shared exposure verified in the headset; leak test passed; recenter reset verified.
 **Done when:** stereo depth is correct in static scenes; the leak, static convergence and cut tests pass for TAA; the frame trace shows one simulation/camera update per frame with both views rendered after it; exposure is identical in both eyes.
 
 **Fallback (original plan) if the two-view path is not viable:** alternate-eye rendering with per-eye history via mechanism A (state swap of camera-index-0 fields) or B1 (texture copy-in/out), then Phase 5 per-view re-entry (`RenderLoop` vf+0x48 is re-entrant per Phase 0: the external-scene loop in `Renderer::OnRender` calls it several times per frame), then record/replay as last resort. Decide together before switching.
@@ -362,7 +363,7 @@ Implementation steps (proposed 2026-10-16, **waiting for Balazs's OK**; each ste
 | 2026-10-16 | XR frame loop: `xrWaitFrame`/`xrBeginFrame` at the end of the Present post-hook, `xrLocateViews` in `DoUpdate`, eye copy + `xrEndFrame` in the Present pre-hook before the overlay | the wait throttles the start of the next frame; the pose is taken after the game's camera update; the overlay stays desktop-only |
 | 2026-10-16 | Interim menu comfort before Phase 4: menus/pause/loading on a world-fixed screen quad, not head-tracked (Balazs) | the menu's camera cuts and head-locked UI caused nausea; the full frozen 3D menu needs Phase 7's UI separation |
 | 2026-10-20 | **Exception to CLAUDE.md rule 1 (Balazs's request):** motion blur off while the headset session runs (`[xr] motion_blur = false`, default); SSAO off too (`[xr] ssao`, not temporal) | the smear on bike and rider was ordinary camera motion blur lengthened by the VR frame rate, not a stereo artifact (MV data identical in both views, frame trace 13970); a comfort/clarity choice, TAA and the motion-vector pass stay on. Screen-space AO swims in the wide eye views even with correct constants |
-| TBD (Phase 4) | Temporal mechanism per state (C / A / B1 / B2) | |
+| 2026-10-21 | Temporal mechanism: **C (engine dual-view slots)** for TAA, last-frame, froxel and exposure history; the mod only owns the shared TAA reset flag (written per view) and shares exposure from slot 0. A / B1 / B2 not needed so far; Phase 6 checks the remaining per-eye rows | leak test passed (no eye-0 history in eye 1), recenter reset clean in both eyes; the engine already keeps per-camera-index history |
 
 ## Open questions (answer in Phase 0)
 
