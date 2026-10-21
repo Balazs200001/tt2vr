@@ -85,6 +85,9 @@ std::vector<Command> ParseCommands(std::string_view text)
         else if (word == "taareset") {
             c.kind = CommandKind::TaaReset;
         }
+        else if (word == "convergence") {
+            c.kind = CommandKind::Convergence;
+        }
         commands.push_back(std::move(c));
     }
     return commands;

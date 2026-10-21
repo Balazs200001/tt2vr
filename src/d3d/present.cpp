@@ -146,6 +146,9 @@ void RunCommands()
             case core::CommandKind::LeakTest:
                 game::RequestLeakTest([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;
+            case core::CommandKind::Convergence:
+                game::RequestConvergenceTest([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
+                break;
             case core::CommandKind::TaaReset: {
                 game::RequestTaaReset("remote command");
                 const std::string r = "taareset ok (next frame, both eyes)";

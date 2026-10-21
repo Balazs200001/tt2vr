@@ -345,6 +345,9 @@ void HookedInitFromCamera(void* viewContext, const void* camera, const void* vie
     }
     try {
         RecordCamera(viewContext, camera);
+        if (view == 0) {
+            OnMainCameraWorld(g_info.world);
+        }
         if (g_settings.viewEnabled || g_head) {
             ApplyViewOverride(viewContext, eye);
         }

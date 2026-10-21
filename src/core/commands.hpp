@@ -18,6 +18,7 @@ enum class CommandKind {
     XrProbe,          // "xrprobe": alpha of the back buffer and of the images handed to the headset (next frame)
     LeakTest,         // "leaktest": tint eye 0's TAA input for one frame, report red in each back-buffer half
     TaaReset,         // "taareset": reset both eyes' TAA history next frame
+    Convergence,      // "convergence": per-eye frame-to-frame change over 10 frames (static TAA convergence test)
     Unknown,
 };
 

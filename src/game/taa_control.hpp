@@ -13,7 +13,11 @@
 //     so an engine-queued clear was overwritten; runtime 2026-10-20.) At Present (before the mirror redraws it) the back buffer is
 //     read back for a baseline frame, the tint frame and 6 frames after, counting red-dominant pixels in each half.
 //     Pass: the left half jumps on the tint frame and decays; the right half stays at its baseline (no history of
-//     eye 0 reaches eye 1, invariant T2).
+//     eye 0 reaches eye 1, invariant T2). Passed 2026-10-21 (left 0.0% -> 99.7%, right at its 0.15% baseline).
+//   Camera cut: the engine has none (temporal.md N6); a jump of the game camera by more than 15 m or 45 deg in one
+//     frame (race restart, teleport, camera switch) resets both eyes this frame and the next.
+//   Convergence test (remote "convergence"): 11 consecutive back-buffer readbacks; per eye the mean luma change
+//     between consecutive frames and the share of samples changing by more than 8/255. Head and bike still.
 #pragma once
 
 #include <dxgi.h>
@@ -31,6 +35,10 @@ void OnTaaFrame(unsigned recenterCount);
 // Thread: game main thread.
 void RequestTaaReset(const char* reason);
 void RequestLeakTest(std::function<void(const std::string&)> done);
+void RequestConvergenceTest(std::function<void(const std::string&)> done);
+// Thread: game main thread, InitFromCamera post-hook for view 0 (inside DoUpdate). `world` = the game camera's
+// world transform before the head pose (rows, translation in column 3). Resets both eyes' history on a cut.
+void OnMainCameraWorld(const float (&world)[3][4]);
 // Thread: game main thread, Present pre-hook, before anything draws over the back buffer.
 void OnTaaPresent(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext* context);
 

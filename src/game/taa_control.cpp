@@ -14,8 +14,11 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <vector>
 
 namespace game {
@@ -53,6 +56,23 @@ ComPtr<ID3D11Texture2D> g_staging;
 D3D11_TEXTURE2D_DESC g_stagingDesc{};
 
 constexpr int kAfterFrames = 6;
+
+// Static convergence test, advanced at Present.
+int g_convFrames = 0; // frames still to read; 0 = idle
+std::vector<std::uint8_t> g_convPrev[2];
+std::uint64_t g_convSum[2] = {}, g_convHot[2] = {}, g_convCount[2] = {};
+std::function<void(const std::string&)> g_convDone;
+constexpr int kConvFrames = 11; // 10 consecutive-frame differences per eye
+constexpr int kConvHot = 8; // a sample whose luma changes by more than this (of 255) counts as shimmering
+constexpr double kConvMaxMean = 2.0; // pass: mean |d luma| per eye below this (of 255)
+constexpr double kConvMaxHot = 2.0; // and fewer than this % of samples shimmering
+
+// Camera-cut detector (main thread): view 0's game camera last frame (before the head pose).
+bool g_haveLastCamera = false;
+float g_lastCameraPos[3] = {};
+float g_lastCameraFwd[3] = {};
+constexpr float kCutDistance = 15.0f; // m in one frame; a bike at 330 km/h moves under 4 m per frame at 25 fps
+constexpr float kCutCos = 0.7071f; // the camera's z axis turns more than 45 deg in one frame
 
 // Eye 0's TAA history RT (RenderLoop+0xce8, read by RenderTAA as LastFrameBuffer) as a D3D texture:
 // RenderTarget vtbl+0x40(0) -> Texture2DDX11, GetDeviceTexture = +0x68. SEH: engine objects.
@@ -132,9 +152,19 @@ void HookedRenderTaa(void* renderLoop, void* renderContext)
     g_renderTaa(renderLoop, renderContext);
 }
 
-// Red-dominant share (%) of each back-buffer half, sampled every 4th pixel. Stalls once (staging read).
-bool RedShares(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext* context, double& left,
-    double& right)
+constexpr UINT kStep = 4; // back-buffer readbacks sample every 4th pixel in x and y
+
+void Rgb(const std::uint8_t* p, bool bgra, int& r, int& g, int& b)
+{
+    r = bgra ? p[2] : p[0];
+    g = p[1];
+    b = bgra ? p[0] : p[2];
+}
+
+// Copies the back buffer to a staging texture, maps it and calls fn(data, rowPitch, width, height, bgra).
+// Stalls once per call.
+template <class Fn>
+bool ReadBackBuffer(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext* context, Fn&& fn)
 {
     ComPtr<ID3D11Texture2D> back;
     if (FAILED(swapChain->GetBuffer(0, IID_PPV_ARGS(&back)))) {
@@ -166,24 +196,107 @@ bool RedShares(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceCont
     if (FAILED(context->Map(g_staging.Get(), 0, D3D11_MAP_READ, 0, &m))) {
         return false;
     }
-    std::uint64_t red[2] = {0, 0}, total[2] = {0, 0};
-    const UINT half = d.Width / 2;
-    for (UINT y = 0; y < d.Height; y += 4) {
-        const auto* row = static_cast<const std::uint8_t*>(m.pData) + static_cast<std::size_t>(y) * m.RowPitch;
-        for (UINT x = 0; x < d.Width; x += 4) {
-            const std::uint8_t* p = row + x * 4;
-            const int r = bgra ? p[2] : p[0], g = p[1], b = bgra ? p[0] : p[2];
-            const int side = x < half ? 0 : 1;
-            ++total[side];
-            if (r > 128 && r * 2 > g * 5 && r * 2 > b * 5) {
-                ++red[side];
-            }
-        }
-    }
+    fn(static_cast<const std::uint8_t*>(m.pData), m.RowPitch, d.Width, d.Height, bgra);
     context->Unmap(g_staging.Get(), 0);
+    return true;
+}
+
+// Red-dominant share (%) of each back-buffer half.
+bool RedShares(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext* context, double& left,
+    double& right)
+{
+    std::uint64_t red[2] = {0, 0}, total[2] = {0, 0};
+    const bool ok = ReadBackBuffer(swapChain, device, context,
+        [&](const std::uint8_t* data, UINT pitch, UINT width, UINT height, bool bgra) {
+            const UINT half = width / 2;
+            for (UINT y = 0; y < height; y += kStep) {
+                const std::uint8_t* row = data + static_cast<std::size_t>(y) * pitch;
+                for (UINT x = 0; x < width; x += kStep) {
+                    int r = 0, g = 0, b = 0;
+                    Rgb(row + x * 4, bgra, r, g, b);
+                    const int side = x < half ? 0 : 1;
+                    ++total[side];
+                    if (r > 128 && r * 2 > g * 5 && r * 2 > b * 5) {
+                        ++red[side];
+                    }
+                }
+            }
+        });
     left = total[0] ? 100.0 * static_cast<double>(red[0]) / static_cast<double>(total[0]) : 0.0;
     right = total[1] ? 100.0 * static_cast<double>(red[1]) / static_cast<double>(total[1]) : 0.0;
-    return true;
+    return ok;
+}
+
+// Luma (0..255) of each back-buffer half's samples.
+bool LumaSamples(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext* context,
+    std::vector<std::uint8_t> (&out)[2])
+{
+    out[0].clear();
+    out[1].clear();
+    return ReadBackBuffer(swapChain, device, context,
+        [&](const std::uint8_t* data, UINT pitch, UINT width, UINT height, bool bgra) {
+            const UINT half = width / 2;
+            for (UINT y = 0; y < height; y += kStep) {
+                const std::uint8_t* row = data + static_cast<std::size_t>(y) * pitch;
+                for (UINT x = 0; x < width; x += kStep) {
+                    int r = 0, g = 0, b = 0;
+                    Rgb(row + x * 4, bgra, r, g, b);
+                    out[x < half ? 0 : 1].push_back(static_cast<std::uint8_t>((2 * r + 5 * g + b) >> 3));
+                }
+            }
+        });
+}
+
+void FinishConvergence(const std::string& result)
+{
+    TT2VR_LOG_INFO("convergence: {}", result);
+    g_convFrames = 0;
+    g_convPrev[0].clear();
+    g_convPrev[1].clear();
+    if (g_convDone) {
+        auto done = std::move(g_convDone);
+        g_convDone = nullptr;
+        done("convergence " + result);
+    }
+}
+
+void ConvergenceFrame(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext* context)
+{
+    if (!SplitViewActive()) {
+        FinishConvergence("FAILED: not in two-view riding (stand still in the helmet camera, unpaused)");
+        return;
+    }
+    std::vector<std::uint8_t> current[2];
+    if (!LumaSamples(swapChain, device, context, current)) {
+        FinishConvergence("FAILED: back buffer readback");
+        return;
+    }
+    for (int e = 0; e < 2; ++e) {
+        if (g_convPrev[e].size() == current[e].size()) {
+            for (std::size_t i = 0; i < current[e].size(); ++i) {
+                const int d = std::abs(static_cast<int>(current[e][i]) - static_cast<int>(g_convPrev[e][i]));
+                g_convSum[e] += static_cast<std::uint64_t>(d);
+                g_convHot[e] += d > kConvHot ? 1 : 0;
+                ++g_convCount[e];
+            }
+        }
+        g_convPrev[e] = std::move(current[e]);
+    }
+    if (--g_convFrames > 0) {
+        return;
+    }
+    double mean[2] = {}, hot[2] = {};
+    for (int e = 0; e < 2; ++e) {
+        const auto n = static_cast<double>(g_convCount[e]);
+        mean[e] = n > 0 ? static_cast<double>(g_convSum[e]) / n : 0.0;
+        hot[e] = n > 0 ? 100.0 * static_cast<double>(g_convHot[e]) / n : 0.0;
+    }
+    const bool pass = g_convCount[0] > 0 && g_convCount[1] > 0 && mean[0] < kConvMaxMean && mean[1] < kConvMaxMean &&
+                      hot[0] < kConvMaxHot && hot[1] < kConvMaxHot;
+    FinishConvergence(fmt::format("{}: mean |d luma| between consecutive frames left {:.2f} right {:.2f} (of 255, "
+                                  "limit {:.1f}); samples changing by more than {}: left {:.2f}% right {:.2f}% (limit "
+                                  "{:.1f}%), {} frames",
+        pass ? "PASS" : "FAIL", mean[0], mean[1], kConvMaxMean, kConvHot, hot[0], hot[1], kConvMaxHot, kConvFrames));
 }
 
 void FinishLeak(const std::string& result)
@@ -260,9 +373,51 @@ void RequestLeakTest(std::function<void(const std::string&)> done)
     g_leak = Leak::Baseline;
 }
 
+void OnMainCameraWorld(const float (&world)[3][4])
+{
+    const float pos[3] = {world[0][3], world[1][3], world[2][3]};
+    const float fwd[3] = {world[0][2], world[1][2], world[2][2]};
+    if (g_haveLastCamera && g_active) {
+        const float dx = pos[0] - g_lastCameraPos[0], dy = pos[1] - g_lastCameraPos[1], dz = pos[2] - g_lastCameraPos[2];
+        const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+        const float cosTurn = fwd[0] * g_lastCameraFwd[0] + fwd[1] * g_lastCameraFwd[1] + fwd[2] * g_lastCameraFwd[2];
+        if (dist > kCutDistance || cosTurn < kCutCos) {
+            // The engine has no cut detection (docs/re/temporal.md N6). This frame's views are recorded after
+            // DoUpdate; the next frame is reset too, in case its recording is the first to see the new camera.
+            g_resetPending = true;
+            g_resetNext = true;
+            TT2VR_LOG_INFO("taa: history reset for both eyes (camera cut: {:.1f} m, {:.0f} deg)", dist,
+                std::acos(std::clamp(cosTurn, -1.0f, 1.0f)) * 57.29578f);
+        }
+    }
+    std::copy(pos, pos + 3, g_lastCameraPos);
+    std::copy(fwd, fwd + 3, g_lastCameraFwd);
+    g_haveLastCamera = true;
+}
+
+void RequestConvergenceTest(std::function<void(const std::string&)> done)
+{
+    if (g_convDone) {
+        g_convDone("convergence FAILED: superseded by a newer request");
+    }
+    g_convDone = std::move(done);
+    g_convPrev[0].clear();
+    g_convPrev[1].clear();
+    for (int e = 0; e < 2; ++e) {
+        g_convSum[e] = g_convHot[e] = g_convCount[e] = 0;
+    }
+    g_convFrames = kConvFrames;
+}
+
 void OnTaaPresent(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext* context)
 {
-    if (g_leak == Leak::Idle || !swapChain || !device || !context) {
+    if (!swapChain || !device || !context) {
+        return;
+    }
+    if (g_convFrames > 0) {
+        ConvergenceFrame(swapChain, device, context);
+    }
+    if (g_leak == Leak::Idle) {
         return;
     }
     if (!SplitViewActive()) {
