@@ -29,6 +29,7 @@
 #include "game/menu_state.hpp"
 #include "game/options_tab.hpp"
 #include "game/particle_medium.hpp"
+#include "game/pass_profiler.hpp"
 #include "game/render_size.hpp"
 #include "game/rider_view.hpp"
 #include "game/split_view.hpp"
@@ -51,6 +52,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <array>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -73,6 +75,8 @@ std::filesystem::path g_commandsDir;
 
 std::mutex g_statsMutex;
 FrameStats g_stats;
+std::array<FrameTimeSample, kFrameTimeSamples> g_frameTimes{}; // ring, under g_statsMutex
+std::size_t g_frameTimeNext = 0, g_frameTimeCount = 0;
 std::uint64_t g_frame = 0; // present thread
 std::chrono::steady_clock::time_point g_lastPresent;
 std::chrono::steady_clock::time_point g_fpsWindowStart;
@@ -90,6 +94,10 @@ Clock::time_point g_preStart; // this frame's Present pre-hook
 double g_tailMs = 0; // the previous post-hook: commands, pad, xrWaitFrame and the rest
 double g_avgMs = 0;
 int g_spikes = 0, g_spikeLines = 0;
+// Average frame split of the perf window (PLAN Phase 9: CPU- or GPU-bound): previous Present tail (of it xrWaitFrame),
+// game update, render, Present. Frames without the DoUpdate mark (menus without a render) are left out.
+double g_sumTail = 0, g_sumWait = 0, g_sumUpdate = 0, g_sumRender = 0, g_sumPresent = 0;
+int g_sumFrames = 0;
 constexpr double kSpikeMs = 50.0;
 constexpr double kSpikeFactor = 2.5;
 constexpr int kSpikeLines = 5;
@@ -241,6 +249,19 @@ void RunCommands()
                 done(r);
                 break;
             }
+            case core::CommandKind::GpuProfile: {
+                int frames = 60;
+                try {
+                    frames = cmd.arg.empty() ? 60 : std::stoi(cmd.arg);
+                }
+                catch (...) {
+                }
+                game::RequestPassProfile(frames, [done, origin](const std::string& r) {
+                    AddResult(origin, r);
+                    done(r);
+                });
+                break;
+            }
             case core::CommandKind::Drops: {
                 float seconds = 20.0f;
                 try {
@@ -360,6 +381,7 @@ void InstallEngineHooksOnce()
         game::InstallTaaControl();
         game::InstallSkinMotion();
         game::InstallGpuTimers();
+        game::InstallPassProfiler();
         game::InstallSharedShadows();
         game::InstallParticleMedium();
         game::InstallHudCapture();
@@ -394,10 +416,18 @@ void LogPerformance(std::chrono::steady_clock::time_point now, double frameMs)
     if (const std::string gpu = game::GpuTimersPerfSummary(); !gpu.empty()) {
         TT2VR_LOG_INFO("perf: {}", gpu);
     }
+    if (g_sumFrames > 0) {
+        const double n = g_sumFrames;
+        TT2VR_LOG_INFO("perf: frame split avg: Present tail {:.2f} ms (xrWaitFrame {:.2f}), game update {:.2f}, render "
+                       "{:.2f}, Present {:.2f} ({} frames)",
+            g_sumTail / n, g_sumWait / n, g_sumUpdate / n, g_sumRender / n, g_sumPresent / n, g_sumFrames);
+    }
     if (g_spikes > g_spikeLines) {
         TT2VR_LOG_INFO(
             "perf: {} frame spikes over {:.0f} ms in this window, {} logged", g_spikes, kSpikeMs, g_spikeLines);
     }
+    g_sumTail = g_sumWait = g_sumUpdate = g_sumRender = g_sumPresent = 0;
+    g_sumFrames = 0;
     g_perfStart = now;
     g_perfFrames = 0;
     g_perfWorstMs = 0;
@@ -413,6 +443,14 @@ void LogSpike(Clock::time_point now, double frameMs)
         return std::chrono::duration<double, std::milli>(b - a).count();
     };
     const bool marks = g_doUpdate > g_postEnd && g_preStart > g_doUpdate;
+    if (marks) {
+        g_sumTail += g_tailMs;
+        g_sumWait += xr::LastWaitMs();
+        g_sumUpdate += ms(g_postEnd, g_doUpdate);
+        g_sumRender += ms(g_doUpdate, g_preStart);
+        g_sumPresent += ms(g_preStart, now);
+        ++g_sumFrames;
+    }
     const bool spike = frameMs > kSpikeMs && frameMs > kSpikeFactor * g_avgMs && g_avgMs > 0.0;
     g_avgMs = g_avgMs > 0.0 ? g_avgMs * 0.95 + frameMs * 0.05 : frameMs;
     if (!spike || !game::SplitViewActive()) {
@@ -454,6 +492,12 @@ void UpdateStats()
                                ? std::chrono::duration<double, std::milli>(now - g_lastPresent).count()
                                : 0.0;
     g_lastPresent = now;
+    if (frameMs > 0.0) {
+        const game::GpuTimes gpu = game::LastGpuTimes();
+        g_frameTimes[g_frameTimeNext] = {static_cast<float>(frameMs), gpu.valid ? static_cast<float>(gpu.frameMs) : 0.0f};
+        g_frameTimeNext = (g_frameTimeNext + 1) % g_frameTimes.size();
+        g_frameTimeCount = std::min(g_frameTimeCount + 1, g_frameTimes.size());
+    }
     LogPerformance(now, frameMs);
     if (frameMs > 0.0) {
         LogSpike(now, frameMs);
@@ -509,6 +553,7 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
             game::OnPresent();
             game::OnHudPresent(); // before RunCommands: a "hud" request is answered after the next whole frame
             game::GpuTimersPresent(g_device, g_immediate);
+            game::PassProfilerPresent(g_device, g_immediate);
             InstallEngineHooksOnce();
             UpdateStats();
             PollHotkeys();
@@ -604,6 +649,18 @@ FrameStats Stats()
 {
     std::lock_guard lock(g_statsMutex);
     return g_stats;
+}
+
+std::vector<FrameTimeSample> RecentFrameTimes()
+{
+    std::lock_guard lock(g_statsMutex);
+    std::vector<FrameTimeSample> out;
+    out.reserve(g_frameTimeCount);
+    const std::size_t first = (g_frameTimeNext + g_frameTimes.size() - g_frameTimeCount) % g_frameTimes.size();
+    for (std::size_t i = 0; i < g_frameTimeCount; ++i) {
+        out.push_back(g_frameTimes[(first + i) % g_frameTimes.size()]);
+    }
+    return out;
 }
 
 void RequestFrameTrace(const std::string& origin)

@@ -22,6 +22,14 @@ struct FrameStats {
 };
 FrameStats Stats();
 
+// Per-frame times of the last kFrameTimeSamples frames, oldest first (PLAN Phase 9 frame-time graph).
+struct FrameTimeSample {
+    float frameMs = 0; // Present to Present (main thread)
+    float gpuMs = 0; // the engine's GPU frame bracket, 1-2 frames older; 0 = not measured
+};
+inline constexpr int kFrameTimeSamples = 300;
+std::vector<FrameTimeSample> RecentFrameTimes();
+
 // Actions (present thread: hotkeys, overlay buttons, remote commands). Results go to the log, the
 // overlay's result list and, for remote commands, the .done file.
 void RequestFrameTrace(const std::string& origin);

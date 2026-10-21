@@ -31,7 +31,9 @@
 #include <spdlog/fmt/fmt.h>
 #include <wrl/client.h>
 
+#include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace ui {
 namespace {
@@ -388,6 +390,45 @@ void TemporalSection()
     ImGui::EndTable();
 }
 
+// PLAN Phase 9: frame time (white) and GPU frame time (green) of the last frames against the headset's frame budget
+// (yellow line; the display period, or 60 Hz without a headset). The y axis runs to twice the budget; taller frames
+// are clipped at the top. Main thread.
+void FrameTimeGraph()
+{
+    const std::vector<d3d::FrameTimeSample> samples = d3d::RecentFrameTimes();
+    if (samples.size() < 2) {
+        return;
+    }
+    const double period = xr::GetStatus().periodMs;
+    const float budget = period > 1.0 ? static_cast<float>(period) : 1000.0f / 60.0f;
+    const float top = 2.0f * budget;
+    int over = 0;
+    float worst = 0.0f;
+    for (const d3d::FrameTimeSample& s : samples) {
+        over += s.frameMs > budget * 1.1f ? 1 : 0;
+        worst = std::max(worst, s.frameMs);
+    }
+    ImGui::Text("frame time: %d of the last %zu frames over the %.2f ms budget, worst %.1f ms", over, samples.size(),
+        budget, worst);
+    const ImVec2 size(static_cast<float>(d3d::kFrameTimeSamples), 80.0f);
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    const ImVec2 p1(p0.x + size.x, p0.y + size.y);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(p0, p1, IM_COL32(20, 20, 20, 200));
+    const auto y = [&](float ms) { return p1.y - std::clamp(ms / top, 0.0f, 1.0f) * size.y; };
+    draw->AddLine(ImVec2(p0.x, y(budget)), ImVec2(p1.x, y(budget)), IM_COL32(230, 200, 60, 255));
+    const float dx = size.x / static_cast<float>(d3d::kFrameTimeSamples - 1);
+    const float x0 = p1.x - dx * static_cast<float>(samples.size() - 1);
+    for (std::size_t i = 1; i < samples.size(); ++i) {
+        const float xa = x0 + dx * static_cast<float>(i - 1), xb = x0 + dx * static_cast<float>(i);
+        if (samples[i - 1].gpuMs > 0.0f && samples[i].gpuMs > 0.0f) {
+            draw->AddLine(ImVec2(xa, y(samples[i - 1].gpuMs)), ImVec2(xb, y(samples[i].gpuMs)), IM_COL32(80, 220, 120, 255));
+        }
+        draw->AddLine(ImVec2(xa, y(samples[i - 1].frameMs)), ImVec2(xb, y(samples[i].frameMs)), IM_COL32(240, 240, 240, 255));
+    }
+    ImGui::Dummy(size);
+}
+
 void DrawPanel()
 {
     const auto stats = d3d::Stats();
@@ -405,6 +446,7 @@ void DrawPanel()
     else if (gpu.valid) {
         ImGui::Text("GPU: view 0 %.2f ms  frame %.2f ms", gpu.viewMs[0], gpu.frameMs);
     }
+    FrameTimeGraph();
     VersionLine(version);
     const int failed = core::hooks::FailedCount();
     const auto installed = core::hooks::Installed().size();
