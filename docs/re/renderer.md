@@ -171,3 +171,8 @@ Gaps B and D details (static, 2026-10-21, Phase 8; `confirmed (static)` unless t
 5. Particle medium 2 (section 6 A): log `Renderer+0xdd8` bytes `+0x28..+0x2f` and `GameContext+0x23`; A/B `EnableMedium(2, true)` and compare bike-attached dust/smoke in both eyes.
 6. Water-drop slot 1 in rain (6 B): `WaterDrop+0xa4..+0xbc` for both slots. DOF slot 1 in a cutscene/replay (6 C): `KTUDof+0x364`.
 7. Crash grey (6 D): FadeToColor enabled in slot 0 after a crash (`IsPostProcessEnabled(ppm, idx, 0)`), slot 1 off; after the mirror both eyes equally grey.
+
+Runtime (Phase 8, test mode, 2026-10-21; `game::SlotMirror`):
+
+- Item 7, `confirmed (runtime)`: after a crash FadeToColor turns on in slot 0 and the mirror turns slot 1 on with it (log `crash grey (FadeToColor) on in the right eye too`), and off when it fades; mean saturation of the two halves 0.162 / 0.172 (before 0.155 / 0.200). The `TTGameEngine+0x778` pointer, the post-process index at `+0x94` and the per-slot material path (`*(*(SplitViewMaterial + s*8) + 0x18) + 0x30`; the `+0x30` is the ICF-folded getter 0x1401acf70 `lea rax, [rcx+0x30]`) work as read statically.
+- Item 6: forced rain on slot 0 (`drops`) fills slot 0's drop array (360) and sets its alive byte; the hook copies it to slot 1. No drops appear in either eye: the drop composite is gated by something the forced rain does not set (`guess`: the weather's wet state). Time Attack offers no rain.
