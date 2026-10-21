@@ -281,9 +281,9 @@ Columns: `Row` maps to the PLAN inventory (P1..P11 in PLAN order) or is new (N1.
 | Scope | **shared flag** in the engine, but the reset must apply to **both eyes** (T4) |
 | Candidate mechanism | **Mod owns the reset.** On every trigger in `CLAUDE.md` (camera cut, race restart, recenter, resolution/format change, IPD/world-scale change, stereo-mode toggle): set the flag **before each eye's `RenderTAA`** (the flag is cleared after the first slot's resolve, so a single write resets only the first slot to run; write it per eye, or call `InitializeTAA(true, 2)` to recreate both pairs, `likely`). Also clear the other per-slot histories at the same time: froxel `+0x780+idx*4 = -1` (N1), exposure first-frame flag **only if** exposure is to snap (P8), last-frame buffers via recreation (N2). A (swapped) state must also carry a per-eye reset bit. |
 | Hazards | The engine never resets on a bike respawn or teleport: ghosting for several frames unless the mod detects the discontinuity (the race-restart / replay / cutscene states in `frame-anatomy.md` 8.4 are the anchors). Resetting only one slot leaves the other eye ghosting (binocular mismatch). The `ClearTAA` address `0x1404f5b10` is a safe call target only after the signature entry exists (rule 3, no hard-coded addresses). |
-| Status | candidate |
-| Runtime check | Debugger: watch `+0xd08` over a frame with two views; call `ClearTAA` (or write 1) and observe the `g_TAAParams.z` value in 'TAA resolve' for each slot. |
-| Confidence | confirmed (flag and absence of callers); runtime-check (per-slot effect) |
+| Status | implemented (`src/game/taa_control.*`): the flag is written before each view's `RenderTAA` while a reset is pending. Triggers: recenter, the `taareset` command, and a camera-cut detector (view 0's game camera moves more than 15 m or turns more than 45 deg in one frame; resets this frame and the next). |
+| Runtime check | Done 2026-10-21: recenter resets showed no smear in either eye (Balazs). Race-restart cut: pending. |
+| Confidence | confirmed (flag and absence of callers); confirmed (runtime, recenter) for the per-eye write |
 
 #### N7. Motion vectors as a shared transient
 
