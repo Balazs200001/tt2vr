@@ -20,13 +20,13 @@ v1 is done when all of these hold during a 30-minute offline session on the Snae
 - [x] Phase 3 — OpenXR, left eye head-tracked
 - [x] Phase 4 — Dual-view stereo via the split-screen path (milestone)
 - [x] Phase 5 — Synchronous stereo: shared per-frame work
-- [ ] Phase 6 — Temporal completeness
+- [x] Phase 6 — Temporal completeness
 - [ ] Phase 7 — HUD, menus, desktop mirror
 - [ ] Phase 8 — Bike comfort & camera
 - [ ] Phase 9 — Performance
 - [ ] Phase 10 — Robustness & release
 
-**Active phase: Phase 6** (Phase 5 completed 2026-10-21; Phase 4 completed 2026-10-21; Phase 3 completed 2026-10-16; Phase 2 completed 2026-10-16; Phase 1 completed 2026-10-16; Phase 0 completed 2026-10-16)
+**Active phase: Phase 7** (Phase 6 completed 2026-10-21; Phase 5 completed 2026-10-21; Phase 4 completed 2026-10-21; Phase 3 completed 2026-10-16; Phase 2 completed 2026-10-16; Phase 1 completed 2026-10-16; Phase 0 completed 2026-10-16)
 
 ---
 
@@ -343,6 +343,7 @@ Implementation steps (proposed 2026-10-21, **approved by Balazs 2026-10-21**: al
 
 **Status 2026-10-21:** all six tasks done; 16 of 18 inventory rows `confirmed`. Open, for Balazs to accept or for a follow-up: (1) lens-flare A/B with a visible flare (6e, row N3); (2) dynamic resolution switched on once in the game options to see the forced path (6d, row N4); (3) SSR leak test on a wet road (rows P4/N2 are confirmed by bindings only); (4) the convergence test's margin: make it skip pixels with object motion (the per-eye MV copies exist now) and compare the helmet's motion vectors with flat play; (5) the headset check of the 6b/6e changes (comfort of the new cut resets, flares, dashboard).
 - 2026-10-21, Balazs's headset session (`temporal.md` 11.8): (1) flares look good, (2) dynamic resolution on: forced to 1.0 (log), (3) the game has no wet roads: the binding audit stands, (4) the helmet vectors are the bike's idle vibration (real motion), (5) cut resets look fine. **All 18 rows `confirmed`.** The same log showed **false cut resets at speed** (about 30 in 13 s, 0 deg: uneven headset frame pacing); fixed with `stereo::CutDetector` (limit from the longest of the last 32 steps; unit-tested; test mode still catches crash camera, respawn and road reset). Left: one headset ride to confirm no "camera cut ... 0-4 deg" lines at speed; optional, the convergence test ignoring moving pixels.
+- 2026-10-21: **Phase 6 closed** after Balazs's 13-minute headset ride ("I really like how it looks"): every reset was a crash-camera / respawn pair (11-42 deg) or a reset onto the road from a standstill, no false resets at speed, 20 World Shifts rebased without a reset. Frame spikes he noticed are a performance issue: Phase 9. Optional follow-up kept: the convergence test ignoring pixels with object motion.
 
 **Done when:** all four temporal tests pass for every per-eye row, exposure is identical in both eyes, and no temporal effect is disabled.
 
@@ -370,6 +371,7 @@ Implementation steps (proposed 2026-10-21, **approved by Balazs 2026-10-21**: al
 
 ## Phase 9 — Performance
 
+- [ ] Frame spikes (Balazs, 2026-10-21 ride, scale 0.7, eye 1770x1892, 72 Hz): (a) steady 52-58 fps against the 13.9 ms budget (GPU 15-17.5 ms: view 0 about 9.5, view 1 about 6.7), so the runtime keeps switching between 72 and 36 Hz (display period 13.89 / 27.78 ms alternates every few 10 s windows), which can feel like stutter; (b) four real hitches of 106-173 ms within one minute (13:35:40-13:36:40) with normal GPU time and no mod event (no reset, no World Shift in those windows): CPU-side, likely the game's streaming. The frame-spike log ("perf: frame spike ...", frames over 50 ms split into game update / render / Present / xrWaitFrame / GPU) names the part on the next ride. Then: hold 72 Hz (resolution scale, GPU savings) or lock a steady 36 Hz with reprojection instead of the switching.
 - [ ] Confirm per-frame passes are shared; if culling is significant, cull once with the combined eye frustum and reuse it for both eyes.
 - [ ] Resolution scale; optional per-eye FSR1 (spatial, so no history concerns; reuse my openRBRVR FSR1 experience).
 - [ ] Depth submission (`XR_KHR_composition_layer_depth`) for better runtime reprojection.
