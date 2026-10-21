@@ -22,11 +22,11 @@ v1 is done when all of these hold during a 30-minute offline session on the Snae
 - [x] Phase 5 — Synchronous stereo: shared per-frame work
 - [x] Phase 6 — Temporal completeness
 - [x] Phase 7 — HUD, menus, desktop mirror
-- [ ] Phase 8 — Bike comfort & camera
+- [x] Phase 8 — Bike comfort & camera
 - [ ] Phase 9 — Performance
 - [ ] Phase 10 — Robustness & release
 
-**Active phase: Phase 8** (Phase 7 completed 2026-10-21; Phase 6 completed 2026-10-21; Phase 5 completed 2026-10-21; Phase 4 completed 2026-10-21; Phase 3 completed 2026-10-16; Phase 2 completed 2026-10-16; Phase 1 completed 2026-10-16; Phase 0 completed 2026-10-16)
+**Active phase: Phase 9** (Phase 8 completed 2026-10-21; Phase 7 completed 2026-10-21; Phase 6 completed 2026-10-21; Phase 5 completed 2026-10-21; Phase 4 completed 2026-10-21; Phase 3 completed 2026-10-16; Phase 2 completed 2026-10-16; Phase 1 completed 2026-10-16; Phase 0 completed 2026-10-16)
 
 ---
 
@@ -427,6 +427,8 @@ Implementation steps (proposed 2026-10-21, **approved by Balazs 2026-10-21**: al
 
 **Done when:** a 10-minute ride on the TT course with horizon lock on is comfortable for me.
 
+- 2026-10-21: **Phase 8 closed** after Balazs's long ride (17:27-17:50, horizon lock 100%, camera shake set to 0% in the VR tab at 17:43): "decent". What still makes him a little nauseous is the game's tuck camera (the rider ducks behind the windshield at speed, `TTCamera::TuckInOut`), which he wants to keep (Decisions log). Not reported on separately: seat hotkeys, world / IPD scale, chase views, the HUD spread, the crash grey in both eyes, visor drops in rain, the VR tab in the headset.
+
 **Status 2026-10-21:** 8a-8h done in test mode (8f's visual check needs rain), plus `[hud] spread` (Balazs's HUD request) and `tt2vr\user.toml` for runtime settings; 8i (VR tab in the game's Options) done in test mode. **Open for Balazs in the headset:** the 10-minute ride with horizon lock on (the done-when); shake / head bob at racing speed; seat offset with the numpad (Num8 / Num2 forward / back, Num9 / Num3 up / down, Num5 reset); world / IPD scale feel; chase views as an offset seat; the HUD spread; both eyes grey in the crash camera; visor drops in rain if a mode has it.
 
 ## Phase 9 — Performance
@@ -502,6 +504,7 @@ Implementation steps (proposed 2026-10-21, **waiting for Balazs's OK**; started 
 | 2026-10-21 | Phase 7e dropped: the main menu stays on the flat theater screen, not in 3D from a held vantage (Balazs) | the trial worked technically, but needed choices (vantage height, the game's DOF of hidden shots) for little gain; menus on the screen are comfortable |
 | 2026-10-21 | Phase 8 choices (Balazs): crash camera in stereo (FadeToColor mirrored into slot 1); chase cam head-tracked as an offset seat; visor drops shared (view 1 renders slot 0's drops); the shake slider scales the game camera's speed-noise amplitudes in memory while the headset session runs (restored on stop, never saved) | the game camera never carries the bike's lean, so the horizon lock removes its head tilt and noise roll; the noise is baked into the mode matrix before the game's eye smoothing, so only the source can scale it exactly. Camera noise is visual (rule 5); the game's own camera (audio listener, helmet springs) gets the smaller noise too |
 | 2026-10-21 | Settings changed at runtime (overlay, the 8i Options tab, the 8d seat hotkeys) are saved by the mod to `tt2vr/user.toml`, loaded after `tt2vr.toml` and overriding it; the VR Options tab (8i) comes after 8c-8h (Balazs) | deploys and updates overwrite `tt2vr.toml` and would lose in-game changes; the hand-edited file stays untouched; building the tab once all its settings exist |
+| 2026-10-21 | The game's tuck camera motion (rider ducking behind the windshield) stays as the game makes it in VR (Balazs) | it is the main remaining source of nausea on a long ride, but part of the riding feel; a scale or slower transition can be added later if wanted (`TuckInOut` offset and quaternion, `camera.md` 10.1) |
 
 ## Open questions (answer in Phase 0)
 
