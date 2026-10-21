@@ -119,3 +119,43 @@ Note: the helmet camera of f8323 had near 1.0; this session's helmet camera has 
 - Game option: profile enum `eCameraDynamicView` (Anticipated/Normal/Delayed/Off; `FUN_14030f520`), probably the menu's "look to apex" setting (`likely`, Scaleform labels); also drives the rider's head-look IK (visual).
 - Mod rule (`[camera] remove_auto_look`, default on, head-tracked only): `D = R(mode+0x8)^T * R(mode+0x3e4)` (camera-local, translation zeroed) is put before the head pose: view = W * D * sliders * eye; helmet local = D * head. Removes the auto yaw and the stick look, keeps lean/tuck and shakes; the pool, audio and the game option are untouched. Mode reached via the player-0 `KTUCamera` (`+0x48` mode with the `TTSpringCameraMode::Manage` vtable check, `+0x68` override mode null, `+0x10` = rendered camera). The removed yaw is shown by the `camera` command (`game look rotation removed: N deg`).
 - Not removed: `LeanHead`'s own yaw/roll into the corner (CockpitSettings `LeanHeadRotationOffset` +0xc8, applied with the lean angle, baked into `+0x3e4`); separable only with hooks on `LeanHead` / `TuckInOut` (their output quats, call sites 0x1401a2c24 / 0x1401a2c7e).
+
+## 10. Roll, noise, shakes, views and the crash camera (Phase 8, static, 2026-10-21)
+
+`confirmed (static)` unless tagged. Matrix34 columns are the camera axes (X right, Y up, Z back); "roll" = rotation about local Z; world up = +Z, so the camera's roll against the horizon is `atan2(X.z, Y.z)` (X = column 0, Y = column 1).
+
+### 10.1 What rolls the helmet camera
+
+| Item | Where | Behaviour | Confidence |
+|---|---|---|---|
+| Look-at up vector | `PhysicsStepTarget` 0x1401a23e0, 0x1401a2a00 (`FUN_1401847b0(CameraData+0xa8)`: view in 2..4) -> up passed at 0x1401a2fe6 | helmet views (Helmet 2, HelmetNoMesh 3, Dash 4) use **world Z**: the frame is horizon-level. Other non-chase views use the bike's K axis (roll with the bike) | confirmed |
+| Bike lean | eye and target are points in the full bike frame (physics actor matrix, `vehicle70+0x1538` offset, CameraData offsets) | the bike's roll moves the eye sideways and down but does **not** rotate the helmet camera | confirmed (orientation), likely (which point is eye / target) |
+| `LeanHead` 0x14019b880 (call 0x1401a2c24) | `t = clamp((abs(lean) - s+0xdc) / (s+0xe0 - s+0xdc))` (degrees); `Q = slerp(I, Qz(s+0xd0) Qx(s+0xc8) Qy(s+0xcc), t^2)`, roll / yaw / offset.x mirrored for the other lean side; smoothed (rot `s+0xd8`, offset `s+0xbc` vec3 at rate `s+0xd4`) | a head tilt into the corner of `s+0xcc` deg at full lean (plus yaw `s+0xd0`, pitch `s+0xc8`), zero below `s+0xdc`; not proportional to the lean | confirmed (structure), likely (axis to field) |
+| Speed roll noise | `PhysicsStepTarget` 0x1401a2f41..0x1401a2fb0, value stored at `mode+0x254` (0x1401a2f53) | `up = normalize(up + I_bike * n)`: a roll of about n rad | confirmed |
+| KTUCamera shakes | `KTUCamera::Update` (section 1, step 2) | random pitch and roll per frame (below) | confirmed |
+
+`s` = the view's settings (`CockpitSettings`), `*(CameraData+0xc0)`, CameraData = `FUN_140184060(mode+0x428)` = `[views+0x60] + [views+0x68]*0x108`. Bike lean (signed rad): `[[vehicle+0x70]->vtbl+0x1c0]()` = `FUN_1403a05b0` (physics actor quaternion, `QuaternionRotationVectors(bikeUp -> Z)`, angle * sign).
+
+Consequence for the horizon lock: the game's helmet camera never carries the bike's lean. Its roll against the horizon is the LeanHead tilt + speed roll noise + shake roll, all measurable from the final camera matrix. Runtime (test mode, 2026-10-21, riding straight and one short steer at the Bray Hill start): roll within -0.2 .. +1.3 deg.
+
+### 10.2 Speed noise ("head bob") and KTUCamera shakes
+
+- Strings 'RPM Noise' / 'Speed Noise' / 'Speed Roll Noise' / 'Accel Noise' are only debug watch registrations in `TTSpringCameraMode::Enter` 0x14019c0a0; they name `mode+0x2a4` / `+0x250` / `+0x254` / `+0x298`.
+- Helmet views use only speed noise and speed roll noise, computed in `PhysicsStepTarget` and **baked into `mode+0x3e4` / `+0x8`** (before the eye smoothing: xy `dt*85`, z `dt*75`, rotation `min(1, dt*70)`). Gate `s+0x18` (SpeedShakeEnable). Amplitudes `(v / vmax * 0.6)^2 * s+0x1c` (bob) and `* s+0x20` (roll), times `s+0x34`; frequencies `s+0x24` / `s+0x28`; wave `FUN_14019ead0`. Bob: `eye.z += n * s+0x2c`, `target.z += n * s+0x30` (vertical bob plus a little pitch). RPM and accel noise are chase-camera only (`UpdateSpringCamView`, likely).
+- `KTUCameraShake::Manage` 0x1409d7d30: rotation only, `M = M * Rz(b) * Rx(a)` (camera-local pitch and roll, no yaw, no translation), `a, b = (rand - 0.5) * amp * 0.02` rad, white noise per frame. Timed / Smooth (decaying) / SmoothGrowing (0x1409d83e0 / 0x1409d7f80 / 0x1409d7f10) only change `amp` (shake+0x18). Applied to a copy of `mode+0x8` in `KTUCamera::Update` when `mode+0xcc` != 0, so `R(mode+0x8)^T * R(rendered)` is the pure shake.
+- Shake sources: collision shock `FUN_14017c900` (`TTCollisionEffect`'s collision delegate: impact above `+0xdc` -> `GetCamera(0)->AddSmoothShake(lerp(+0xcc, +0xd0), lerp(+0xd4, +0xd8), clear, rumble)`), and the Lua binding `FUN_1409e8cc0`. No landing / engine / speed shake uses this list.
+- `HelmetSprings` 0x1401a04c0: the helmet mesh lags the camera by two spring angles (pitch state `mode+0x4f4` -> angle `+0x4fc`, yaw state `+0x50c` -> `+0x514`) driven by the rotation of `mode+0x8`; origin = `O(+0x8) + R_helmet * s+0xe4`. A rigid helmet = `M(+0x8) * C` with C sampled at rest (likely). Because the springs follow `mode+0x8`, which still holds the game's look rotation and noise, the helmet can sway against the head even while the view does not turn (guess; fits the idle helmet motion vectors of `temporal.md` 11.7).
+
+### 10.3 Views, chase camera and the crash camera
+
+| Item | Value | Confidence |
+|---|---|---|
+| View switching | `FUN_140313620` polls `ACTION_RACE_NEXT_VIEW` / `PREV_VIEW` / `REAR_VIEW`; `FUN_14017f870` steps the CameraData index `views+0x68` (views = `TTGameCameraViews` at `vehicle+0xb20`): FollowNear 1, Helmet 2, HelmetNoMesh 3, Dash 4, Fork 5 (FollowFar 0 only with `DAT_1413826d0`; 6..9 only in replays); `FUN_1403aec70` writes `TTVehicleVisual+0x138`; saved in the profile (`FUN_140311280`, likely) | confirmed |
+| One mode for all riding views | camera-mode manager (`DAT_14141e5c8`, per-player block stride 0x78: `modes[9]` at `+0x40`, current type `+0x88`): type 2 = `TTSpringCameraMode` for every riding view; CameraType Helicopter -> type 7 `WesCam` | confirmed |
+| Dispatch | `ComputeView` on `CameraData+0xb8`: Spring 1 -> `UpdateSpringCamView` 0x1401a34b0; Photo 4 -> nothing; Fixed 0 / Cockpit 2 -> helmet path (`+0x3e4 -> +0x8`, `LookAroundInput`, `HelmetSprings` for views 2..4) | confirmed |
+| Per-view CameraType | chase views Spring, helmet views Fixed or Cockpit (the cfg is packed; read live) | likely |
+| Chase camera | smoothed position and target (first-order lags), world-up look-at `FUN_14019d840`, then a lean-driven roll clamped to `CameraData+0x14c`; look-around orbits the position around the target (`FUN_14019ec90`); writes only `mode+0x8`. `PhysicsStepTarget` still writes `+0x3e4` (the helmet-style bike frame) | confirmed |
+| **Consequence** | in chase views `D = R(+0x8)^T R(+0x3e4)` (section 9) is the rotation from the chase camera to an unrelated helmet frame: the mod's look removal turns the head-tracked chase view by it. It must be limited to the helmet views | confirmed (writes), derived (effect) |
+| Crash | `FUN_14039fcd0` (controller = `vehicle+0x70`): `controller+0x15e4 = 1`, saves the view (`+0x1768`), forces FollowNear; `Manage` then skips `ComputeView` and `AfterPhysicsStep` skips `PhysicsStepTarget` when `mode+0x458`: the matrix freezes at the crash pose, or (`+0x458 == 0`) follows the tumbling bike frame. 50% of slow crashes go to the TV director's view instead. Respawn `FUN_1403a6480` clears the flag and restores the view | confirmed |
+| Per-frame reads (mode = `KTUCamera+0x48` after the Manage vtable check) | view `*(int*)(mode+0x3c8)`; CameraData index `*(int*)(mode+0x3d0)`; views `*(mode+0x428)`; CameraData `*(views+0x60) + idx*0x108` (`idx < *(int*)(views+0x5c)`), type `+0xb8`; rear view `*(u8*)(mode+0x378)`; crashed `*(u8*)(*(*(mode+0x418)+0x70)+0x15e4)`; helmet family `(unsigned)(view - 2) < 3` (the game's own test) | confirmed |
+| Replays / photo / TV | replays are the same mode type 2 (director `DAT_141382960`), state `DAT_14138b4e8+0xa0` in {2, 3}; intro, end, spline and TV cameras are other mode types (fail the vtable check); Ansel swaps the rendered camera (fails the `KTUCamera+0x10` check) | likely (replays), confirmed (Ansel) |

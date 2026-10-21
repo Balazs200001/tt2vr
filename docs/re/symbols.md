@@ -565,7 +565,7 @@ Per-frame data flow (confirmed): `CameraManager::OnPostManage` -> `KTUCamera::Up
 | settings object creators | 0x14017fea0 (0x118 B), 0x14017ffc0 (0x1a0), 0x14017fd80 (0x170), 0x140180000 (0x50), 0x14017fed0 (0x50) | function | | confirmed |
 | `FUN_140184060` | 0x140184060 | function | returns CameraData for the mode (+0x428) | confirmed |
 | `FUN_140184780`, `FUN_140184800`, `FUN_140185b70`, `FUN_140186a10` | | function | CameraData helpers: TempSpecificCameraParameters (0x140184800), ParentCameraFile / SharedCameraSettings (0x140185b70/0x140186a10) | likely |
-| `FUN_14017c900` | 0x14017c900 | function | likely SpeedShake via AddSmoothShake (call 0x14017cc20) | guess |
+| `FUN_14017c900` | 0x14017c900 | function | `TTCollisionEffect` collision delegate: collision shock via AddSmoothShake (call 0x14017cc20); the speed shake is the noise in PhysicsStepTarget (5c) | confirmed |
 | `FUN_14019dc90` OnShift / `FUN_14019dc10` | 0x14019dc90 / 0x14019dc10 | function | subtract shift from mode+0x37c/+0x388, translate +0x3e4 | confirmed |
 | `TTGameCameraViews` / `TTCameraModeMgr` | 0x140f241e0 (name) / FUN_14017a7e0, FUN_14017a8a0 (vtable ~0x140f2ef20) | function | live 'current view' field not located | guess |
 | string 'TUNING:/Bikes/BASE/GameViewCameras.cfg' | 0x140f308a0 | string | | confirmed |
@@ -632,6 +632,36 @@ Per-frame data flow (confirmed): `CameraManager::OnPostManage` -> `KTUCamera::Up
 | CockpitSettings.Lean* | +0xbc..+0xe0 | field | read at FUN_14019b880 | likely |
 | CockpitSettings.HelmetPitchAngleOffset / pitch+yaw springs / damping | +0xf0 / +0xf4..+0x108 / +0x10c,+0x110 | field | | likely |
 | AnselCam fields | see Ansel | field | | |
+
+### 5c. Views, roll, noise, shakes, crash (Phase 8, 2026-10-21; `camera.md` section 10)
+
+| Our name | Address | Kind | Notes | Confidence |
+|---|---|---|---|---|
+| `Rc2CameraModeMgr` (was "TTCameraModeMgr") | global `DAT_14141e5c8` | global | per-player block stride 0x78: `modes[9]` +0x40, current type +0x88 (2 = TTSpringCameraMode, 7 WesCam, 0 intro, 1 end, 3 spline, 4 fall, 5 path, 6 scenaric follow, 8 animation sequence); `SetMode` `FUN_140b28800` | confirmed |
+| `TTGameCameraViews` | `vehicle+0xb20` | struct | CameraData array +0x60 (stride 0x108), count +0x5c, current index +0x68; CameraData: view enum +0xa8, TTCameraType +0xb8, settings +0xc0 | confirmed |
+| `TTGameCameraViews::Step` / `SetView` | `FUN_14017f870` (`FUN_14017f970`) / `FUN_1401800c0` | function | next / previous view (skips FollowFar unless `DAT_1413826d0`, 6..9 unless replay, PitStop); set by enum | confirmed |
+| `TTVehicleVisual::OnViewChanged` | `FUN_1403aec70` | function | mesh visibility, writes `TTVehicleVisual+0x138` (`TTVehicleVisual` = `vehicle+0xb10`, the `this` of `FUN_1403afc80`) | confirmed |
+| `TTCameraInput::Update` | `FUN_140313620` | function | `ACTION_RACE_NEXT_VIEW` / `PREV_VIEW` / `REAR_VIEW` | confirmed |
+| TTSpringCameraMode.mgr / player / rearView / viewEnum / cameraDataIdx / vehicle / views / viewChanged / crashCam | +0x138 / +0x140 / +0x378 / +0x3c8 / +0x3d0 / +0x418 / +0x428 / +0x438 / +0x458 | field | set in `Manage` each frame | confirmed |
+| TTSpringCameraMode.speedNoise / speedRollNoise / accelNoise / rpmNoise | +0x250 / +0x254 / +0x298 / +0x2a4 | field | current noise values (helmet views: speed + roll only, from `PhysicsStepTarget`) | confirmed |
+| TTSpringCameraMode.leanOffset / leanQuat | +0x2f8 / +0x304 | field | `LeanHead` smoothed state | confirmed |
+| TTSpringCameraMode.helmetPitchSpring / helmetYawSpring | +0x4f4 (angle +0x4fc) / +0x50c (angle +0x514) | field | `HelmetSprings` | confirmed |
+| `NoiseWave` | `FUN_14019ead0` | function | `cos(ushort(phase) / 65536 * pi)` | confirmed |
+| `LookAt(out, eye, target, up)` | `FUN_14019d840` | function | Z = normalize(eye - target), X = up x Z, Y = Z x X | confirmed |
+| `Matrix34::Mul` | `FUN_14016cad0` | function | out = A * B | confirmed |
+| `BikeController::GetLeanAngle` | `FUN_1403a05b0` (vtable slot +0x1c0 of `vehicle+0x70`) | function | signed radians from the physics actor quaternion | confirmed |
+| BikeController.crashed / savedView | +0x15e4 / +0x1768 | field | set by `BikeController::OnCrash` `FUN_14039fcd0`, cleared by respawn `FUN_1403a6480` | confirmed |
+| CockpitSettings.SpeedNoiseAmp / SpeedRollNoiseAmp / SpeedNoiseFreq / SpeedRollNoiseFreq / SpeedNoiseEyeZ / SpeedNoiseTargetZ / SpeedNoiseMult | +0x1c / +0x20 / +0x24 / +0x28 / +0x2c / +0x30 / +0x34 | field | gate +0x18 (SpeedShakeEnable) | likely |
+| CockpitSettings.LeanHeadPositionOffset / LeanHeadRotation (pitch, roll, yaw deg) / LeanPosRate / LeanRotRate / LeanMinDeg / LeanMaxDeg | +0xbc / +0xc8, +0xcc, +0xd0 / +0xd4 / +0xd8 / +0xdc / +0xe0 | field | `LeanHead` | likely |
+| `KTUCameraShake::Manage` (base) / TimedShake / SmoothShake / SmoothGrowingShake | 0x1409d7d30 / 0x1409d83e0 / 0x1409d7f80 / 0x1409d7f10 | function | `M = M * Rz(b) * Rx(a)`, a, b = (rand - 0.5) * amp * 0.02; amp at shake+0x18 | confirmed |
+| `TTCollisionEffect` | `TTGameEngine+0x778`; ctor `FUN_14017b080`, Create `FUN_14017b880`, Manage `FUN_14017c4f0`, collision delegate `FUN_14017c900` (was "likely SpeedShake") | class | FadeToColor post process for slot +0x90 (0 only); +0x88 PostProcessManager, +0x94 PP index, +0x98 intensity, +0x9c time left, +0xe8 SplitViewMaterial; also the collision camera shake | confirmed |
+| `KTUFadeToColor::ActivateGrey` / `KTUPostProcessManager::Activate` | 0x1409e74e0 / 0x140a1dfe0 | function | mask bit 0 = slot 0, bit 1 = slot 1 | confirmed |
+| `PostProcessManager::EnablePostProcess` / `DisablePostProcess` / `IsPostProcessEnabled` / `GetPostProcessIndex` / `GetPostProcessMaterial` | 0x1408bde30 / 0x1408bdca0 / 0x140451470 / 0x1408be260 / 0x1408be2a0 | function | slot < 0 = both; PP object active byte +0x80+slot | confirmed |
+| `MaterialDefinition::GetFloat` / `GetVector` / `SetFloat` / `SetVector` | 0x14089e570 / 0x14089e690 / 0x14089e720 / 0x14089e820 | function | (material, StringId, value) | confirmed |
+| `WaterDrop::Render` / `Clear` / `HasAliveParticles` / `SetEnable` / `SetRainIntensity` / `SetCameraSpeed` / `SetCameraAcceleration` | 0x14092a9c0 / 0x140928d70 / 0x14092a490 / 0x14092b0e0 / 0x14092b100 / 0x14092b0a0 / 0x14092b000 | function | `RenderLoop+0x1ec0`; slot `+0x60 + idx*0x68` (`renderer.md` 6) | confirmed |
+| weather manager WaterDrop feed | `FUN_1403be8e0` (from `FUN_1403bed30`) | function | rain + enable both slots; speed / accel from player idx (null for 1) | confirmed |
+| `TTReplayManager` | `DAT_14138b4e8` | global | state +0xa0 (2, 3 = replaying) | likely |
+| TV / replay view director | `DAT_141382960` | global | active +0x50; picks views via `FUN_14019a3c0` | likely |
 
 ---
 
@@ -1005,4 +1035,4 @@ Verdict (confirmed): `PlayAll::Game::Oculus` and the `ViewContext` stereo functi
 | 11 | imgui.ini mtime | 13:04 (wf1) vs 17:47 (hud) on the same day | file rewritten again; ImGui is the game's own | none |
 | 12 | Ansel Configuration fields | field order and fovType position unverified (SDK header unavailable) | values at the stated offsets are confirmed; names are not | SDK 1.5 header |
 
-Open questions kept for later (no better reading yet): which CameraType/view is the real helmet camera; where `Mesh` frameId originates and whether it is identical for two eyes of one frame; whether froxel temporal reprojects with a matrix; main depth format; whether the 'ForceNoTAA' string is a CVar; who enables `AntiCheatManager` (Desc+0x8e); whether CSM cascades are fitted per view or merged; how shader-side matrices are packed (row_major vs column_major) for cbCameraStd.
+Open questions kept for later (no better reading yet): the CameraType of each view (read live, 5c); where `Mesh` frameId originates and whether it is identical for two eyes of one frame; whether froxel temporal reprojects with a matrix; main depth format; whether the 'ForceNoTAA' string is a CVar; who enables `AntiCheatManager` (Desc+0x8e); whether CSM cascades are fitted per view or merged; how shader-side matrices are packed (row_major vs column_major) for cbCameraStd.
