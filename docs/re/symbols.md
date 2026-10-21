@@ -95,6 +95,7 @@ Verdict (confirmed): no dedicated render thread. The main thread runs simulation
 | `GameEngine::CreateDoubleBuffer` | 0x1404aea10 | function | slots = enki thread count | confirmed |
 | `RenderLayer::EndRender` | 0x1408d6aa0 | function | `(vtbl+0x48)(this,0)` execute, then DoubleBuffer::SwapBuffer, GraphicsObjectPool::EndFrame | confirmed |
 | `RenderLayer::BeginRender` | 0x1408d3d50 | function | increments render id (+0x30) | confirmed |
+| `RenderLayer::BeginProfilingEvent` / `EndProfilingEvent` / `AddProfilingEvent` | 0x1408d3d40 / 0x1408d6a90 / 0x1408d3aa0 | function | exported; (`SimpleGPUPerformanceQuery*` {+0 ID3D11Query*, +0xc queue}, name or null): queue a kind-5 pass, payload `{q, name}` at `DAT_1414082e0[DAT_1414082f8]` (count reset in `RenderPass::FrameFlip`); never called by the engine | confirmed |
 | `RenderLayer::Flip` | 0x1408d7410 | function | increments flip id (+0x34); copies UseImmediateRenderPass into +0x268; tail-calls VideoDevice vtbl+0x88 = PostFlip | confirmed |
 | `RenderLayer::GetFrameID` | 0x1403d3df0 | function | returns +0x30 (render id) | confirmed |
 | `RenderLayer::GetContextId` | 0x1408d75c0 | function | queue 0 -> enki GetThreadIndex()\|0x80; queues 1..6 -> (q-1)\|0x40 | confirmed |
@@ -172,6 +173,8 @@ Verdict (confirmed): no dedicated render thread. The main thread runs simulation
 | Renderer.fullscreenMovie | +0xe61 | field | when set with movie playing OnRender skips the 3D scene | confirmed |
 | Renderer.frameCounter | +0xec8 | field | used modulo 4 for the GPU timer ring | confirmed |
 | Renderer.gpuTimerRing | (+0x1cd + ...)*8, +0xf28 | field | 4-slot timestamp/disjoint query ring | likely |
+| Renderer.gpuFrameTimeSeconds | +0xf28 | field | previous frame's GPU time (s), written by `FUN_1408651f0` in OnFlip from slot `(ec8-1)&3`; ring slot s = queries at `Renderer+(s*3+0x1cd)*8` {ts start, ts end, disjoint} (renderer.md 7) | confirmed |
+| `Renderer::GpuTimerBegin` (FUN_140865330) / `GpuTimerEnd` (FUN_140865160) / `GpuTimerRead` (FUN_1408651f0) | 0x140865330 / 0x140865160 / 0x1408651f0 | function | ours; calls 0x1405af5fc (OnRender: Begin disjoint, End ts0), 0x1405af3c7 (OnFlushRender: End ts1, End disjoint), 0x1405af33d (OnFlip: spin GetData, write +0xf28) | confirmed |
 | `Renderer::GetViewContext(ushort)` | 0x1405af270 | function | `this + idx*0x620 + 0x30` | confirmed |
 | `Renderer::GetCameraCount` | 0x1405aeef0 | function | 2 for split modes | confirmed |
 | `Renderer::SetCameraDesc` | 0x1405b03b0 | function | CameraDesc {+0 split, +8 Camera*, +0x10 Camera*, +0x18 mask} -> Renderer+0xe40..0xe58 | confirmed |
@@ -242,7 +245,7 @@ D3D11 device created with `D3D11CreateDeviceAndSwapChain` (static import, the on
 | `DepthStencilState ctor` | 0x1408e0fd0 | function | default func param 6 -> table[6] = D3D11 GREATER_EQUAL (7) | confirmed |
 | depth-func table | this+0x35c in RenderLayerDX11 | field | engine enum 0..7 -> NEVER, LESS, EQUAL, LEQUAL, GREATER, NOT_EQUAL, GEQUAL, ALWAYS | confirmed |
 | `FUN_14094aab0` draw-pass executor | 0x14094aab0 | function | does not emit the pass name (annotation markers may be absent) | likely |
-| `RenderLayerDX11 profiling event wrapper` | 0x140948010 | function | ID3D11DeviceContext::End(query) + ID3DUserDefinedAnnotation BeginEvent (vtbl+0x18)/EndEvent (+0x20); via RenderLayer::AddProfilingEvent 0x1408d3aa0 / AddProfilingEventImmediate 0x1408d3b70 | confirmed |
+| `RenderLayerDX11::ExecuteProfilingEvent` (ours, FUN_140948010; vtbl 0x14102e4e0 slot 20) | 0x140948010 | function | runs on the executing job's context (immediate or deferred): ID3D11DeviceContext::End(query) + ID3DUserDefinedAnnotation BeginEvent (vtbl+0x18)/EndEvent (+0x20); via RenderLayer::AddProfilingEvent 0x1408d3aa0 / AddProfilingEventImmediate 0x1408d3b70 | confirmed |
 | `RenderLayer::BeginProfilingEvent` / `EndProfilingEvent` | 0x1408d3d40 / 0x1408d6a90 | function | no static callers | confirmed |
 | string IID annotation | 0x141032bc0 | string | queried per context in EnableVideoAdapter | confirmed |
 | 'Occluded swapchain' / 'Minimal feature level not supported...' / 'No ID3DUserDefinedAnnotation interface available.' | 0x141032cb0 / 0x141032d08 / 0x141032d98 | string | never printed in the session log | confirmed |
@@ -306,7 +309,7 @@ Engine pipe: `DeferredRenderLoop` (assumed active, RC) with `ForwardRenderLoop` 
 | `DeferredRenderer::RenderLowResTransparency` | 0x140843f20 | function | | confirmed |
 | `DeferredRenderer::RenderSSR` | 0x140844de0 | function | only consumer of Last Frame Depth/Buffer (0x140844e17/0x140844e36) | confirmed |
 | `DeferredRenderer::SetupLights` | (call 0x140846cdd) | function | -> DeferredLighting::SetupLights 0x14083d2c0 -> CSM::SetupRenderContext (call 0x14083d427) with the whole view array | confirmed |
-| `DeferredRenderer::RenderDirectionalCascadedShadowMap` / `RenderShadowMaps` | 0x140841d60 / 0x140844f00 | function | 12-byte stubs; draws queued via CSM contexts | confirmed |
+| `DeferredRenderer::RenderDirectionalCascadedShadowMap` / `RenderShadowMaps` | 0x140841d60 / 0x140844f00 | function | 12-byte thunks via `[this+0x200]` to `DeferredLighting::RenderDirectionalCascadedShadowMap` 0x14083a7b0 / `RenderShadowMaps` 0x14083cd50 (called per view) | confirmed |
 | `DeferredLighting::LightFroxel` | 0x140839120 | function | per view; temporal froxel history | likely |
 | `DeferredLighting::CullFroxelLight` | 0x140836300 | function | | confirmed |
 | `DeferredLighting::PrepareLightingDispatchCommand` / `RenderLightDispatchCommand` | 0x14083a010 / 0x14083a840 | function | | confirmed |
@@ -336,6 +339,28 @@ Engine pipe: `DeferredRenderLoop` (assumed active, RC) with `ForwardRenderLoop` 
 | `ToneMapper::Render` (FUN_140914680) | 0x140914680 | function | called per view at 0x140848768; luminance FUN_1409120b0 (call 0x140914865), FinalCompose FUN_1409131d0 (call 0x140914889), clamp FUN_140914500 (call 0x140914cd3) | likely |
 | `FUN_1409126c0` tonemap init | 0x1409126c0 | function | 'Reset luminance' debug callback | confirmed |
 | `FUN_140914e20` | 0x140914e20 | function | takes camIdx; separate water-drop state | likely |
+| `RenderLoop::FillRenderInstancesJob::Execute` (FUN_1408d3370) | 0x1408d3370 | function | ours; vtbl 0x140f777b8 slot 2; frameId = `RenderLayer::s_pInstance+0x30` read at run time; per entity, calls vtbl +0x70 (`FillRenderInstances`) once per visible culler view (main views, cascades, static) with that view's RenderInstanceManager | confirmed |
+| RenderLoop job set vtable / `QueueSubJobs` (FUN_1408d34e0) / `CopyRenderInstancesJob` (FUN_1408d3330) | 0x140f777d8 / 0x1408d34e0 / 0x1408d3330 | vtable / function | ours; `RenderLoop+0xd10` six job sets (stride 0x48), WaitGroup 'FillRenderInstance' at `+0xec0` | likely |
+| `CascadedShadowMapRenderer::Render` | 0x140826230 | function | per view: 'Clear Shadow Map' on the shared atlas (`CSM+0x25b8`), `RenderStaticShadow` (idx, 0/1), 3 'ShadowMap' cascade passes, builds `CascadedShadowContext` -> `RenderContext::SetCascadedShadowContext` (renderer.md 3) | confirmed |
+| `DeferredLighting::RenderDirectionalCascadedShadowMap` | 0x14083a7b0 | function | target of the DeferredRenderer thunk 0x140841d60; `CSM::Render` if `DL+idx*0x1b0+0x100 == 6` else `SetDefaultCascadedShadowContext` 0x140827fd0; then `RenderFarShadows` 0x140826a90 if `DL+0x460` is 5/6 | confirmed |
+| `DeferredLighting::RenderShadowMaps` | 0x14083cd50 | function | target of thunk 0x140844f00 (spot/point shadows, own atlas) | confirmed |
+| `RenderContext::SetCascadedShadowContext` | 0x1408cfb00 | function | builds the `cbPSCascadedShadows` data from `RenderContext+0x5d0..+0x794` | confirmed |
+| `CascadedShadowMapRenderer::SetupStaticRenderContext` / `BuildStaticProjectionMatrix` | 0x140828eb0 / 0x1408239d0 | function | static map = scrolling cache per idx; centre from the scene-graph camera node; mode `StaticShadowMap+0x8b0` (1 none, 2 tiled refill, 3-6 strip) | confirmed |
+| `ShadowClearPass` (FUN_140903040) / `ShadowSubmitCascade` (FUN_1409037d0) | 0x140903040 / 0x1409037d0 | function | ours; DrawPass 'Clear Shadow Map' / 'ShadowMap' (depth only) | confirmed |
+| CSM fields | `+0x25b0+idx` (cascaded light valid), `+0x25b8` (shared atlas renderer, RT at +0x18), `+(idx+0x17)*0x10` (cascade RenderContext array, stride 0x830, ViewContext +0x130), `+0x25c2` (skip fit), `+0x2658` (static size), `+0x265c` (slice overlap) | field | | confirmed |
+| `LensFlareManager::Update` / `Render` | 0x14089a770 / 0x14089a3a0 | function | Update: only caller DoUpdate (call 0x1405ae3a7), per mask bit, after InitFromCamera; Render: per view (call 0x140848cbd) | confirmed |
+| `HHParticlesManager::CullParticles` | 0x1409a2a90 | function | call 0x1405affb9 after Render; union of both views' cull bits (`1 << (camIdx*13 + pass)`), not view 0 only | confirmed |
+| `HHParticlesManager::SetViewContext` | 0x1409a4f80 | function | call 0x14048c44a before DoUpdate: copies last frame's ViewContexts (idx 0 -> camera slots 0/1/3, idx 1 -> slot 2) | confirmed |
+| `HHParticlesManager::EnableMedium` | 0x1409a3100 | function | flags `+0x2c+i` (copied to `+0x28+i` in `BeforeParticleUpdate` 0x1409a1890); only caller RenderOneFrame: `EnableMedium(Renderer+0xdd8, 2, GameEngine+0x184 != 0)` each frame | confirmed |
+| `HHParticlesComponent::PostObjectInit` | 0x1405091f0 | function | creates one instance (medium 0) or a per-camera pair (mediums 1 and 2) if `component+0x4a` and `GameContext+0x23 == 0` | confirmed |
+| `StartRenderParticles` / `KickRenderParticles` | 0x1409a6a10 / 0x1409a3e00 | function | per view; collections 0, 1 (idx 0) or 2 (idx 1), 3 | confirmed |
+| `DeferredLighting::RenderProbeImpl` (FUN_1408c7270) | 0x1408c7270 | function | ours; probe relight state machine: nearest probe to any view, one cube face per call, 7-step cycle | confirmed (structure) |
+| `SimpleForwardRenderer::Render` | 0x140904070 | function | call 0x140847957, once per frame in the view whose idx = `GetNextCameraIndex` 0x140903f60; renders `GameServices::SimpleForwardView` (Create 0x1405df0f0, RT 'SimpleForwardView') | confirmed |
+| `MeshPainter::Update` | 0x1408a7920 | function | call 0x140847cff per view, unguarded prev <- cur latch (active if `this+0x38`) | likely (RC) |
+| `DayTime::Manage` -> `EnvironmentSettingsMixer::LerpAndApply` -> `ApplyParams` | 0x14045e1e0 -> 0x14047a2d0 -> 0x140479000 | function | per frame; ApplyParams writes both camera-index slots of bloom, HDR, grading, wind, vignette, weather, fog (`Scene+0x138+idx*0x98`), ambient cube (`Scene+0x20+idx*4`), sky (renderer.md 6) | confirmed |
+| `WaterDrop` camera motion update (FUN_1403be8e0) | 0x1403be8e0 | function | ours; loop idx < 2 over `g_pGameEngine vtbl+0x570(idx)` (player actor): slot 1 never fed without a second player. WaterDrop slot stride 0x68 from `+0x60` (+0xa0 rain, +0xa4 speed, +0xb0 accel, +0xc0 alive, +0xc1 enable) | likely |
+| `KTUDof::OnManage` / `KTUDof::Activate` | 0x1409e6680 / 0x1409e5a90 | function | slot 1 focus only if `Renderer+0xe40 != 0` and `KTUDof+0x364 != -1` (target pushed with mask bit 2) | confirmed |
+| `s_vLastViewPos0` (DAT_1413cdb14..1c) | 0x1413cdb14 | global | ours; last frame's ViewContext[0] position, copied at 0x14048c4ee; readers unknown | confirmed (write) |
 
 ### 3a. Pass name strings (DrawPassDesc.name; order inside one view)
 
@@ -639,8 +664,10 @@ Headline (confirmed): all view-dependent temporal state lives in fixed 2-slot ar
 | `UpscaleDynamicResolution` | 0x1408df750 | function | see Render loop | confirmed |
 | `RenderLoop::s_bMotionBlurEnable` | (CVar init FUN_14009f910) | global | Engine.Renderer.MotionBlur.Enable | confirmed |
 | per-slot MB flag array | 0x141407830 | global | `DAT_141407830[idx]` | likely |
-| `Mesh::UpdateRenderData` | 0x1408a3f00 | function | frameId-guarded prev<-cur latch: advances only if frameId != Mesh+0x70 and not motion-paused; idempotent for a second view in the same frame; if frameId != last+1 prev=cur | confirmed (RC) |
+| `Mesh::UpdateRenderData` | 0x1408a3f00 | function | frameId-guarded prev<-cur latch: advances only if frameId != Mesh+0x70 and not motion-paused; idempotent for a second view in the same frame; if frameId != last+1 prev=cur. frameId = `RenderLayer+0x30`, read by the fill job FUN_1408d3370 (renderer.md 4) | confirmed |
 | `SkinMesh::UpdateRenderData` | 0x140906b90 | function | per-camera-index last frameId/LOD (+0x158+idx*4, +0x160+idx*2) | confirmed |
+| SkinMesh motion state | `+0x68` (one EntityRenderData per mesh: `+0x30` motion valid, `+0x31` reset), `+0xc0` last camera idx, `+0xc2` last LOD | field | **two views latch the shared prev palette twice** (prev == cur in both views; renderer.md 4) | confirmed |
+| `SkinEntityRenderData::Fill` (FUN_1409062b0) / `SkinDrawCaller::RecordDraw` (FUN_140905f70) | 0x1409062b0 (vtbl 0x141004678 slot 1) / 0x140905f70 | function | ours; Fill: if +0x30 prev <- cur, cur <- pose, if +0x31 prev <- cur; RecordDraw copies the palettes into the cur / prev CBs at record time | confirmed |
 | `HHParticlesManager::OnShift` | (World Shift fan-out) | function | rebases particles | confirmed |
 | `SceneManager::ShiftOrigin` (Game / Graphics) | 0x1405dad20 / 0x1408ffec0 | function | | confirmed |
 | string 'DATA:/ENGINE/EFFECTS/POSTPROCESS/TAA.PFX' | 0x140fff1c0 | string | | confirmed |
