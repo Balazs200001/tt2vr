@@ -19,14 +19,14 @@ v1 is done when all of these hold during a 30-minute offline session on the Snae
 - [x] Phase 2 — Camera control (flat)
 - [x] Phase 3 — OpenXR, left eye head-tracked
 - [x] Phase 4 — Dual-view stereo via the split-screen path (milestone)
-- [ ] Phase 5 — Synchronous stereo: shared per-frame work
+- [x] Phase 5 — Synchronous stereo: shared per-frame work
 - [ ] Phase 6 — Temporal completeness
 - [ ] Phase 7 — HUD, menus, desktop mirror
 - [ ] Phase 8 — Bike comfort & camera
 - [ ] Phase 9 — Performance
 - [ ] Phase 10 — Robustness & release
 
-**Active phase: Phase 5** (Phase 4 completed 2026-10-21; Phase 3 completed 2026-10-16; Phase 2 completed 2026-10-16; Phase 1 completed 2026-10-16; Phase 0 completed 2026-10-16)
+**Active phase: Phase 6** (Phase 5 completed 2026-10-21; Phase 4 completed 2026-10-21; Phase 3 completed 2026-10-16; Phase 2 completed 2026-10-16; Phase 1 completed 2026-10-16; Phase 0 completed 2026-10-16)
 
 ---
 
@@ -301,6 +301,7 @@ Implementation steps (proposed 2026-10-21, **waiting for Balazs's OK**; each ste
 **Done when:** the leak and head-shake tests pass; per-frame passes appear once per frame in the trace; no visible seams or popping between eyes (shadows, culling, particles).
 
 **Status 2026-10-21:** all five tasks done (5a-5d); leak and head-shake tests pass in test mode; per-frame passes once in the trace (trace 4400, shadows once since 5c, trace 12870). **Open for Balazs in the headset:** shadows, particles and culling look the same in both eyes while riding (no seams or popping), bike/rider sharp under TAA (5a), head-shake trails comparable to flat. Phase 5 closes on that report.
+- 2026-10-21: **Phase 5 closed** by Balazs after the headset check: everything looks good (both eyes alike, bike/rider sharp, head shake fine). Motion blur stays off in VR (`[xr] motion_blur = false`) until re-tested on purpose.
 
 ## Phase 6 — Temporal completeness
 
