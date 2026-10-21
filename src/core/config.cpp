@@ -281,6 +281,29 @@ void ReadXr(const toml::table& t, Config::Xr& out, Warnings& w)
     }
 }
 
+void ReadHud(const toml::table& t, Config::Hud& out, Warnings& w)
+{
+    const Section s("hud", w);
+    for (const auto& [k, node] : t) {
+        const std::string_view key = k.str();
+        if (key == "enabled") s.Bool(key, node, out.enabled);
+        else if (key == "pixels") s.Int(key, node, out.pixels, 512, 4096);
+        else if (key == "aspect") s.Float(key, node, out.aspect, 1.0, 2.4);
+        else if (key == "distance") s.Float(key, node, out.distance, 0.3, 5.0);
+        else if (key == "width") s.Float(key, node, out.width, 0.2, 4.0);
+        else if (key == "height") s.Float(key, node, out.height, -1.0, 1.0);
+        else if (key == "tilt") s.Float(key, node, out.tilt, -60.0, 60.0);
+        else if (key == "follow") {
+            s.String(key, node, out.follow);
+            if (out.follow != "seat" && out.follow != "head") {
+                s.Warn(key, "must be \"seat\" or \"head\"; using \"seat\"", node);
+                out.follow = "seat";
+            }
+        }
+        else s.Warn(key, "unknown key, ignored", node);
+    }
+}
+
 void ReadCapture(const toml::table& t, Config::Capture& out, Warnings& w)
 {
     const Section s("capture", w);
@@ -344,6 +367,7 @@ void ReadTables(const toml::table& root, Config& cfg, Warnings& w)
         else if (name == "overlay") ReadOverlay(*t, cfg.overlay, w);
         else if (name == "camera") ReadCamera(*t, cfg.camera, w);
         else if (name == "xr") ReadXr(*t, cfg.xr, w);
+        else if (name == "hud") ReadHud(*t, cfg.hud, w);
         else if (name == "capture") ReadCapture(*t, cfg.capture, w);
         else if (name == "commands") ReadCommands(*t, cfg.commands, w);
         else if (name == "debug") ReadDebug(*t, cfg.debug, w);

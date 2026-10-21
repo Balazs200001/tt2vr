@@ -68,6 +68,16 @@ struct Config {
         bool motion_blur = false; // keep the game's motion blur while the headset session runs (smears in VR)
         bool shared_shadows = true; // one cascaded shadow render per frame for both eyes (read at startup)
     } xr;
+    struct Hud {
+        bool enabled = true; // the game's 2D HUD on its own panel while riding in the headset (Phase 7)
+        int pixels = 1920; // panel texture width, clamp 512..4096 (height = pixels / aspect)
+        float aspect = 1.78f; // layout width / height, clamp 1.0..2.4 (narrower pulls the corner gauges inward)
+        float distance = 1.0f; // metres in front of the recentered head, clamp 0.3..5
+        float width = 0.9f; // metres, clamp 0.2..4
+        float height = -0.05f; // metres above (+) or below (-) eye height, clamp -1..1
+        float tilt = 0.0f; // degrees the panel's top leans away from you, clamp -60..60
+        std::string follow = "seat"; // "seat": fixed to the bike (LOCAL space); "head": follows the head
+    } hud;
     struct Capture {
         std::string dir = "captures"; // relative to <game>\tt2vr\ unless absolute
         std::string renderdoc_dir; // empty = same as dir

@@ -48,7 +48,10 @@ bool SameConfig(const Config& a, const Config& b)
            a.capture.renderdoc_dir == b.capture.renderdoc_dir && a.capture.max_textures == b.capture.max_textures &&
            a.capture.include_depth == b.capture.include_depth && a.capture.cb_floats == b.capture.cb_floats &&
            a.commands.enabled == b.commands.enabled && a.commands.poll_frames == b.commands.poll_frames &&
-           a.debug.fake_exe_sha256 == b.debug.fake_exe_sha256 && a.debug.input_log == b.debug.input_log;
+           a.debug.fake_exe_sha256 == b.debug.fake_exe_sha256 && a.debug.input_log == b.debug.input_log &&
+           a.hud.enabled == b.hud.enabled && a.hud.pixels == b.hud.pixels && a.hud.aspect == b.hud.aspect &&
+           a.hud.distance == b.hud.distance && a.hud.width == b.hud.width && a.hud.height == b.hud.height &&
+           a.hud.tilt == b.hud.tilt && a.hud.follow == b.hud.follow;
 }
 
 // Finds config/tt2vr.toml: TT2VR_SOURCE_DIR, else walk up from the current directory and the exe directory.
@@ -416,6 +419,33 @@ TEST_CASE("ParseConfig [xr] resolution_scale")
         CHECK(n.warnings.size() == 1);
         CHECK(n.config.xr.resolution_scale == doctest::Approx(1.0));
     }
+}
+
+TEST_CASE("ParseConfig [hud]")
+{
+    const auto r = ParseConfig(R"(
+[hud]
+enabled = false
+pixels = 100
+aspect = 1.5
+distance = 1.2
+width = 0.7
+height = -0.2
+tilt = 15
+follow = "head"
+)");
+    CHECK(ContainsWarning(r, "pixels"));
+    CHECK(r.config.hud.enabled == false);
+    CHECK(r.config.hud.pixels == 512);
+    CHECK(r.config.hud.aspect == doctest::Approx(1.5));
+    CHECK(r.config.hud.distance == doctest::Approx(1.2));
+    CHECK(r.config.hud.width == doctest::Approx(0.7));
+    CHECK(r.config.hud.height == doctest::Approx(-0.2));
+    CHECK(r.config.hud.tilt == doctest::Approx(15.0));
+    CHECK(r.config.hud.follow == "head");
+    const auto bad = ParseConfig("[hud]\nfollow = \"wall\"\n");
+    CHECK(ContainsWarning(bad, "follow"));
+    CHECK(bad.config.hud.follow == "seat");
 }
 
 TEST_CASE("ParseConfig fake_exe_sha256 validation")

@@ -93,6 +93,25 @@ motion_blur = false
 # in both eyes. false = each eye renders its own (read at game start).
 shared_shadows = true
 
+[hud]
+# While riding in the headset, the game's 2D HUD (map, speed, gear, times, messages) is taken out of the eye images
+# and shown on its own flat panel. false = the HUD stays painted into the eye images (spread across both eyes).
+enabled = true
+# Panel texture width in pixels (512..4096); the height follows the aspect below.
+pixels = 1920
+# The HUD's layout shape, width / height (1.0..2.4). 1.78 = the game's 16:9 layout; a narrower panel pulls the corner
+# gauges toward the middle of your view.
+aspect = 1.78
+# Panel distance in front of your recentered head (metres, 0.3..5), its width (metres, 0.2..4), its centre above (+)
+# or below (-) your eye height (metres, -1..1), and how far its top leans away from you (degrees, -60..60).
+distance = 1.0
+width = 0.9
+height = -0.05
+tilt = 0.0
+# "seat": the panel is fixed to the bike, like a dashboard (look at it by moving your head). "head": it stays in the
+# same place in your view whatever you look at.
+follow = "seat"
+
 [capture]
 # Folder for frame traces and texture dumps; relative to <game>\tt2vr\ unless absolute.
 dir = "captures"
