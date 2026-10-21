@@ -12,6 +12,7 @@
 #include "game/engine_textures.hpp"
 #include "game/signatures.hpp"
 #include "game/split_view.hpp"
+#include "stereo/math/cut_detector.hpp"
 
 #include <spdlog/fmt/fmt.h>
 #include <wrl/client.h>
@@ -120,22 +121,10 @@ std::vector<std::string> g_shiftLines;
 int g_resetsDuringTest = 0; // history resets while the frames after the shift are read (expected 0)
 constexpr auto kShiftWait = std::chrono::seconds(300);
 
-// Camera-cut detector (main thread): view 0's game camera last frame (before the head pose).
-bool g_haveLastCamera = false;
-float g_lastCameraPos[3] = {};
-float g_lastCameraFwd[3] = {};
-std::chrono::steady_clock::time_point g_lastCameraTime{};
-float g_lastCameraSpeed = 0; // m/s over the last frame; 0 after a cut
+// Camera-cut detector (main thread): view 0's game camera (before the head pose), rules in stereo/math/cut_detector.hpp.
+stereo::CutDetector g_cutDetector;
 bool g_shiftThisFrame = false; // Renderer+0xd28 was set at this frame's DoUpdate: the world moved by -g_shift
-float g_shift[3] = {};
-// A cut moves the camera further than kCutMinDistance + kCutSpeedFactor x (last speed x this frame's dt) or turns its
-// z axis by more than 10 deg in one frame. Riding turns the helmet camera by a few degrees per frame at most; the
-// crash camera and the respawn move it 4 to 8 m and 16 to 26 deg (2026-10-21 test mode, at up to 144 km/h; missed by
-// the earlier 15 m / 45 deg, temporal.md 11.2). A hitch frame can trip it: a harmless extra reset.
-constexpr float kCutMinDistance = 2.0f;
-constexpr float kCutSpeedFactor = 1.5f;
-constexpr float kCutMaxSpeed = 150.0f; // m/s; a faster estimate is a missed cut, not motion
-constexpr float kCutCos = 0.9848f;
+stereo::Vec3 g_shift{};
 // Other reset triggers (main thread).
 const void* g_lastModeKey = nullptr;
 float g_lastEyeDistance = 0;
@@ -694,9 +683,7 @@ void OnTaaFrame(void* renderer, unsigned recenterCount)
 {
     g_shiftThisFrame = renderer && Read<std::uint8_t>(renderer, kRendererShiftFlag) != 0;
     if (g_shiftThisFrame) {
-        for (int i = 0; i < 3; ++i) {
-            g_shift[i] = Read<float>(renderer, kRendererShiftVector + i * 4);
-        }
+        g_shift = Read<stereo::Vec3>(renderer, kRendererShiftVector);
     }
     if (!g_recenterInit) {
         g_recenterInit = true;
@@ -744,60 +731,40 @@ void RequestLeakTest(const std::string& row, std::function<void(const std::strin
 
 void OnMainCameraWorld(const float (&world)[3][4])
 {
-    const auto now = std::chrono::steady_clock::now();
-    const float pos[3] = {world[0][3], world[1][3], world[2][3]};
-    const float fwd[3] = {world[0][2], world[1][2], world[2][2]};
-    if (g_haveLastCamera && g_active) {
-        float dist = Distance(pos, g_lastCameraPos);
-        if (g_shiftThisFrame) {
-            // UpdateShift ran before this DoUpdate: the camera moved with the world. Only a rebase that shortens the
-            // step is taken (a flag left set without a shift would lengthen it).
-            const float rebased[3] = {g_lastCameraPos[0] - g_shift[0], g_lastCameraPos[1] - g_shift[1],
-                g_lastCameraPos[2] - g_shift[2]};
-            const float step = Distance(pos, rebased);
-            if (step < dist) {
-                TT2VR_LOG_INFO("taa: World Shift ({:.0f} {:.0f} {:.0f}): camera step {:.2f} m after the rebase "
-                               "({:.0f} m without), no cut",
-                    g_shift[0], g_shift[1], g_shift[2], step, dist);
-                if (g_cutTest == CutTest::Waiting && g_cutIsShift && SplitViewActive()) {
-                    g_cutTest = CutTest::After;
-                    g_cutFrame = 0;
-                    g_cutWhat = fmt::format("World Shift ({:.0f} {:.0f} {:.0f}), camera step {:.2f} m after the rebase",
-                        g_shift[0], g_shift[1], g_shift[2], step);
-                    g_shiftCheck = true;
-                }
-                dist = step;
-            }
-        }
-        const float dt = std::clamp(std::chrono::duration<float>(now - g_lastCameraTime).count(), 1.0f / 240.0f, 0.25f);
-        const float limit = kCutMinDistance + kCutSpeedFactor * g_lastCameraSpeed * dt;
-        const float cosTurn = fwd[0] * g_lastCameraFwd[0] + fwd[1] * g_lastCameraFwd[1] + fwd[2] * g_lastCameraFwd[2];
-        const float deg = std::acos(std::clamp(cosTurn, -1.0f, 1.0f)) * 57.29578f;
-        if (g_convFrames > 0) {
-            g_convCamMove = std::max(g_convCamMove, dist);
-            g_convCamTurn = std::max(g_convCamTurn, deg);
-        }
-        if (dist > limit || cosTurn < kCutCos) {
-            // The engine has no cut detection (docs/re/temporal.md N6). This frame's views are recorded after
-            // DoUpdate; the next frame is reset too, in case its recording is the first to see the new camera.
-            OnCut(fmt::format("camera cut: {:.1f} m (limit {:.1f}), {:.0f} deg", dist, limit, deg));
-            g_lastCameraSpeed = 0;
-        }
-        else {
-            g_lastCameraSpeed = std::min(dist / dt, kCutMaxSpeed);
+    const stereo::Vec3 pos{world[0][3], world[1][3], world[2][3]};
+    const stereo::Vec3 fwd{world[0][2], world[1][2], world[2][2]};
+    // UpdateShift ran before this DoUpdate when the flag is set: the camera moved with the world.
+    const auto r = g_cutDetector.Update(pos, fwd, g_shiftThisFrame ? &g_shift : nullptr);
+    if (r.first || !g_active) {
+        return;
+    }
+    if (r.rebased) {
+        TT2VR_LOG_INFO("taa: World Shift ({:.0f} {:.0f} {:.0f}): camera step {:.2f} m after the rebase ({:.0f} m "
+                       "without), no cut",
+            g_shift.x, g_shift.y, g_shift.z, r.distance, r.unrebasedDistance);
+        if (g_cutTest == CutTest::Waiting && g_cutIsShift && SplitViewActive()) {
+            g_cutTest = CutTest::After;
+            g_cutFrame = 0;
+            g_cutWhat = fmt::format("World Shift ({:.0f} {:.0f} {:.0f}), camera step {:.2f} m after the rebase",
+                g_shift.x, g_shift.y, g_shift.z, r.distance);
+            g_shiftCheck = true;
         }
     }
-    std::copy(pos, pos + 3, g_lastCameraPos);
-    std::copy(fwd, fwd + 3, g_lastCameraFwd);
-    g_lastCameraTime = now;
-    g_haveLastCamera = true;
+    if (g_convFrames > 0) {
+        g_convCamMove = std::max(g_convCamMove, r.distance);
+        g_convCamTurn = std::max(g_convCamTurn, r.turnDeg);
+    }
+    if (r.cut) {
+        // The engine has no cut detection (docs/re/temporal.md N6). This frame's views are recorded after DoUpdate;
+        // the next frame is reset too, in case its recording is the first to see the new camera.
+        OnCut(fmt::format("camera cut: {:.1f} m (limit {:.1f}), {:.0f} deg", r.distance, r.limit, r.turnDeg));
+    }
 }
 
 void OnTaaCameraMode(const void* modeKey)
 {
     if (modeKey && g_lastModeKey && modeKey != g_lastModeKey && g_active) {
         OnCut(fmt::format("camera mode changed {} -> {}", g_lastModeKey, modeKey));
-        g_lastCameraSpeed = 0;
     }
     g_lastModeKey = modeKey;
 }

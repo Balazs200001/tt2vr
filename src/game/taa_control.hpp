@@ -23,9 +23,10 @@
 //   Triggers: recenter, the remote "taareset" command, two views switched on (OnSplitChanged recreates the TAA and
 //     last-frame RTs but sets no reset and keeps slot 1's froxel index and previous camera), an IPD change of more than
 //     1 mm, the player camera's mode changing (helmet <-> chase or crash camera, respawn), and a camera cut.
-//   Camera cut: the engine has none (temporal.md N6); the game camera moving more than 2 m + 1.5 x its last speed x dt
-//     or turning more than 10 deg in one frame resets both eyes this frame and the next. A World Shift (Renderer+0xd28,
-//     set before DoUpdate) is subtracted from the stored position first, so the 2048 m rebase is no cut.
+//   Camera cut: the engine has none (temporal.md N6); stereo::CutDetector (rules in stereo/math/cut_detector.hpp: a step
+//     longer than 2 m + 2.5 x the longest of the last 32, or a turn of more than 10 deg) resets both eyes this frame
+//     and the next. A World Shift (Renderer+0xd28, set before DoUpdate) is subtracted first, so the 2048 m rebase is no
+//     cut.
 //   Convergence test (remote "convergence"): 11 consecutive back-buffer readbacks; per eye the mean luma change
 //     between consecutive frames, then the same with the TAA history reset before every frame as the reference (TAA
 //     only: the full reset would also take SSR and the froxel history out of the reference image). Pass:
