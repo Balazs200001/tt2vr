@@ -28,6 +28,7 @@
 #include "game/render_size.hpp"
 #include "game/split_view.hpp"
 #include "game/shared_exposure.hpp"
+#include "game/skin_motion.hpp"
 #include "game/ssao_fix.hpp"
 #include "game/taa_control.hpp"
 #include "game/virtual_pad.hpp"
@@ -283,6 +284,7 @@ void InstallEngineHooksOnce()
         game::InstallSsaoFix();
         game::InstallSharedExposure();
         game::InstallTaaControl();
+        game::InstallSkinMotion();
     }
     else {
         TT2VR_LOG_WARN("engine hooks skipped: unknown game version");

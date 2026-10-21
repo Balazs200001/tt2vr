@@ -27,6 +27,7 @@ inline constexpr std::ptrdiff_t kViewViewportW = 0x340; // int
 inline constexpr std::ptrdiff_t kViewViewportH = 0x344; // int
 inline constexpr std::ptrdiff_t kViewProjOffset = 0x448; // float2, TAA jitter / Ansel offset
 inline constexpr std::ptrdiff_t kViewCamera = 0x450; // Camera*
+inline constexpr std::ptrdiff_t kViewCullingPass = 0x460; // int (ECullingPass), 0 = main view, else shadow etc.
 inline constexpr std::ptrdiff_t kViewCameraIndex = 0x464; // ushort, selects the per-slot history (0 / 1)
 inline constexpr std::ptrdiff_t kViewHudList = 0x5e8; // HudItemList* (3D HUD flags 8 / 0x14, per-view 2D HUD 0x22)
 
@@ -49,6 +50,9 @@ inline constexpr std::ptrdiff_t kDecalVolume = 0xb0; // BoundedVolume*
 inline constexpr std::ptrdiff_t kVolumeOwner = 0x58; // -> +0x48 visibility byte array
 inline constexpr std::ptrdiff_t kVolumeOwnerVisibility = 0x48;
 inline constexpr std::ptrdiff_t kVolumeIndex = 0x64; // int, this volume's byte; bit i = visible in camera index i
+// SkinMesh: main-pass motion bookkeeping per camera index (SkinMesh::UpdateRenderData 0x140906b90, renderer.md 4)
+inline constexpr std::ptrdiff_t kSkinMeshLastFrame = 0x158; // uint32[2], frameId of the index's last main pass
+inline constexpr std::ptrdiff_t kSkinMeshLastLod = 0x160; // uint16[2], LOD of that pass
 inline constexpr std::ptrdiff_t kModeCameraMatrix = 0x8; // Matrix34 the mode outputs
 inline constexpr std::ptrdiff_t kModeHelmetMatrix = 0x4c4; // Matrix34 from HelmetSprings (built from +0x8)
 inline constexpr std::ptrdiff_t kModePreLookMatrix = 0x3e4; // Matrix34: +0x8 before LookAroundInput (auto + stick look)

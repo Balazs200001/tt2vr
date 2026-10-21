@@ -61,6 +61,7 @@ enum class Sig {
     DeferredRenderLoopRender,
     TonemapRender,
     RenderLoopRenderTaa,
+    SkinMeshUpdateRenderData,
     Count,
 };
 
@@ -223,6 +224,12 @@ inline constexpr Signature kSignatures[] = {
         kBuild4989319},
     {"RenderLoop::RenderTAA", "?RenderTAA@RenderLoop@Graphics@PlayAll@@IEAAXAEAVRenderContext@23@@Z", nullptr, 0,
         "export; 0x1408ddf70, per view at record time (call 0x140848c03); clears the reset flag RenderLoop+0xd08",
+        kBuild4989319},
+    {"SkinMesh::UpdateRenderData", "?UpdateRenderData@SkinMesh@Graphics@PlayAll@@UEAA_NAEBVViewContext@23@IH@Z",
+        "48 89 5C 24 18 44 89 4C 24 20 48 89 54 24 10 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 30 "
+        "44 0F B7 AA 64 04 00 00 45 8B E0 48 8B 79 68 48 8B F2",
+        0, "export; 0x140906b90 (mesh, vc, frameId, dbIdx), per visible view from the fill job FUN_1408d3370; "
+           "pattern unique in .text (docs/re/renderer.md 4)",
         kBuild4989319},
 };
 
