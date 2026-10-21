@@ -43,6 +43,22 @@ Risks: the array swap (restore at exit), the unverified `+0x650` layout and slid
 
 Not usable: `MessageBoxManager::PopMessageBox` (0x14054c480 / 0x14054c540 / 0x14054c600) is a text and two-button dialog only.
 
+## 4a. Implementation facts (static, 2026-10-21) and corrections to section 4
+
+- `ParseSettings` runs only in `Create` and appends a new group every time (each Options open adds three), so the hidden group must be put back after every `Create`; the game may also grow the array there. The array is game-owned (`AllocAlignedInfo(n*8, 8, 9, array.inl, 0x76)` / `FreeAlignedInfo(old, false)`, exports); when the mod grows it, it uses the same allocator, so nothing needs restoring at exit. `confirmed (static)`
+- The constructor sets all 45 tab labels to `s_LocaIdEmpty` (0x141358528, -1) and `+0x650` int[9] to -1; `+0x650` is indexed by tab only. Page 3 tab 4 already takes the settings branch of `SwitchTab` and reads `+0x660`: with -1 there and a label set, `FillRows` would read `data[-1]`. `confirmed (static)`
+- The change handlers check the tab: `OnListChange` 0x140305970 calls `SetRow` for tabs 1..3 only, `OnGaugeValidate` 0x140305c40 for tab 1 only. `confirmed (static)`
+- `ISetting` vtables have 9 slots; the screen and the manager call +0x08 SetSetting (stores +0x38, callbacks, then +0x40 if the byte at +0x40 is set), +0x10 Revert, +0x38 HasValueChanged, +0x40 SetValue (Apply calls it always). `GetFlags` = 1 | per setting (changed ? +0x68 : 1): with +0x68 = 1 no popup. `confirmed (static)`
+- Slider rows: `OpenRow` 0x140305e10 builds the gauge from +0x38 (value), `GetMin`/`GetMax` (`**(+0x80) -> +0xb0 / +0xb8`, float pointers) and a step of 1; `OnGaugeValidate` passes the gauge value, `SetRow` divides it by 100. `confirmed (runtime, 8i)`: with a 0..1 range the gauge only offered 0 and 1, so the mod's sliders use a percent range and hold value x 100 while `OpenRow` builds the gauge.
+- Titles and tab labels go through `UxWidget::SetTextLocaId` -> `HudTextLabel::SetTextLocaId` 0x140893970 -> `GetString16(int)`, which copies the text at once. `confirmed (runtime)`: the tab and row titles show the mod's text.
+
+## 4b. Runtime (test mode, 2026-10-21, `game::OptionsTab`)
+
+- All six TT2 patterns resolved at the static addresses; the tab is added at the first `Create` (the game builds the Options state once at startup) and on every later open.
+- Options > Display shows "VR" under Post Processing; LB / RB and up / down reach it like the other tabs; its eight rows show the mod's values (sliders as "N%", lists with literal labels "+2 cm", "1.0 m").
+- Slider: Camera shake opened at 100 in 0..100, 25 steps left gave 75, the mod received 0.75. List: Seat forward "+2 cm" gave index 12 -> 0.02 m. Both applied at once and reached `user.toml` 1 s later; after a game restart the tab showed the saved values.
+- Leaving Options runs the game's apply and save: `UserSettings.cfg` stayed byte-identical to the backup taken before the test; `Save.dat` kept its size and changed in one float (26421 -> 26840, a counter that grows between sessions: likely play time, written by every autosave).
+
 ## 5. Runtime checks before writing anything
 
 1. `state+0x650[0..8]` values on the first Options open (expect -1 except tabs 1..3).
