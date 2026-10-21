@@ -80,7 +80,9 @@ All `confirmed (static)` unless tagged.
 3. Fit for both eyes: view 0's cascades are fitted from the left eye. The right eye is 6 cm to the side; the power-of-two box usually covers it, but the snapped min edge has less than one texel of slack. Fit index 0 from the head-centre pose (mid-eye view, union projection) while `SetupRenderContext` runs, then restore the eye view.
 4. Optional CPU saving: clear `CSM+0x25b0+1` after `SetupRenderContext` so index 1's cascade culling is skipped (`guess` that nothing else reads it).
 
-Open: whether the `cbPSCascadedShadows` matrices are world-space (shareable as-is) or camera-relative (index 1 would need a rebase): compare both views' cascade CBs in a trace with sharing on.
+**The `cbPSCascadedShadows` matrices are world-space** (`confirmed`, RenderDoc `shadows_rider_frame3561`, Sum Lighting CS ev 34195: `cbCameraStd.viewPosition` (902.07, -1197.93, 85.34) maps through `viewProjToLightProjSpaceArray3[0]` (row vector times matrix) to (-0.44, -0.11, 0.92), inside cascade 0, and through `viewProjToLightProjSpaceStatic` to (0.002, 0.000), the static map's centre; a camera-relative matrix would map the origin there instead, which lands at (-14.3, 33.3, -37.3)). The lighting adds each view's own camera position, so one context serves both eyes exactly.
+
+**Implemented (PLAN 5c, `game::SharedShadows`):** steps 1-3 (step 4 not done). Runtime, test mode: one atlas clear per frame (trace 12870, `dsv` flags=1 once; per-view trace 12270: twice), view 1 1564 draws instead of 2534, GPU view 1 9.60 -> 6.64 ms, frame 19.76 -> 17.06 ms.
 
 **Static map cadence.** A scrolling toroidal cache per index (`BuildStaticProjectionMatrix` 0x1408239d0 every frame): nothing if the centre moved less than a texel, an edge strip (modes 3..6) for small moves, a progressive tiled refill (mode 2) after a jump larger than the map. Not a per-N-frames re-render. `confirmed (static)`.
 
