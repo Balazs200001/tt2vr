@@ -81,6 +81,7 @@ struct Status {
     const char* copyMode = "-"; // "copy" (raw CopySubresourceRegion), "blit" (stretch), "-" (nothing submitted)
     std::uint32_t backBufferW = 0, backBufferH = 0;
     double waitMs = 0; // xrWaitFrame, smoothed
+    double lastWaitMs = 0; // xrWaitFrame of the last frame
     double periodMs = 0; // predictedDisplayPeriod
     std::uint64_t framesSubmitted = 0; // xrEndFrame calls with a layer (projection or screen)
 };

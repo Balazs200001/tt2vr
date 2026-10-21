@@ -30,4 +30,8 @@ void RequestRenderDocCapture(const std::string& origin, const std::string& name)
 void WriteShaderRegistry(const std::string& origin);
 std::vector<std::string> RecentResults(); // newest last
 
+// Frame-spike log (Phase 9 diagnostics): marks the start of the frame's engine update and render (Renderer::DoUpdate),
+// so a long frame can be split into game update, render and Present. Thread: game main thread.
+void NoteDoUpdate();
+
 } // namespace d3d

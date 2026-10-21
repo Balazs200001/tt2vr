@@ -724,6 +724,7 @@ void OnFrameStart()
         }
         const double waited = std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
         g.status.waitMs = g.status.waitMs * 0.95 + waited * 0.05;
+        g.status.lastWaitMs = waited;
         g.status.periodMs = static_cast<double>(frame.predictedDisplayPeriod) / 1e6;
         XrFrameBeginInfo beginInfo{XR_TYPE_FRAME_BEGIN_INFO};
         const XrResult br = xrBeginFrame(g.session, &beginInfo);

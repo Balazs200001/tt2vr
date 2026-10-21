@@ -77,6 +77,18 @@ int g_fpsWindowFrames = 0;
 std::chrono::steady_clock::time_point g_perfStart;
 int g_perfFrames = 0;
 double g_perfWorstMs = 0;
+// Frame spikes while riding in two views: a frame longer than kSpikeMs and kSpikeFactor x the average is logged with
+// its parts (at most kSpikeLines per perf window; the rest are counted). Times of the current frame, main thread.
+using Clock = std::chrono::steady_clock;
+Clock::time_point g_postEnd; // end of the previous Present post-hook (after xrWaitFrame)
+Clock::time_point g_doUpdate; // this frame's Renderer::DoUpdate
+Clock::time_point g_preStart; // this frame's Present pre-hook
+double g_tailMs = 0; // the previous post-hook: commands, pad, xrWaitFrame and the rest
+double g_avgMs = 0;
+int g_spikes = 0, g_spikeLines = 0;
+constexpr double kSpikeMs = 50.0;
+constexpr double kSpikeFactor = 2.5;
+constexpr int kSpikeLines = 5;
 
 std::deque<std::string> g_results; // present thread
 bool g_keyDown[256] = {};
@@ -339,9 +351,42 @@ void LogPerformance(std::chrono::steady_clock::time_point now, double frameMs)
     if (const std::string gpu = game::GpuTimersPerfSummary(); !gpu.empty()) {
         TT2VR_LOG_INFO("perf: {}", gpu);
     }
+    if (g_spikes > g_spikeLines) {
+        TT2VR_LOG_INFO(
+            "perf: {} frame spikes over {:.0f} ms in this window, {} logged", g_spikes, kSpikeMs, g_spikeLines);
+    }
     g_perfStart = now;
     g_perfFrames = 0;
     g_perfWorstMs = 0;
+    g_spikes = 0;
+    g_spikeLines = 0;
+}
+
+// A long frame, split at the marks: tail of the previous Present (xrWaitFrame included) | game update (until
+// DoUpdate) | render (DoUpdate to Present: view build, recording, execution) | Present (eyes, mirror, overlay, swap).
+void LogSpike(Clock::time_point now, double frameMs)
+{
+    const auto ms = [](Clock::time_point a, Clock::time_point b) {
+        return std::chrono::duration<double, std::milli>(b - a).count();
+    };
+    const bool marks = g_doUpdate > g_postEnd && g_preStart > g_doUpdate;
+    const bool spike = frameMs > kSpikeMs && frameMs > kSpikeFactor * g_avgMs && g_avgMs > 0.0;
+    g_avgMs = g_avgMs > 0.0 ? g_avgMs * 0.95 + frameMs * 0.05 : frameMs;
+    if (!spike || !game::SplitViewActive()) {
+        return;
+    }
+    ++g_spikes;
+    if (g_spikeLines >= kSpikeLines) {
+        return;
+    }
+    ++g_spikeLines;
+    const game::GpuTimes gpu = game::LastGpuTimes();
+    TT2VR_LOG_INFO("perf: frame spike {:.1f} ms (average {:.1f}): previous Present tail {:.1f} (xrWaitFrame {:.1f}), "
+                   "game update {}, render {}, Present {:.1f}; GPU frame {:.1f} ms (2 frames earlier)",
+        frameMs, g_avgMs, g_tailMs, xr::GetStatus().lastWaitMs,
+        marks ? fmt::format("{:.1f}", ms(g_postEnd, g_doUpdate)) : std::string("-"),
+        marks ? fmt::format("{:.1f}", ms(g_doUpdate, g_preStart)) : std::string("-"), ms(g_preStart, now),
+        gpu.valid ? gpu.frameMs : 0.0);
 }
 
 void UpdateStats()
@@ -367,6 +412,9 @@ void UpdateStats()
                                : 0.0;
     g_lastPresent = now;
     LogPerformance(now, frameMs);
+    if (frameMs > 0.0) {
+        LogSpike(now, frameMs);
+    }
 }
 
 // Thread: game main thread.
@@ -374,6 +422,7 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
 {
     const bool ours = self == g_swapChain && !(flags & DXGI_PRESENT_TEST);
     if (ours) {
+        g_preStart = Clock::now();
         try {
             if (trace::Active()) {
                 trace::Line(g_immediate, fmt::format("Present sync={} flags=0x{:x}", sync, flags));
@@ -436,6 +485,9 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
         catch (...) {
             TT2VR_LOG_ERROR("exception in Present post-hook (frame {})", g_frame);
         }
+        const auto end = Clock::now();
+        g_tailMs = std::chrono::duration<double, std::milli>(end - g_lastPresent).count();
+        g_postEnd = end;
     }
     return hr;
 }
@@ -526,6 +578,11 @@ void WriteShaderRegistry(const std::string& origin)
     const auto path = core::CaptureDir() / "shader_registry.txt";
     AddResult(origin, shaders::WriteRegistry(path) ? fmt::format("shaders ok {} ({} unique)", path.string(), shaders::Count())
                                                    : "shaders FAILED: cannot write registry");
+}
+
+void NoteDoUpdate()
+{
+    g_doUpdate = Clock::now();
 }
 
 std::vector<std::string> RecentResults()

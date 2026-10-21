@@ -3,6 +3,7 @@
 #include "core/config.hpp"
 #include "core/hooks.hpp"
 #include "core/log.hpp"
+#include "d3d/present.hpp"
 #include "game/engine_layout.hpp"
 #include "game/gpu_timers.hpp"
 #include "game/menu_state.hpp"
@@ -338,6 +339,7 @@ void ApplyViewOverride(void* viewContext, int eye)
 // Thread: game main thread (GameContext::RenderOneFrame -> RendererWin32::OnUpdate -> Renderer::DoUpdate).
 int HookedDoUpdate(void* renderer, void* gameContext, unsigned arg)
 {
+    d3d::NoteDoUpdate(); // frame-spike log: the game update ends here
     try {
         BeginFrame(renderer);
     }
