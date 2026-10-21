@@ -59,6 +59,10 @@ float4 PSDecode(V i) : SV_Target
 {
     return float4(ToLinear(saturate(src.Sample(smp, i.uv).rgb)), 1);
 }
+float4 PSOver(V i) : SV_Target
+{
+    return src.Sample(smp, i.uv); // premultiplied colour and alpha, for Composite
+}
 float4 PSOpaque(V i) : SV_Target
 {
     return float4(0, 0, 0, 1); // written through an alpha-only write mask
@@ -216,7 +220,8 @@ bool Blitter::Init(ID3D11Device* device)
     const auto psRaw = Compile("PSRaw", "ps_5_0");
     const auto psDecode = Compile("PSDecode", "ps_5_0");
     const auto psOpaque = Compile("PSOpaque", "ps_5_0");
-    if (!vs || !psRaw || !psDecode || !psOpaque) {
+    const auto psOver = Compile("PSOver", "ps_5_0");
+    if (!vs || !psRaw || !psDecode || !psOpaque || !psOver) {
         return false;
     }
     D3D11_SAMPLER_DESC sd{};
@@ -248,6 +253,7 @@ bool Blitter::Init(ID3D11Device* device)
         FAILED(device->CreatePixelShader(psRaw->GetBufferPointer(), psRaw->GetBufferSize(), nullptr, &m_psRaw)) ||
         FAILED(device->CreatePixelShader(psDecode->GetBufferPointer(), psDecode->GetBufferSize(), nullptr, &m_psDecode)) ||
         FAILED(device->CreatePixelShader(psOpaque->GetBufferPointer(), psOpaque->GetBufferSize(), nullptr, &m_psOpaque)) ||
+        FAILED(device->CreatePixelShader(psOver->GetBufferPointer(), psOver->GetBufferSize(), nullptr, &m_psOver)) ||
         FAILED(device->CreateBlendState(&ad, &m_blendAlpha)) || FAILED(device->CreateBlendState(&od, &m_blendOver)) ||
         FAILED(device->CreateSamplerState(&sd, &m_sampler)) || FAILED(device->CreateRasterizerState(&rd, &m_raster)) ||
         FAILED(device->CreateBlendState(&bd, &m_blend)) || FAILED(device->CreateDepthStencilState(&dd, &m_depth))) {
@@ -361,7 +367,7 @@ bool Blitter::Composite(ID3D11DeviceContext* context, ID3D11ShaderResourceView* 
     context->IASetInputLayout(nullptr);
     context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     context->VSSetShader(m_vs.Get(), nullptr, 0);
-    context->PSSetShader(m_psRaw.Get(), nullptr, 0);
+    context->PSSetShader(m_psOver.Get(), nullptr, 0);
     context->GSSetShader(nullptr, nullptr, 0);
     context->HSSetShader(nullptr, nullptr, 0);
     context->DSSetShader(nullptr, nullptr, 0);
@@ -409,6 +415,7 @@ void Blitter::Release()
 {
     m_ready = false;
     m_blendOver.Reset();
+    m_psOver.Reset();
     m_blendAlpha.Reset();
     m_psOpaque.Reset();
     m_copySrv.Reset();

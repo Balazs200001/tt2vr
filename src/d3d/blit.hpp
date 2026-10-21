@@ -58,6 +58,7 @@ private:
     ComPtr<ID3D11PixelShader> m_psRaw;
     ComPtr<ID3D11PixelShader> m_psDecode;
     ComPtr<ID3D11PixelShader> m_psOpaque;
+    ComPtr<ID3D11PixelShader> m_psOver;
     ComPtr<ID3D11BlendState> m_blendAlpha;
     ComPtr<ID3D11BlendState> m_blendOver;
     ComPtr<ID3D11SamplerState> m_sampler;
