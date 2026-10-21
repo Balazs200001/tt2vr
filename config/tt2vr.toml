@@ -27,6 +27,14 @@ renderdoc_capture = "F9"
 cursor = "F8"
 # Recenter the headset view: your current head position and heading become the rider's eye point.
 recenter = "F7"
+# Seated calibration: move the rider's eye point relative to your head by 1 cm per press, forward / back / up / down,
+# and back to the recentered point. The numpad keys need NumLock on. The offset is saved in tt2vr\user.toml and
+# survives recenters and restarts ([camera] seat_forward / seat_up / seat_right).
+seat_forward = "Num8"
+seat_back = "Num2"
+seat_up = "Num9"
+seat_down = "Num3"
+seat_reset = "Num5"
 
 [overlay]
 # Show the debug overlay at startup.
@@ -50,6 +58,11 @@ horizon_lock = 100
 # (a vertical bob and roll that grow with speed) and the shake after a collision. 100 = the game's, 0 = none. Your
 # own head movement is never touched; the game's values come back when the session stops. Also in the overlay.
 shake = 100
+# Where the rider's eyes sit relative to your recentered head, in metres in the bike's directions (-0.5..0.5):
+# forward (+) / back (-), up (+) / down (-), right (+) / left (-). The seat hotkeys change it while riding.
+seat_forward = 0.0
+seat_up = 0.0
+seat_right = 0.0
 
 [xr]
 # Start OpenXR (headset) when a runtime and a connected headset are available. Off = the game stays flat.
@@ -100,6 +113,12 @@ motion_blur = false
 # both eyes, instead of rendering them again for the right eye. Saves GPU time and keeps the shadow edges identical
 # in both eyes. false = each eye renders its own (read at game start).
 shared_shadows = true
+# World scale (0.5..2): above 1 the world looks larger and you smaller (your head movement and eye separation count
+# for less in the game world), below 1 the opposite. 1 = real scale.
+world_scale = 1.0
+# Eye separation multiplier (0.5..2) on top of the world scale: above 1 everything looks smaller and closer in depth,
+# below 1 flatter. 1 = your headset's IPD.
+ipd_scale = 1.0
 
 [hud]
 # While riding in the headset, the game's 2D HUD (map, speed, gear, times, messages) is taken out of the eye images

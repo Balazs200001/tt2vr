@@ -271,6 +271,14 @@ void ComfortSection()
     ImGui::SliderFloat("shake", &s.shake, 0.0f, 100.0f, "%.0f %%");
     ImGui::Text("shake: game %.2f deg, shown max %.2f deg; noise bob %.3f roll %.4f", info.shakeDeg,
         info.shakeShownMaxDeg, info.speedNoise, info.rollNoise);
+    ImGui::SliderFloat3("seat forward/up/right", s.seat, -0.5f, 0.5f, "%.2f m");
+    ImGui::SameLine();
+    if (ImGui::Button("reset##seat")) {
+        game::ResetSeat();
+    }
+    ImGui::SliderFloat("world scale", &s.worldScale, 0.5f, 2.0f, "%.2f");
+    ImGui::SliderFloat("IPD scale", &s.ipdScale, 0.5f, 2.0f, "%.2f");
+    ImGui::TextDisabled("changes are saved to tt2vr\\user.toml");
     ImGui::TextDisabled("%s", game::DescribeRiderView(game::LastRiderView()).c_str());
 }
 

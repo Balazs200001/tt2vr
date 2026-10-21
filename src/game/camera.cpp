@@ -3,6 +3,7 @@
 #include "core/config.hpp"
 #include "core/hooks.hpp"
 #include "core/log.hpp"
+#include "core/user_toml.hpp"
 #include "d3d/present.hpp"
 #include "game/camera_noise.hpp"
 #include "game/engine_layout.hpp"
@@ -24,6 +25,7 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <bit>
 #include <chrono>
@@ -107,6 +109,59 @@ struct RollWindow {
     float Max() const { return std::max(current, previous); }
 };
 RollWindow g_gameRoll, g_shownRoll, g_shake;
+
+// user.toml (PLAN Decisions log 2026-10-21): the runtime settings, saved 1 s after the last change.
+using UserValues = std::array<float, 7>; // horizon lock, shake, seat forward / up / right, world scale, ipd scale
+UserValues UserValuesOf(const CameraSettings& s)
+{
+    return {s.horizonLock, s.shake, s.seat[0], s.seat[1], s.seat[2], s.worldScale, s.ipdScale};
+}
+UserValues g_savedUser{}, g_seenUser{};
+std::chrono::steady_clock::time_point g_userChanged{};
+
+// Writes the runtime settings that differ from tt2vr.toml (everything else keeps coming from there).
+void SaveUserSettings(const UserValues& v)
+{
+    const auto& f = core::GetFileConfig();
+    const struct {
+        const char* section;
+        const char* key;
+        float file;
+    } keys[] = {{"camera", "horizon_lock", f.camera.horizon_lock}, {"camera", "shake", f.camera.shake},
+        {"camera", "seat_forward", f.camera.seat_forward}, {"camera", "seat_up", f.camera.seat_up},
+        {"camera", "seat_right", f.camera.seat_right}, {"xr", "world_scale", f.xr.world_scale},
+        {"xr", "ipd_scale", f.xr.ipd_scale}};
+    std::vector<core::UserValue> out;
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        if (std::fabs(v[i] - keys[i].file) > 1e-5f) {
+            out.push_back({keys[i].section, keys[i].key, v[i]});
+        }
+    }
+    std::string error;
+    if (core::WriteUserToml(core::UserTomlPath(), out, error)) {
+        TT2VR_LOG_INFO("camera: {} runtime setting(s) saved to {}", out.size(), core::UserTomlPath().string());
+    }
+    else {
+        TT2VR_LOG_WARN("camera: user.toml not saved: {}", error);
+    }
+}
+
+void SaveUserSettingsWhenStable()
+{
+    if (!g_active) {
+        return; // settings never initialised from the config
+    }
+    const UserValues now = UserValuesOf(g_settings);
+    const auto t = std::chrono::steady_clock::now();
+    if (now != g_seenUser) {
+        g_seenUser = now;
+        g_userChanged = t;
+    }
+    else if (now != g_savedUser && t - g_userChanged > std::chrono::seconds(1)) {
+        SaveUserSettings(now);
+        g_savedUser = now;
+    }
+}
 
 // Read by MatrixPerspectiveFovRH, which may also run on render job threads.
 std::atomic<bool> g_projActive{false};
@@ -249,9 +304,13 @@ bool BeginMainView(const void* camera)
         const stereo::Pose head{l.orientation, {(l.position.x + r.position.x) * 0.5f, (l.position.y + r.position.y) * 0.5f,
                                                    (l.position.z + r.position.z) * 0.5f}};
         g_headLocal = stereo::EyeLocal(views.recenter, head);
-        const float dx = r.position.x - l.position.x, dy = r.position.y - l.position.y;
-        const float dz = r.position.z - l.position.z;
-        OnTaaEyeDistance(std::sqrt(dx * dx + dy * dy + dz * dz));
+        // World and IPD scale (8e), then the seat offset (8d), in the camera's axes (x right, y up, z back).
+        const Vec3 seat{g_settings.seat[2], g_settings.seat[1], -g_settings.seat[0]};
+        stereo::ScaleEyes(g_eyeLocal, g_headLocal, g_settings.worldScale, g_settings.ipdScale, seat);
+        const float dx = g_eyeLocal[1].m[0][3] - g_eyeLocal[0].m[0][3];
+        const float dy = g_eyeLocal[1].m[1][3] - g_eyeLocal[0].m[1][3];
+        const float dz = g_eyeLocal[1].m[2][3] - g_eyeLocal[0].m[2][3];
+        OnTaaEyeDistance(std::sqrt(dx * dx + dy * dy + dz * dz)); // a scale change resets the history like an IPD change
         Mat34 fix;
         if (core::GetConfig().camera.remove_auto_look && rider.Cockpit() && ReadAutoLookFix(rider.mode, fix)) {
             g_autoLookFix = fix;
@@ -480,6 +539,12 @@ void HookedInitFromCamera(void* viewContext, const void* camera, const void* vie
             xr::MarkRendered(view, eye);
         }
         g_info.headTracked = g_head;
+        if (view == 0 || view == 1) {
+            const Vec3 pos = Read<Vec3>(viewContext, kViewCamPos);
+            g_info.viewPos[view][0] = pos.x;
+            g_info.viewPos[view][1] = pos.y;
+            g_info.viewPos[view][2] = pos.z;
+        }
         std::memcpy(g_info.proj, At(viewContext, kViewTransform + kTmProj), sizeof(g_info.proj));
         std::memcpy(g_info.jitter, At(viewContext, kViewProjOffset), sizeof(g_info.jitter));
     }
@@ -634,6 +699,20 @@ CameraSettings& Settings()
     return g_settings;
 }
 
+void NudgeSeat(float forward, float up)
+{
+    g_settings.seat[0] = std::clamp(g_settings.seat[0] + forward, -0.5f, 0.5f);
+    g_settings.seat[1] = std::clamp(g_settings.seat[1] + up, -0.5f, 0.5f);
+    TT2VR_LOG_INFO("camera: seat offset forward {:.2f} up {:.2f} right {:.2f} m", g_settings.seat[0], g_settings.seat[1],
+        g_settings.seat[2]);
+}
+
+void ResetSeat()
+{
+    g_settings.seat[0] = g_settings.seat[1] = g_settings.seat[2] = 0.0f;
+    TT2VR_LOG_INFO("camera: seat offset reset");
+}
+
 CameraInfo LastCameraInfo()
 {
     return g_info;
@@ -680,6 +759,13 @@ bool InstallCameraHooks()
     g_settings.helmetFollows = core::GetConfig().camera.helmet_follows_view;
     g_settings.horizonLock = core::GetConfig().camera.horizon_lock;
     g_settings.shake = core::GetConfig().camera.shake;
+    const auto& cc = core::GetConfig().camera;
+    g_settings.seat[0] = cc.seat_forward;
+    g_settings.seat[1] = cc.seat_up;
+    g_settings.seat[2] = cc.seat_right;
+    g_settings.worldScale = core::GetConfig().xr.world_scale;
+    g_settings.ipdScale = core::GetConfig().xr.ipd_scale;
+    g_savedUser = g_seenUser = UserValuesOf(g_settings);
     ResolveSignatures();
     for (const Sig required : {Sig::RendererDoUpdate, Sig::ViewContextInitFromCamera, Sig::MatrixPerspectiveFovRH,
              Sig::TransformMatrixSetViewProjection, Sig::ViewContextRebuildFrustum}) {
@@ -757,6 +843,7 @@ bool HelmetHooksActive()
 
 void OnPresent()
 {
+    SaveUserSettingsWhenStable();
     g_projActive = false;
     g_info.projOverrides = g_projCount.exchange(0);
     g_info.projUnion = g_projUnion.exchange(0);
@@ -782,11 +869,23 @@ std::string ComfortCommand(const std::string& arg)
         else if (name == "shake") {
             g_settings.shake = std::clamp(value, 0.0f, 100.0f);
         }
+        else if (name == "world") {
+            g_settings.worldScale = std::clamp(value, 0.5f, 2.0f);
+        }
+        else if (name == "ipd") {
+            g_settings.ipdScale = std::clamp(value, 0.5f, 2.0f);
+        }
+        else if (name == "forward" || name == "up" || name == "right") {
+            g_settings.seat[name == "forward" ? 0 : name == "up" ? 1 : 2] = std::clamp(value, -0.5f, 0.5f);
+        }
         else {
-            return fmt::format("comfort FAILED: unknown setting '{}' (lock, shake)", name);
+            return fmt::format("comfort FAILED: unknown setting '{}' (lock, shake, world, ipd, forward, up, right)", name);
         }
     }
-    return fmt::format("comfort lock {:.0f}% shake {:.0f}%", g_settings.horizonLock, g_settings.shake);
+    const CameraSettings& s = g_settings;
+    return fmt::format("comfort lock {:.0f}% shake {:.0f}% world {:.2f} ipd {:.2f} seat forward {:.3f} up {:.3f} right "
+                       "{:.3f} m",
+        s.horizonLock, s.shake, s.worldScale, s.ipdScale, s.seat[0], s.seat[1], s.seat[2]);
 }
 
 std::string DescribeCamera()
@@ -819,6 +918,12 @@ std::string DescribeCamera()
     out += fmt::format("  game look rotation removed: {:.2f} deg yaw\n", i.autoLookYawDeg);
     out += fmt::format("  horizon lock {:.0f}%: roll game {:.2f} deg (max {:.2f}), shown {:.2f} deg (max {:.2f})\n",
         s.horizonLock, i.gameRollDeg, i.gameRollMaxDeg, i.shownRollDeg, i.shownRollMaxDeg);
+    const float ex = i.viewPos[1][0] - i.viewPos[0][0], ey = i.viewPos[1][1] - i.viewPos[0][1];
+    const float ez = i.viewPos[1][2] - i.viewPos[0][2];
+    out += fmt::format("  views at [{:.3f} {:.3f} {:.3f}] / [{:.3f} {:.3f} {:.3f}], {:.1f} mm apart; world {:.2f} ipd {:.2f} "
+                       "seat forward {:.3f} up {:.3f} right {:.3f} m\n",
+        i.viewPos[0][0], i.viewPos[0][1], i.viewPos[0][2], i.viewPos[1][0], i.viewPos[1][1], i.viewPos[1][2],
+        std::sqrt(ex * ex + ey * ey + ez * ez) * 1000.0f, s.worldScale, s.ipdScale, s.seat[0], s.seat[1], s.seat[2]);
     out += fmt::format("  shake {:.0f}%: game shake {:.3f} deg, shown max {:.3f} deg; noise bob {:.4g} roll {:.4g}; {}\n",
         s.shake, i.shakeDeg, i.shakeShownMaxDeg, i.speedNoise, i.rollNoise, DescribeCameraNoise());
     out += fmt::format("  override: view {} (yaw {} pitch {} roll {} deg, offset [{} {} {}] m), proj {} (shift {} "

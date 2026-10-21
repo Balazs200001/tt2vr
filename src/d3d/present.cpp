@@ -275,8 +275,8 @@ void PollHotkeys()
 {
     const bool focused = g_window && GetForegroundWindow() == g_window;
     const auto& hk = core::GetConfig().hotkeys;
-    const core::Hotkey* keys[] = {
-        &hk.overlay, &hk.frame_trace, &hk.texture_dump, &hk.renderdoc_capture, &hk.cursor, &hk.recenter};
+    const core::Hotkey* keys[] = {&hk.overlay, &hk.frame_trace, &hk.texture_dump, &hk.renderdoc_capture, &hk.cursor,
+        &hk.recenter, &hk.seat_forward, &hk.seat_back, &hk.seat_up, &hk.seat_down, &hk.seat_reset};
     constexpr int kCount = static_cast<int>(std::size(keys));
     const bool ctrl = KeyDown(VK_CONTROL);
     const bool shift = KeyDown(VK_SHIFT);
@@ -314,6 +314,15 @@ void PollHotkeys()
     }
     if (fired[5]) {
         xr::RequestRecenter();
+    }
+    // Seated calibration (PLAN 8d): 1 cm per press; saved to user.toml by game::CameraOverride.
+    constexpr float kSeatStep = 0.01f;
+    if (fired[6] || fired[7] || fired[8] || fired[9]) {
+        game::NudgeSeat((fired[6] ? kSeatStep : 0.0f) - (fired[7] ? kSeatStep : 0.0f),
+            (fired[8] ? kSeatStep : 0.0f) - (fired[9] ? kSeatStep : 0.0f));
+    }
+    if (fired[10]) {
+        game::ResetSeat();
     }
 }
 

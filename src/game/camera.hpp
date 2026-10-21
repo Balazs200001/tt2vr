@@ -33,10 +33,15 @@ struct CameraSettings {
     bool helmetFollows = true; // helmet mesh follows the view override (init from [camera] helmet_follows_view)
     float horizonLock = 100.0f; // percent of the camera's roll removed while head-tracked ([camera] horizon_lock)
     float shake = 100.0f; // percent of the game's camera shake and speed noise kept in VR ([camera] shake)
+    float seat[3] = {0, 0, 0}; // eye point from the recentered head: forward, up, right (m; [camera] seat_*, 8d)
+    float worldScale = 1.0f, ipdScale = 1.0f; // [xr] world_scale / ipd_scale (PLAN 8e)
     bool projEnabled = false;
     float shiftX = 0, shiftY = 0; // window shift as a fraction of width / height (0.2 = 20% to the right)
 };
 CameraSettings& Settings(); // main thread only
+// Seat hotkeys (main thread, PLAN 8d): move the eye point by `forward` / `up` metres (clamped to +-0.5); reset = 0.
+void NudgeSeat(float forward, float up);
+void ResetSeat();
 
 struct CameraInfo {
     bool valid = false;
@@ -58,6 +63,7 @@ struct CameraInfo {
     // Shake scale (PLAN 8c): the game's KTUCamera shake rotation this frame, the largest shown share over the last
     // 10-20 s (degrees), and the mode's last speed noise values (bob in metres-ish units, roll in radians).
     float shakeDeg = 0, shakeShownMaxDeg = 0, speedNoise = 0, rollNoise = 0;
+    float viewPos[2][3] = {}; // rendered position of views 0 and 1 (world, after head tracking and the comfort settings)
     std::uint32_t helmetMoves = 0; // helmet placements adjusted in the last frame (0 while physics is paused)
     bool headTracked = false; // the last main view was rendered from the headset's left eye (Phase 3)
 };
