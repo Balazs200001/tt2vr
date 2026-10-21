@@ -70,6 +70,8 @@ enum class Sig {
     ResolutionScaling,
     DynamicResolutionEnabled,
     RenderLoopPostUpdateLastFrameCamera,
+    HudRendererRender,
+    HudNodeGetTargetInfo,
     Count,
 };
 
@@ -281,6 +283,17 @@ inline constexpr Signature kSignatures[] = {
         nullptr, 0,
         "export; 0x1408dc2f0 (loop, rc): latches slot rc+0x594's previous VP / camera position / jitter (and the "
         "front-pass set) from the prepared RenderContext, unless s_bMotionPause (docs/re/temporal.md 10.1)",
+        kBuild4989319},
+    {"HudRenderer::Render",
+        "?Render@HudRenderer@Graphics@PlayAll@@QEAAXPEAVRenderTarget@23@PEAVHudItemList@23@PEAVRenderLoop@23@AEAVRender"
+        "Context@23@PEBUCameraRenderDesc@23@H_N@Z",
+        nullptr, 0,
+        "export; 0x14088b530 (hud, rt, list, loop, rc, cameraDesc, flags, bool); the global 2D list after the view loop "
+        "at 0x14084953a (list RenderDesc+0xc50, flags 0x22) (docs/re/frame-anatomy.md 8.6)",
+        kBuild4989319},
+    {"HudNode::GetTargetInfo", "?GetTargetInfo@HudNode@Graphics@PlayAll@@SA?AUTargetInfo@123@XZ", nullptr, 0,
+        "export; 0x140881ae0, static, struct returned through a hidden pointer: the 2D HUD layout for the current "
+        "window (1920x1080 widened to its aspect) when HudRenderer+4/+8 are -1",
         kBuild4989319},
 };
 

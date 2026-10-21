@@ -38,8 +38,8 @@ TEST_CASE("ParseCommands: screenshot, pad and head arguments")
 
 TEST_CASE("ParseCommands: frame trace count, Phase 6 test and debug commands")
 {
-    const auto cmds = core::ParseCommands("frametrace 2\ntrace\nshifttest\nviews ON\nfreeze off\n");
-    REQUIRE(cmds.size() == 5);
+    const auto cmds = core::ParseCommands("frametrace 2\ntrace\nshifttest\nviews ON\nfreeze off\nHUD\n");
+    REQUIRE(cmds.size() == 6);
     CHECK(cmds[0].kind == CommandKind::FrameTrace);
     CHECK(cmds[0].arg == "2");
     CHECK(cmds[1].arg.empty());
@@ -48,6 +48,7 @@ TEST_CASE("ParseCommands: frame trace count, Phase 6 test and debug commands")
     CHECK(cmds[3].arg == "on");
     CHECK(cmds[4].kind == CommandKind::Freeze);
     CHECK(cmds[4].arg == "off");
+    CHECK(cmds[5].kind == CommandKind::Hud);
 }
 
 TEST_CASE("ParseCommands: capture names are sanitized")

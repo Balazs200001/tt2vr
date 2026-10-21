@@ -36,6 +36,16 @@ inline constexpr std::ptrdiff_t kViewHudList = 0x5e8; // HudItemList* (3D HUD fl
 inline constexpr std::ptrdiff_t kHudList3DAfterPost = 0x1b8;
 inline constexpr std::ptrdiff_t kHudList3DBeforePost = 0x1c8;
 inline constexpr std::size_t kEngineArraySize = 0x10;
+// The global 2D HUD list (race HUD, menus): RenderLoop::RenderDesc+0xc50, drawn once after the view loop
+// (0x14084953a); GameContext::GetHudItemList(-1) returns GameContext+0x88 (docs/re/frame-anatomy.md 8.6).
+inline constexpr std::ptrdiff_t kRenderDescGlobalHudList = 0xc50;
+inline constexpr std::ptrdiff_t kGameContextGlobalHudList = 0x88;
+// HudRenderer: int width / height of the 2D layout space (SetHudSize); -1 = HudNode::GetTargetInfo (window based).
+inline constexpr std::ptrdiff_t kHudRendererHudSize = 0x4;
+// RenderTarget: int width / height of mip 0 (RenderTarget::GetWidth / GetHeight 0x1404fc0c0 / 0x1404f8710), also for
+// the window's back-buffer target.
+inline constexpr std::ptrdiff_t kRenderTargetWidth = 0xf0;
+inline constexpr std::ptrdiff_t kRenderTargetHeight = 0xf4;
 
 // TransformMatrix slots (4x4, engine layout, stride 0x40)
 inline constexpr std::ptrdiff_t kTmView = 0x00;

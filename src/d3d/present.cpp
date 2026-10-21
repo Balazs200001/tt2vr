@@ -25,6 +25,7 @@
 #include "d3d/vtable.hpp"
 #include "game/camera.hpp"
 #include "game/gpu_timers.hpp"
+#include "game/hud_capture.hpp"
 #include "game/menu_state.hpp"
 #include "game/particle_medium.hpp"
 #include "game/render_size.hpp"
@@ -214,6 +215,9 @@ void RunCommands()
             case core::CommandKind::MvSave:
                 game::RequestMotionSave([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;
+            case core::CommandKind::Hud:
+                game::RequestHudReport([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
+                break;
             case core::CommandKind::ShiftTest:
                 game::RequestShiftTest([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;
@@ -322,6 +326,7 @@ void InstallEngineHooksOnce()
         game::InstallGpuTimers();
         game::InstallSharedShadows();
         game::InstallParticleMedium();
+        game::InstallHudCapture();
     }
     else {
         TT2VR_LOG_WARN("engine hooks skipped: unknown game version");
@@ -460,6 +465,7 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
         try {
             ++g_frame;
             game::OnPresent();
+            game::OnHudPresent(); // before RunCommands: a "hud" request is answered after the next whole frame
             game::GpuTimersPresent(g_device, g_immediate);
             InstallEngineHooksOnce();
             UpdateStats();

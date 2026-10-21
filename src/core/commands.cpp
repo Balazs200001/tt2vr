@@ -100,6 +100,9 @@ std::vector<Command> ParseCommands(std::string_view text)
         else if (word == "mvsave") {
             c.kind = CommandKind::MvSave;
         }
+        else if (word == "hud") {
+            c.kind = CommandKind::Hud;
+        }
         else if (word == "freeze") {
             c.kind = CommandKind::Freeze;
             c.arg = Lower(arg);
