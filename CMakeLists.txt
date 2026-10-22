@@ -38,7 +38,10 @@ tt2vr_warnings(tt2vr_math)
 file(GLOB TT2VR_SOURCES CONFIGURE_DEPENDS
     src/main.cpp src/d3d/*.cpp src/game/*.cpp src/stereo/*.cpp src/ui/*.cpp src/xr/*.cpp)
 add_library(tt2vr SHARED ${TT2VR_SOURCES})
-target_include_directories(tt2vr PRIVATE src third_party)
+# FSR1 shader headers as byte arrays for the runtime shader compiler (PLAN 9e; approved 2026-10-22).
+include(cmake/embed_fsr1.cmake)
+tt2vr_embed_fsr1("${CMAKE_BINARY_DIR}/generated")
+target_include_directories(tt2vr PRIVATE src third_party "${CMAKE_BINARY_DIR}/generated")
 target_link_libraries(tt2vr PRIVATE tt2vr_core tt2vr_math imgui::imgui Microsoft::DirectXTK xxHash::xxhash
     OpenXR::openxr_loader d3d11 dxgi dxguid d3dcompiler windowscodecs ole32)
 tt2vr_warnings(tt2vr)

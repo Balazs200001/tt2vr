@@ -1,0 +1,2 @@
+# Vendored files stay byte-identical to upstream (their README lists SHA-256 values).
+third_party/fidelityfx-fsr1/** -text
