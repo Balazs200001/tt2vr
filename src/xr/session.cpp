@@ -151,6 +151,17 @@ struct State {
     d3d::GpuBracket eyeGpu, hudGpu;
     bool sourceCopied = false; // this frame's eye copy refreshed the blitter's back-buffer copy (the mirror reuses it)
 
+    // How the runtime paces us (CountPacing): frames it asked for at half rate (predictedDisplayPeriod about twice the
+    // refresh: reprojection / frame synthesis fills the other refreshes) and refreshes between two of our frames
+    // that got no new frame from us. Summed until TakeSubmitSummary.
+    struct Pacing {
+        int frames = 0, halfRate = 0, switches = 0;
+        std::int64_t missedRefreshes = 0;
+        bool lastHalf = false;
+        XrTime lastDisplay = 0;
+        XrDuration refresh = 0; // shortest period seen = the headset's refresh
+    } pacing;
+
     // [xr] render_scale as the render size and the eye copy use it (UpdateRenderScale).
     bool renderScaleInit = false;
     float renderScale = 1.0f; // applied
@@ -164,6 +175,27 @@ State g;
 double MsSince(Clock::time_point t)
 {
     return std::chrono::duration<double, std::milli>(Clock::now() - t).count();
+}
+
+void CountPacing(const XrFrameState& frame)
+{
+    auto& p = g.pacing;
+    if (frame.predictedDisplayPeriod > 0 && (p.refresh == 0 || frame.predictedDisplayPeriod < p.refresh)) {
+        p.refresh = frame.predictedDisplayPeriod;
+    }
+    if (p.refresh == 0) {
+        return;
+    }
+    const bool half = frame.predictedDisplayPeriod > p.refresh * 3 / 2;
+    ++p.frames;
+    p.halfRate += half ? 1 : 0;
+    p.switches += p.frames > 1 && half != p.lastHalf ? 1 : 0;
+    p.lastHalf = half;
+    if (p.lastDisplay != 0 && frame.predictedDisplayTime > p.lastDisplay) {
+        const std::int64_t refreshes = (frame.predictedDisplayTime - p.lastDisplay + p.refresh / 2) / p.refresh;
+        p.missedRefreshes += std::max<std::int64_t>(0, refreshes - 1);
+    }
+    p.lastDisplay = frame.predictedDisplayTime;
 }
 
 // Logs a failed call; the same call failing with the same result again is only counted.
@@ -914,6 +946,7 @@ void OnFrameStart()
         g.status.waitMs = g.status.waitMs * 0.95 + waited * 0.05;
         g.status.lastWaitMs = waited;
         g.status.periodMs = static_cast<double>(frame.predictedDisplayPeriod) / 1e6;
+        CountPacing(frame);
         XrFrameBeginInfo beginInfo{XR_TYPE_FRAME_BEGIN_INFO};
         const XrResult br = xrBeginFrame(g.session, &beginInfo);
         if (br != XR_SUCCESS && br != XR_FRAME_DISCARDED) {
@@ -1409,6 +1442,14 @@ std::string TakeSubmitSummary()
     }
     if (hudGpu >= 0.0) {
         text += fmt::format(", HUD panel {:.3f} ms ({} frames)", hudGpu, hudFrames);
+    }
+    auto& p = g.pacing;
+    if (p.frames > 0) {
+        text += fmt::format("; pacing: {:.0f}% of frames at half rate, {} switches, {} display refreshes without a "
+                            "new frame",
+            100.0 * p.halfRate / p.frames, p.switches, p.missedRefreshes);
+        p.frames = p.halfRate = p.switches = 0;
+        p.missedRefreshes = 0;
     }
     s = {};
     return text;
