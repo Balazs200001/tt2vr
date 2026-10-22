@@ -6,8 +6,10 @@ The mod changes only what you see. Physics, input, saves and the game's own sett
 
 ## Install
 
-1. Copy `dinput8.dll` next to `TT2.exe` in the game folder (Steam > the game > Manage > Browse local files).
-2. Copy the `tt2vr` folder (`tt2vr.dll`, `tt2vr.toml`) into the same game folder, so you have `<game>\tt2vr\tt2vr.dll`.
+1. Download `tt2vr-<version>.zip` from the [Releases](https://github.com/Balazs200001/tt2vr/releases) page.
+2. Extract it into the game folder (Steam > the game > Manage > Browse local files): `dinput8.dll` lands next to `TT2.exe`, and the rest in `<game>\tt2vr\`.
+
+To update, extract the new zip over the old files. Your in-game settings (`user.toml`) are kept.
 
 The mod writes its log to `<game>\tt2vr\logs\tt2vr.log`.
 
@@ -50,7 +52,7 @@ cmake --build --preset x64-release
 ctest --preset x64-release
 ```
 
-`cmake --build --preset x64-release --target deploy` copies the build into the game folder named by the `TT2_GAME_DIR` environment variable (close the game first).
+`cmake --build --preset x64-release --target deploy` copies the build into the game folder named by the `TT2_GAME_DIR` environment variable (close the game first). `tools/make-release.ps1` builds, tests and packs the release zip (`build\release\tt2vr-<version>.zip`, version from `src/core/version.hpp`).
 
 ## License and credits
 
