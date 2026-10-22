@@ -444,8 +444,8 @@ TEST_CASE("ParseConfig [xr] resolution_scale")
 TEST_CASE("ParseConfig [xr] render_scale and fsr_sharpness")
 {
     const auto d = ParseConfig("");
-    CHECK(d.config.xr.render_scale == doctest::Approx(1.0));
-    CHECK(d.config.xr.fsr_sharpness == doctest::Approx(0.2));
+    CHECK(d.config.xr.render_scale == doctest::Approx(0.9));
+    CHECK(d.config.xr.fsr_sharpness == doctest::Approx(0.0));
     const auto r = ParseConfig("[xr]\nrender_scale = 0.75\nfsr_sharpness = 0.5\n");
     CHECK(r.warnings.empty());
     CHECK(r.config.xr.render_scale == doctest::Approx(0.75));

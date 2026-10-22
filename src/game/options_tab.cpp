@@ -93,19 +93,7 @@ struct alignas(8) BlockC0 {
     unsigned char b[0xc0];
 };
 
-enum class Value {
-    HorizonLock,
-    Shake,
-    WorldScale,
-    IpdScale,
-    SeatForward,
-    SeatUp,
-    HudDistance,
-    HudHeight,
-    RenderScale,
-    FsrSharpening,
-    Occlusion
-};
+enum class Value { SeatForward, SeatUp, HudDistance, HudHeight, RenderScale, FsrSharpening };
 
 // Sliders (type 4): the row shows the setting value x 100 as "N%"; the gauge works in its CVar range with a step of 1
 // and the game hands SetSetting the gauge value / 100 (runtime 2026-10-21). So the range is in percent and the gauge
@@ -123,13 +111,8 @@ struct RowDef {
     const wchar_t* const* labels = nullptr; // list only: fixed labels (count entries) instead of unit / labelScale
 };
 
-constexpr const wchar_t* kOffOn[] = {L"Off", L"On"};
-
+// The rows the README documents (Balazs, 2026-10-22); horizon lock, shake, world / IPD scale stay in the overlay.
 constexpr RowDef kRows[] = {
-    {"vrHorizonLock", L"Horizon lock", Value::HorizonLock, kTypeSlider, 0.0f, 100.0f, 0, 0, nullptr, 0},
-    {"vrShake", L"Camera shake", Value::Shake, kTypeSlider, 0.0f, 100.0f, 0, 0, nullptr, 0},
-    {"vrWorldScale", L"World scale", Value::WorldScale, kTypeSlider, 50.0f, 200.0f, 0, 0, nullptr, 0},
-    {"vrIpdScale", L"IPD scale", Value::IpdScale, kTypeSlider, 50.0f, 200.0f, 0, 0, nullptr, 0},
     {"vrSeatFwd", L"Seat forward", Value::SeatForward, kTypeTextList, -0.10f, 0, 0.01f, 21, L"%+.0f cm", 100.0f},
     {"vrSeatUp", L"Seat height", Value::SeatUp, kTypeTextList, -0.10f, 0, 0.01f, 21, L"%+.0f cm", 100.0f},
     {"vrHudDist", L"HUD distance", Value::HudDistance, kTypeTextList, 0.40f, 0, 0.10f, 17, L"%.1f m", 1.0f},
@@ -137,8 +120,6 @@ constexpr RowDef kRows[] = {
     // PLAN 9e: [xr] render_scale, and [xr] fsr_sharpness shown as a strength (100% = 0 stops, FSR's strongest).
     {"vrRenderScale", L"Render scale (FSR)", Value::RenderScale, kTypeTextList, 0.50f, 0, 0.05f, 11, L"%.0f%%", 100.0f},
     {"vrFsrSharpen", L"FSR sharpening", Value::FsrSharpening, kTypeTextList, 0.0f, 0, 0.10f, 11, L"%.0f%%", 100.0f},
-    // [xr] occlusion: the game's occlusion culling in VR (A/B for see-through flashes).
-    {"vrOcclusion", L"Occlusion culling", Value::Occlusion, kTypeTextList, 0.0f, 0, 1.0f, 2, nullptr, 0, kOffOn},
 };
 constexpr int kRowCount = static_cast<int>(std::size(kRows));
 
@@ -185,14 +166,6 @@ float CurrentValue(Value v)
     const CameraSettings& s = Settings();
     const auto& hud = core::GetConfig().hud;
     switch (v) {
-    case Value::HorizonLock:
-        return s.horizonLock / 100.0f;
-    case Value::Shake:
-        return s.shake / 100.0f;
-    case Value::WorldScale:
-        return s.worldScale;
-    case Value::IpdScale:
-        return s.ipdScale;
     case Value::SeatForward:
         return s.seat[0];
     case Value::SeatUp:
@@ -205,8 +178,6 @@ float CurrentValue(Value v)
         return core::GetConfig().xr.render_scale;
     case Value::FsrSharpening:
         return 1.0f - core::GetConfig().xr.fsr_sharpness / 2.0f;
-    case Value::Occlusion:
-        return core::GetConfig().xr.occlusion ? 1.0f : 0.0f;
     }
     return 0.0f;
 }
@@ -215,18 +186,6 @@ void ApplyValue(Value v, float x)
 {
     CameraSettings& s = Settings();
     switch (v) {
-    case Value::HorizonLock:
-        s.horizonLock = std::clamp(x, 0.0f, 1.0f) * 100.0f;
-        break;
-    case Value::Shake:
-        s.shake = std::clamp(x, 0.0f, 1.0f) * 100.0f;
-        break;
-    case Value::WorldScale:
-        s.worldScale = std::clamp(x, 0.5f, 2.0f);
-        break;
-    case Value::IpdScale:
-        s.ipdScale = std::clamp(x, 0.5f, 2.0f);
-        break;
     case Value::SeatForward:
         s.seat[0] = std::clamp(x, -0.5f, 0.5f);
         break;
@@ -242,17 +201,13 @@ void ApplyValue(Value v, float x)
         break;
     }
     case Value::RenderScale:
-    case Value::FsrSharpening:
-    case Value::Occlusion: {
+    case Value::FsrSharpening: {
         core::Config c = core::GetConfig(); // xr applies a render scale change once it has held (one resize)
         if (v == Value::RenderScale) {
             c.xr.render_scale = std::clamp(x, 0.5f, 1.0f);
         }
-        else if (v == Value::FsrSharpening) {
-            c.xr.fsr_sharpness = std::clamp(2.0f * (1.0f - x), 0.0f, 2.0f);
-        }
         else {
-            c.xr.occlusion = x > 0.5f;
+            c.xr.fsr_sharpness = std::clamp(2.0f * (1.0f - x), 0.0f, 2.0f);
         }
         core::SetConfig(c);
         break;

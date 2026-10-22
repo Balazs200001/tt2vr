@@ -214,9 +214,6 @@ std::string VrEffectCommand(const std::string& arg)
                              : c.xr.occlusion) = value == "on";
     core::SetConfig(c);
     g_fxaaLogged = false;
-    if (name == "occlusion") {
-        return "vreffect occlusion " + value + " (saved to user.toml, as from the VR tab)";
-    }
     return "vreffect " + name + " " + value + " (this run only; [xr] " + name + " in tt2vr.toml keeps the default)";
 }
 

@@ -54,15 +54,15 @@ struct Config {
         bool helmet_follows_view = true; // move the helmet mesh with the view/head override (Phase 2)
         bool remove_auto_look = true; // head-tracked: drop the game's look-into-corner (Dynamic View) and stick look
         float horizon_lock = 100.0f; // head-tracked: percent of the camera's roll against the horizon removed, 0..100
-        float shake = 100.0f; // in VR: percent of the game's camera shake and speed noise kept, 0..100
+        float shake = 0.0f; // in VR: percent of the game's camera shake and speed noise kept, 0..100
         // Eye point offset from the recentered head (PLAN 8d), metres in the camera's axes, clamp -0.5..0.5.
         float seat_forward = 0.0f, seat_up = 0.0f, seat_right = 0.0f;
     } camera;
     struct Xr {
         bool enabled = true; // start OpenXR when a runtime and headset are available (Phase 3)
         float resolution_scale = 1.0f; // eye swapchain size = runtime recommendation * this, clamp 0.25..2.0
-        float render_scale = 1.0f; // PLAN 9e: game renders each eye at this fraction of it, FSR1 upscales, 0.5..1
-        float fsr_sharpness = 0.2f; // PLAN 9e: FSR1 RCAS sharpening in stops (0 = strongest, 2 = mild), 0..2
+        float render_scale = 0.9f; // PLAN 9e: game renders each eye at this fraction of it, FSR1 upscales, 0.5..1
+        float fsr_sharpness = 0.0f; // PLAN 9e: FSR1 RCAS sharpening in stops (0 = strongest, 2 = mild), 0..2
         bool desktop_vsync_off = true; // Present with sync interval 0 while the XR session runs (xrWaitFrame paces)
         bool desktop_mirror = true; // false: skip the desktop Present while the XR session runs (window freezes)
         bool menu_screen = true; // menus / pause: show the flat game on a world-fixed screen instead of head tracking
@@ -93,7 +93,7 @@ struct Config {
         float spread = 1.3f; // layout height = 1080 x this, clamp 1.0..2.0: top and bottom elements further apart
         float distance = 1.0f; // metres in front of the recentered head, clamp 0.3..5
         float width = 0.9f; // metres, clamp 0.2..4
-        float height = -0.05f; // metres above (+) or below (-) eye height, clamp -1..1
+        float height = -0.1f; // metres above (+) or below (-) eye height, clamp -1..1
         float tilt = 0.0f; // degrees the panel's top leans away from you, clamp -60..60
         std::string follow = "seat"; // "seat": fixed to the bike (LOCAL space); "head": follows the head
         bool desktop = true; // also draw the captured HUD over the desktop mirror
