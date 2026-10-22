@@ -661,6 +661,9 @@ Per-frame data flow (confirmed): `CameraManager::OnPostManage` -> `KTUCamera::Up
 | `WaterDrop::Render` / `Clear` / `HasAliveParticles` / `SetEnable` / `SetRainIntensity` / `SetCameraSpeed` / `SetCameraAcceleration` | 0x14092a9c0 / 0x140928d70 / 0x14092a490 / 0x14092b0e0 / 0x14092b100 / 0x14092b0a0 / 0x14092b000 | function | `RenderLoop+0x1ec0`; slot `+0x60 + idx*0x68` (`renderer.md` 6) | confirmed |
 | weather manager WaterDrop feed | `FUN_1403be8e0` (from `FUN_1403bed30`) | function | rain + enable both slots; speed / accel from player idx (null for 1) | confirmed |
 | `TTReplayManager` | `DAT_14138b4e8` | global | state +0xa0 (2, 3 = replaying) | likely |
+| `InputDriverPC::LoadXInput` / XInput loader | 0x1409ce730 / `FUN_1409d05f0` | function | CVar `UseXinputUWP` (`DAT_1414140c0`, default true): loads `<game>\UWP\xinput1_3.dll` (an open-source XInput wrapper on Windows.Gaming.Input.Gamepad: no wheels) or the system DLL; pointers at 0x141414000.. (GetState +0, GetCapabilities +0x18); the per-frame read is `FUN_1409d0280` | confirmed |
+| `InputDriverPC::IsXInputDevice` | 0x1409ce2d0 | function | `(const GUID* guidProduct) -> bool`, WMI 'IG_' match on VID/PID; only caller `EnumControllerCallback` 0x1409cbf30 (from `Enumerate` 0x1409cc970, DirectInput game controllers): an XInput slot is made only for a device that passes, with the first XInput user whose GetCapabilities succeeds (`GetFreeXinputID` 0x1409cd8a0). Test mode makes the first device pass, so the virtual pad gets a slot with only a wheel connected (runtime 2026-10-22: MOZA R9 base taken, title screen and menus driven) | confirmed |
+| input controller slots | | field | 16 slots: 0..12 pads / wheels, 13 and 14 pointer / keyboard type (`WaitStartButton` 0x140a0d3c0: Start = control 0x16) | likely |
 | TV / replay view director | `DAT_141382960` | global | active +0x50; picks views via `FUN_14019a3c0` | likely |
 
 ---
