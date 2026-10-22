@@ -23,10 +23,10 @@ v1 is done when all of these hold during a 30-minute offline session on the Snae
 - [x] Phase 6 — Temporal completeness
 - [x] Phase 7 — HUD, menus, desktop mirror
 - [x] Phase 8 — Bike comfort & camera
-- [ ] Phase 9 — Performance
-- [ ] Phase 10 — Robustness & release
+- [x] Phase 9 — Performance
+- [x] Phase 10 — Robustness & release
 
-**Active phase: Phase 9** (Phase 8 completed 2026-10-21; Phase 7 completed 2026-10-21; Phase 6 completed 2026-10-21; Phase 5 completed 2026-10-21; Phase 4 completed 2026-10-21; Phase 3 completed 2026-10-16; Phase 2 completed 2026-10-16; Phase 1 completed 2026-10-16; Phase 0 completed 2026-10-16)
+**All phases complete** (Phase 10 completed 2026-10-22; Phase 9 completed 2026-10-22; Phase 8 completed 2026-10-21; Phase 7 completed 2026-10-21; Phase 6 completed 2026-10-21; Phase 5 completed 2026-10-21; Phase 4 completed 2026-10-21; Phase 3 completed 2026-10-16; Phase 2 completed 2026-10-16; Phase 1 completed 2026-10-16; Phase 0 completed 2026-10-16)
 
 ---
 
