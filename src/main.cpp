@@ -4,6 +4,7 @@
 #include "core/log.hpp"
 #include "core/paths.hpp"
 #include "core/user_toml.hpp"
+#include "core/version.hpp"
 #include "d3d/device_hooks.hpp"
 
 #include <windows.h>
@@ -109,7 +110,7 @@ extern "C" __declspec(dllexport) void __cdecl tt2vr_start()
         core::InitLog();
         const auto logPath = core::ModDir() / L"logs" / L"tt2vr.log";
         lstrcpynW(g_logPath, logPath.c_str(), MAX_PATH);
-        TT2VR_LOG_INFO("tt2vr 0.1.0 starting (Phase 4: two-view stereo); pid {}, parent {}", GetCurrentProcessId(),
+        TT2VR_LOG_INFO("tt2vr {} starting; pid {}, parent {}", core::kVersion, GetCurrentProcessId(),
             ParentProcess());
         LoadConfiguration();
         if (!core::hooks::Init()) {

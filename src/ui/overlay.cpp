@@ -10,6 +10,7 @@
 #include "core/config.hpp"
 #include "core/hooks.hpp"
 #include "core/log.hpp"
+#include "core/version.hpp"
 #include "d3d/blit.hpp"
 #include "d3d/internal.hpp"
 #include "d3d/present.hpp"
@@ -438,7 +439,7 @@ void DrawPanel()
     ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowBgAlpha(0.8f);
     ImGui::Begin("tt2vr", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
-    ImGui::Text("tt2vr 0.1.0 - Phase 3 (left eye head-tracked)");
+    ImGui::Text("tt2vr %s", core::kVersion);
     ImGui::Text("%.1f fps  %.2f ms  frame %llu  %ux%u", stats.fps, stats.ms,
         static_cast<unsigned long long>(stats.frame), stats.width, stats.height);
     if (const game::GpuTimes gpu = game::LastGpuTimes(); gpu.valid && gpu.views >= 2) {
