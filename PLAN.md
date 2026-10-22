@@ -433,14 +433,15 @@ Implementation steps (proposed 2026-10-21, **approved by Balazs 2026-10-21**: al
 
 ## Phase 9 — Performance
 
-- [ ] Frame spikes (Balazs, 2026-10-21 ride, scale 0.7, eye 1770x1892, 72 Hz): (a) steady 52-58 fps against the 13.9 ms budget (GPU 15-17.5 ms: view 0 about 9.5, view 1 about 6.7), so the runtime keeps switching between 72 and 36 Hz (display period 13.89 / 27.78 ms alternates every few 10 s windows), which can feel like stutter; (b) four real hitches of 106-173 ms within one minute (13:35:40-13:36:40) with normal GPU time and no mod event (no reset, no World Shift in those windows): CPU-side, likely the game's streaming. The frame-spike log ("perf: frame spike ...", frames over 50 ms split into game update / render / Present / xrWaitFrame / GPU) names the part on the next ride. Then: hold 72 Hz (resolution scale, GPU savings) or lock a steady 36 Hz with reprojection instead of the switching.
+- [x] Frame spikes (Balazs, 2026-10-21 ride, scale 0.7, eye 1770x1892, 72 Hz): (a) steady 52-58 fps against the 13.9 ms budget (GPU 15-17.5 ms: view 0 about 9.5, view 1 about 6.7), so the runtime keeps switching between 72 and 36 Hz (display period 13.89 / 27.78 ms alternates every few 10 s windows), which can feel like stutter; (b) four real hitches of 106-173 ms within one minute (13:35:40-13:36:40) with normal GPU time and no mod event (no reset, no World Shift in those windows): CPU-side, likely the game's streaming. The frame-spike log ("perf: frame spike ...", frames over 50 ms split into game update / render / Present / xrWaitFrame / GPU) names the part on the next ride. Then: hold 72 Hz (resolution scale, GPU savings) or lock a steady 36 Hz with reprojection instead of the switching.
   - 2026-10-21, second long ride (17:27-, same settings): 45-54 fps, frame 18.5-23 ms, GPU frame 14.3-16 ms (view 0 7.9-9.1, view 1 5.9-6.7), `xrWaitFrame` 4.8-8.8 ms average, display period alternating 13.89 / 27.78 ms. A normal 54 ms spike splits into game update 1.3, render 7.7, Present 3.4 ms: about 12.4 ms of CPU work per frame, so the CPU side is near the budget too. One 1.6 s hitch (17:32:25) is all game update: the game's world streamer loads the next track tile on the main thread (12 'PROBE loading' lines, level and terrain loads, then a World Shift in the game log). A 51 ms spike at the first riding frame is the HUD swapchain creation.
   - Runtime: **SteamVR OpenXR on top of Meta's Link runtime** ("SteamVR/OpenXR : oculus", Phase 3 note), so every frame passes two compositors, and the 72 / 36 Hz switching is SteamVR's motion smoothing (not ASW).
-- [ ] Confirm per-frame passes are shared; if culling is significant, cull once with the combined eye frustum and reuse it for both eyes.
-- [ ] Resolution scale; optional per-eye FSR1 (spatial, so no history concerns; reuse my openRBRVR FSR1 experience).
+  - Closed 2026-10-22: render scale (9e) with FSR, the 9c / 9d savings and the lens mask set the GPU side; the remaining long stalls are the game's own main-thread streaming (9g).
+- [x] Confirm per-frame passes are shared; if culling is significant, cull once with the combined eye frustum and reuse it for both eyes. Closed 2026-10-22: shadows render once for both eyes and the right eye's cascade culling is skipped (9d); a combined-frustum cull for the scene was not needed.
+- [x] Resolution scale; optional per-eye FSR1 (spatial, so no history concerns; reuse my openRBRVR FSR1 experience).
 - [x] Depth submission (`XR_KHR_composition_layer_depth`) for better runtime reprojection.
   - 2026-10-21, static: each eye already gets this frame's depth as its 'Last Frame Depth' (`R32_FLOAT`, eye size, `RenderLoop+0x10e0+idx*8`, copied per view for SSR and the visor drops; `frame-anatomy.md` row 24), so no extra depth capture is needed.
-- [ ] Stretch: `XR_FB_space_warp` using the engine's motion vectors. Check runtime support on PC Link first.
+- [x] ~~Stretch: `XR_FB_space_warp` using the engine's motion vectors~~: not pursued (closed 2026-10-22; Balazs stays on SteamVR, which does not offer it).
 
 Implementation steps (proposed 2026-10-21, **approved by Balazs 2026-10-21**: all of 9a-9g, with a check-in before anything that changes the image or adds a dependency; FSR1 (9e) may add its MIT shader headers when needed; he stays on SteamVR, so 9b is dropped):
 
@@ -483,13 +484,17 @@ Implementation steps (proposed 2026-10-21, **approved by Balazs 2026-10-21**: al
 
 **Done when:** the headset refresh rate holds at the chosen scale in a reference scene, with a frame-time graph in the overlay.
 
+**Status 2026-10-22: Phase 9 closed** (Balazs). 9a, 9c-9f and the lens mask done, 9b dropped; 9g not pursued (the stalls are the game's own main-thread loads, rule 5). Not yet checked in the headset: depth submission and the lens mask (both default on, `[xr] depth_submit` / `visibility_mask` to switch off).
+
 ## Phase 10 — Robustness & release
 
 - [x] ~~Signature table per known exe hash~~: skipped (Balazs, 2026-10-22: the game gets no more updates; build 4989319 is the only one). Unknown exes already run flat (the exe check refuses engine hooks).
 - [x] Crash handler writing a minidump to `tt2vr/logs/` (2026-10-22, `core::CrashHandler`: installed after the game's CrashRpt filter, which it then calls; test-mode `crashtest` verified dump + `[crash]` log line).
 - [x] Compatibility notes: Steam overlay, RTSS, ReShade, other overlays (README; ReShade and RTSS untested, expectations stated).
 - [x] README: install, uninstall, config, known issues; license; credits (2026-10-22). License: MIT (Balazs, 2026-10-22), `LICENSE`.
-- [x] Repo public (Balazs, 2026-10-22).
+- [x] Repo goes public: Balazs's decision (2026-10-22); he switches the GitHub visibility. History rewritten to his noreply address first.
+
+**Status 2026-10-22: Phase 10 closed** (Balazs).
 
 ---
 
