@@ -30,7 +30,8 @@ std::string FormatUserToml(const std::vector<UserValue>& values)
         out += fmt::format("\n[{}]\n", section);
         for (const UserValue& v : values) {
             if (v.section == section) {
-                out += fmt::format("{} = {:.6g}\n", v.key, v.value);
+                out += v.boolean ? fmt::format("{} = {}\n", v.key, v.value != 0.0)
+                                 : fmt::format("{} = {:.6g}\n", v.key, v.value);
             }
         }
     }

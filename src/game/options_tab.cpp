@@ -103,7 +103,8 @@ enum class Value {
     HudDistance,
     HudHeight,
     RenderScale,
-    FsrSharpening
+    FsrSharpening,
+    Occlusion
 };
 
 // Sliders (type 4): the row shows the setting value x 100 as "N%"; the gauge works in its CVar range with a step of 1
@@ -119,7 +120,10 @@ struct RowDef {
     int count; // list only
     const wchar_t* unit; // list label format, e.g. L"%+.0f cm"
     float labelScale; // value -> label number
+    const wchar_t* const* labels = nullptr; // list only: fixed labels (count entries) instead of unit / labelScale
 };
+
+constexpr const wchar_t* kOffOn[] = {L"Off", L"On"};
 
 constexpr RowDef kRows[] = {
     {"vrHorizonLock", L"Horizon lock", Value::HorizonLock, kTypeSlider, 0.0f, 100.0f, 0, 0, nullptr, 0},
@@ -133,6 +137,8 @@ constexpr RowDef kRows[] = {
     // PLAN 9e: [xr] render_scale, and [xr] fsr_sharpness shown as a strength (100% = 0 stops, FSR's strongest).
     {"vrRenderScale", L"Render scale (FSR)", Value::RenderScale, kTypeTextList, 0.50f, 0, 0.05f, 11, L"%.0f%%", 100.0f},
     {"vrFsrSharpen", L"FSR sharpening", Value::FsrSharpening, kTypeTextList, 0.0f, 0, 0.10f, 11, L"%.0f%%", 100.0f},
+    // [xr] occlusion: the game's occlusion culling in VR (A/B for see-through flashes).
+    {"vrOcclusion", L"Occlusion culling", Value::Occlusion, kTypeTextList, 0.0f, 0, 1.0f, 2, nullptr, 0, kOffOn},
 };
 constexpr int kRowCount = static_cast<int>(std::size(kRows));
 
@@ -199,6 +205,8 @@ float CurrentValue(Value v)
         return core::GetConfig().xr.render_scale;
     case Value::FsrSharpening:
         return 1.0f - core::GetConfig().xr.fsr_sharpness / 2.0f;
+    case Value::Occlusion:
+        return core::GetConfig().xr.occlusion ? 1.0f : 0.0f;
     }
     return 0.0f;
 }
@@ -234,13 +242,17 @@ void ApplyValue(Value v, float x)
         break;
     }
     case Value::RenderScale:
-    case Value::FsrSharpening: {
+    case Value::FsrSharpening:
+    case Value::Occlusion: {
         core::Config c = core::GetConfig(); // xr applies a render scale change once it has held (one resize)
         if (v == Value::RenderScale) {
             c.xr.render_scale = std::clamp(x, 0.5f, 1.0f);
         }
-        else {
+        else if (v == Value::FsrSharpening) {
             c.xr.fsr_sharpness = std::clamp(2.0f * (1.0f - x), 0.0f, 2.0f);
+        }
+        else {
+            c.xr.occlusion = x > 0.5f;
         }
         core::SetConfig(c);
         break;
@@ -342,6 +354,12 @@ bool BuildGroup()
             g_labels[i].assign(r.count, EngineWString{});
             for (int k = 0; k < r.count; ++k) {
                 EngineWString& w = g_labels[i][k];
+                if (r.labels) {
+                    const int n = std::swprintf(w.buf, 16, L"%ls", r.labels[k]);
+                    w.len = n > 0 ? static_cast<std::size_t>(n) : 0;
+                    w.cap = 15;
+                    continue;
+                }
                 const float x = r.min + r.step * static_cast<float>(k);
                 float shown = std::round(x * r.labelScale * 10.0f) / 10.0f; // no "-0" from float steps
                 std::wstring format = r.unit;

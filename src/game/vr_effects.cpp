@@ -63,6 +63,26 @@ void HookedRenderFxaa(void* renderLoop, void* renderContext, const void* option)
     g_renderFxaa(renderLoop, renderContext, option);
 }
 
+// [xr] occlusion = false: the culler's per-view occluder lists stay empty (ClearOccluder emptied them this frame), so
+// nothing is occlusion-culled behind the terrain occlusion boxes; frustum culling is unchanged (renderer.md 10).
+// Thread: game main thread (DeferredRenderLoop / ForwardRenderLoop::Render).
+using PrepareOccluderFn = void (*)(void* culler, void* pool);
+PrepareOccluderFn g_prepareOccluder = nullptr;
+bool g_occlusionLoggedState = true;
+
+void HookedPrepareOccluder(void* culler, void* pool)
+{
+    const bool skip = g_vrActive && !core::GetConfig().xr.occlusion;
+    if (skip == g_occlusionLoggedState) {
+        g_occlusionLoggedState = !skip;
+        TT2VR_LOG_INFO("vr effects: occlusion culling {}", skip ? "off ([xr] occlusion = false)" : "back on");
+    }
+    if (skip) {
+        return;
+    }
+    g_prepareOccluder(culler, pool);
+}
+
 struct Override {
     Sig sig;
     const char* name; // for the log
@@ -115,6 +135,11 @@ void InstallVrEffects()
     if (!fxaa || core::hooks::Create("RenderLoop::RenderFXAA", fxaa, &HookedRenderFxaa, &g_renderFxaa) !=
                      core::hooks::Result::Ok) {
         TT2VR_LOG_WARN("vr effects: RenderFXAA not hooked; [xr] fxaa has no effect");
+    }
+    void* occluders = SignatureAddress(Sig::VisibilityCullerPrepareOccluder);
+    if (!occluders || core::hooks::Create("VisibilityCuller::PrepareOccluder", occluders, &HookedPrepareOccluder,
+                          &g_prepareOccluder) != core::hooks::Result::Ok) {
+        TT2VR_LOG_WARN("vr effects: PrepareOccluder not hooked; [xr] occlusion has no effect");
     }
 }
 
@@ -177,12 +202,15 @@ std::string VrEffectCommand(const std::string& arg)
         return fmt::format("vreffect render scale {:.2f} sharpness {:.2f} (saved to user.toml, as from the VR tab)",
             c.xr.render_scale, c.xr.fsr_sharpness);
     }
-    if ((name != "fxaa" && name != "vignette") || (value != "on" && value != "off")) {
-        return "vreffect FAILED: use vreffect <fxaa|vignette> <on|off>, render <scale> or sharpness <stops>";
+    if ((name != "fxaa" && name != "vignette" && name != "occlusion") || (value != "on" && value != "off")) {
+        return "vreffect FAILED: use vreffect <fxaa|vignette|occlusion> <on|off>, render <scale> or sharpness <stops>";
     }
-    (name == "fxaa" ? c.xr.fxaa : c.xr.vignette) = value == "on";
+    (name == "fxaa" ? c.xr.fxaa : name == "vignette" ? c.xr.vignette : c.xr.occlusion) = value == "on";
     core::SetConfig(c);
     g_fxaaLogged = false;
+    if (name == "occlusion") {
+        return "vreffect occlusion " + value + " (saved to user.toml, as from the VR tab)";
+    }
     return "vreffect " + name + " " + value + " (this run only; [xr] " + name + " in tt2vr.toml keeps the default)";
 }
 

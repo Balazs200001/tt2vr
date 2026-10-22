@@ -12,6 +12,7 @@ namespace core {
 struct UserValue {
     std::string section, key;
     double value = 0.0;
+    bool boolean = false; // written as true / false (value != 0)
 };
 
 // <game>\tt2vr\user.toml

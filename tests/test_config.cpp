@@ -53,6 +53,7 @@ bool SameConfig(const Config& a, const Config& b)
            a.xr.visor_drops_shared == b.xr.visor_drops_shared && a.xr.fxaa == b.xr.fxaa &&
            a.xr.vignette == b.xr.vignette && a.xr.shadow_scale == b.xr.shadow_scale &&
            a.xr.render_scale == b.xr.render_scale && a.xr.fsr_sharpness == b.xr.fsr_sharpness &&
+           a.xr.occlusion == b.xr.occlusion &&
            SameHotkey(a.hotkeys.seat_forward, b.hotkeys.seat_forward) &&
            SameHotkey(a.hotkeys.seat_back, b.hotkeys.seat_back) && SameHotkey(a.hotkeys.seat_up, b.hotkeys.seat_up) &&
            SameHotkey(a.hotkeys.seat_down, b.hotkeys.seat_down) &&
@@ -551,9 +552,10 @@ TEST_CASE("user.toml: FormatUserToml parsed on top of a base overrides only its 
     const auto base = ParseConfig("[camera]\nhorizon_lock = 80\nshake = 60\n[xr]\nstereo = false\n");
     REQUIRE(base.warnings.empty());
     const std::string text = core::FormatUserToml({{"camera", "shake", 25.0}, {"camera", "seat_up", -0.03},
-        {"xr", "world_scale", 1.25}});
+        {"xr", "world_scale", 1.25}, {"xr", "occlusion", 0.0, true}});
     const auto r = ParseConfig(text, base.config);
     CHECK(r.warnings.empty());
+    CHECK_FALSE(r.config.xr.occlusion);
     CHECK(r.config.camera.horizon_lock == doctest::Approx(80.0)); // from the base
     CHECK(r.config.camera.shake == doctest::Approx(25.0));
     CHECK(r.config.camera.seat_up == doctest::Approx(-0.03));

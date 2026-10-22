@@ -102,6 +102,7 @@ enum class Sig {
     PostProcessGetIndex,
     InputIsXInputDevice,
     RenderLoopIsUsingTAA,
+    VisibilityCullerPrepareOccluder,
     Count,
 };
 
@@ -433,6 +434,12 @@ inline constexpr Signature kSignatures[] = {
     // PLAN 9c fix, game::VrEffects: FXAA may only be skipped when TAA runs after it (renderer.md 9).
     {"RenderLoop::IsUsingTAA", "?IsUsingTAA@RenderLoop@Graphics@PlayAll@@SA_NXZ", nullptr, 0,
         "export; 0x1404fd660 () -> AA mode 2 or 3; RenderTAA also needs RenderLoop+0x20 (float frame dt) != 0",
+        kBuild4989319},
+    // [xr] occlusion, game::VrEffects: the per-view occluder lists (terrain occlusion boxes; renderer.md 10).
+    {"VisibilityCuller::PrepareOccluder", "?PrepareOccluder@VisibilityCuller@Graphics@PlayAll@@QEAAXPEAUVolumePool@23@@Z",
+        nullptr, 0,
+        "export; 0x14091d490 (culler, VolumePool*): after ClearOccluder, fills each view's occluder lists "
+        "(+0xdc8 all, +0xbc8 GIS terrain); skipped = no occlusion culling, frustum culling unchanged",
         kBuild4989319},
 };
 

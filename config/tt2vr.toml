@@ -141,6 +141,10 @@ ipd_scale = 1.0
 # Rain drops on the helmet visor: both eyes show the same drops. false = each eye simulates its own drops (the
 # right eye's then get no streaks from the bike's speed).
 visor_drops_shared = true
+# The game's occlusion culling (it skips objects hidden behind invisible boxes inside the terrain) while the headset
+# session runs. false = everything in view is drawn: a test for brief flashes of distant landscape through nearby
+# scenery; costs more draw calls. Also in Options > Display > VR ("Occlusion culling"), saved to user.toml.
+occlusion = true
 
 [hud]
 # While riding in the headset, the game's 2D HUD (map, speed, gear, times, messages) is taken out of the eye images
