@@ -35,6 +35,24 @@ bool g_capturing = false;
 std::uint64_t g_shared = 0; // frames in which view 1 used view 0's shadows
 bool g_loggedHeadFit = false;
 
+// PLAN 9d: CascadedShadowMapRenderer+0x25b0+index = "index has cascades this frame" (SetupRenderContext writes it
+// every frame; read by the Deferred / ForwardRenderLoop cull loops, which then add that index's cascade and
+// static-map culling views, and by IsSetup). While sharing, view 1 never renders its own cascades, so index 1's
+// byte is cleared after SetupRenderContext (its cascade culling is skipped) and restored at the first CSM::Render.
+constexpr std::ptrdiff_t kCsmIndexHasCascades = 0x25b0;
+void* g_cullSkipCsm = nullptr; // the CSM whose index-1 byte is cleared, until restored
+std::uint32_t g_cullSkipFrame = 0; // render id of the last frame with the skip
+std::uint64_t g_cullSkips = 0;
+bool g_loggedFallbackSkip = false;
+
+void RestoreIndex1Culling()
+{
+    if (g_cullSkipCsm) {
+        Write<std::uint8_t>(g_cullSkipCsm, kCsmIndexHasCascades + 1, 1);
+        g_cullSkipCsm = nullptr;
+    }
+}
+
 // All three hooks in place (a partial install shares nothing) and two views this frame.
 bool Sharing()
 {
@@ -62,7 +80,17 @@ void HookedSetupRenderContext(void* csm, const void* views, void* lights, const 
         }
     }
     const bool moved = view0 && BeginHeadCenterView(view0);
+    RestoreIndex1Culling(); // a frame without CSM::Render left it cleared
     g_setup(csm, views, lights, shift);
+    if (view0 && csm && Read<std::uint8_t>(csm, kCsmIndexHasCascades + 1) != 0) {
+        Write<std::uint8_t>(csm, kCsmIndexHasCascades + 1, 0);
+        g_cullSkipCsm = csm;
+        g_cullSkipFrame = RenderId();
+        if (g_cullSkips++ == 0) {
+            TT2VR_LOG_INFO("shared shadows: the right eye's cascade and static-map culling skipped (view 1 uses the "
+                           "left eye's maps)");
+        }
+    }
     if (moved) {
         EndHeadCenterView(view0);
         if (!g_loggedHeadFit) {
@@ -76,6 +104,7 @@ void HookedSetupRenderContext(void* csm, const void* views, void* lights, const 
 void HookedCsmRender(void* csm, void* renderContext, const void* desc)
 {
     const unsigned index = renderContext ? Read<std::uint16_t>(renderContext, kRenderContextCameraIndex) : 2;
+    RestoreIndex1Culling(); // culling is over: the rest of the frame sees the engine's own value
     if (!Sharing() || index > 1) {
         g_render(csm, renderContext, desc);
         return;
@@ -87,7 +116,14 @@ void HookedCsmRender(void* csm, void* renderContext, const void* desc)
         return;
     }
     if (!g_haveKept || g_keptFrame != RenderId()) {
-        g_render(csm, renderContext, desc); // view 0 rendered no cascades this frame
+        // View 0 rendered no cascades this frame (not expected: both views share the light). If index 1's culling
+        // was skipped, these cascades come out empty for this frame; logged once in case it ever happens.
+        if (g_cullSkipFrame == RenderId() && !g_loggedFallbackSkip) {
+            g_loggedFallbackSkip = true;
+            TT2VR_LOG_WARN("shared shadows: right eye rendering its own cascades in a frame whose index-1 culling was "
+                           "skipped");
+        }
+        g_render(csm, renderContext, desc);
         return;
     }
     g_setContext(renderContext, g_kept);
