@@ -103,6 +103,9 @@ enum class Sig {
     InputIsXInputDevice,
     RenderLoopIsUsingTAA,
     VisibilityCullerPrepareOccluder,
+    VisibilityCullerAddCullingData,
+    GenericInstanceSpawnerInstance,
+    GenericInstanceSpawnerStartCulling,
     Count,
 };
 
@@ -440,6 +443,17 @@ inline constexpr Signature kSignatures[] = {
         nullptr, 0,
         "export; 0x14091d490 (culler, VolumePool*): after ClearOccluder, fills each view's occluder lists "
         "(+0xdc8 all, +0xbc8 GIS terrain); skipped = no occlusion culling, frustum culling unchanged",
+        kBuild4989319},
+    // [debug] flash_detect, game::CullProbe: what the culler gets per view.
+    {"VisibilityCuller::AddCullingData",
+        "?AddCullingData@VisibilityCuller@Graphics@PlayAll@@QEAAXPEBVViewContext@23@PEBVPlane@Math@3@1IPEAVRenderInstanceManager@23@@Z",
+        nullptr, 0, "export; 0x14091c850 (culler, ViewContext*, Plane*, Plane*, flags, RenderInstanceManager*)",
+        kBuild4989319},
+    {"AbstractGenericInstanceSpawner::s_pInstance", "?s_pInstance@AbstractGenericInstanceSpawner@Graphics@PlayAll@@1PEAV123@EA",
+        nullptr, 0, "data export; 0x1413c9de0, the GenericInstanceSpawner (trees, bushes; renderer.md 11)", kBuild4989319},
+    {"GenericInstanceSpawner::StartCulling",
+        "?StartCulling@GenericInstanceSpawner@Game@PlayAll@@UEAAXPEAVSceneManager@Graphics@3@PEBUCameraRenderDesc@53@AEBV?$Array@PEAUCameraRenderDesc@Graphics@PlayAll@@$0A@$08@3@PEAUWaitGroup@enki@@@Z",
+        nullptr, 0, "export, vtbl +0x20; 0x14062f980 (spawner, scene, desc, const Array<CameraRenderDesc*>& views, WaitGroup*)",
         kBuild4989319},
 };
 

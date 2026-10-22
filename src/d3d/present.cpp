@@ -25,6 +25,7 @@
 #include "d3d/texture_dump.hpp"
 #include "d3d/vtable.hpp"
 #include "game/camera.hpp"
+#include "game/cull_probe.hpp"
 #include "game/gpu_timers.hpp"
 #include "game/hud_capture.hpp"
 #include "game/menu_state.hpp"
@@ -407,6 +408,7 @@ void InstallEngineHooksOnce()
         game::InstallHudCapture();
         game::InstallSlotMirror();
         game::InstallVrEffects();
+        game::InstallCullProbe();
         game::InstallOptionsTab();
     }
     else {
@@ -552,7 +554,8 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
             trace::End(g_frame);
             dump::End(g_frame, self);
             screenshot::OnPresent(self, g_device, g_immediate); // the engine's frame, before eyes and mirror
-            flash::OnPresent(self, g_device, g_immediate, game::SplitViewActive(), game::TaaResetCount());
+            flash::OnPresent(self, g_device, g_immediate, game::SplitViewActive(), game::TaaResetCount(),
+                game::EyeDepthTexture(0), game::EyeDepthTexture(1), &game::CullProbeSummary);
             game::OnTaaPresent(self, g_device, g_immediate); // reads the engine's frame, before eyes and mirror
             game::OnHudFramePresent(g_immediate); // this frame's captured HUD, for the headset and the mirror
             const game::HudImage hud = game::CurrentHud();

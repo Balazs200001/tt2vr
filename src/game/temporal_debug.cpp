@@ -461,6 +461,13 @@ bool TemporalViewsShown()
     return g_shown;
 }
 
+ID3D11Texture2D* EyeDepthTexture(int eye)
+{
+    return g_renderLoop && (eye == 0 || eye == 1)
+               ? RenderTargetTextureAt(g_renderLoop, kRenderLoopLastFrameDepth + eye * 8)
+               : nullptr;
+}
+
 void SetFreezeRightHistory(bool freeze)
 {
     if (freeze != g_freeze) {

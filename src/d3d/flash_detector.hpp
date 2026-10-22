@@ -11,12 +11,18 @@
 #include <dxgi.h>
 
 #include <cstdint>
+#include <string>
 
 namespace d3d::flash {
 
+// The last few frames are also kept at full size on the GPU (colour and each eye's depth), so a glitch frame is
+// saved as captures\screens\flash_<n>_full_{prev,glitch,next}.png and _depth_{l,r}[_prev].png (first few only).
+//
 // Thread: game main thread, Present pre-hook, before the eye copy. `stereo` = this frame has two views; `resets` =
 // TAA history resets so far (game::TaaResetCount): frames around a reset (camera cut, crash, respawn) are skipped.
+// `depth` = each eye's depth of this frame (R32_FLOAT, game::EyeDepthTexture), may be null. `note` (may be null) gives
+// a line about this frame (game::CullProbeSummary), logged for N-1, N and N+1 with each glitch.
 void OnPresent(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext* context, bool stereo,
-    std::uint64_t resets);
+    std::uint64_t resets, ID3D11Texture2D* depthLeft, ID3D11Texture2D* depthRight, std::string (*note)());
 
 } // namespace d3d::flash

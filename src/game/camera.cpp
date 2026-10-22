@@ -6,6 +6,7 @@
 #include "core/user_toml.hpp"
 #include "d3d/present.hpp"
 #include "game/camera_noise.hpp"
+#include "game/cull_probe.hpp"
 #include "game/engine_layout.hpp"
 #include "game/gpu_timers.hpp"
 #include "game/hud_capture.hpp"
@@ -656,6 +657,7 @@ void HookedPrepareView(void* renderContext, const void* viewContext)
             mainLoop = loop;
             t_eye = EyeOfCameraIndex(viewContext);
             GpuTimersView(viewContext);
+            CullProbeRenderView(viewContext);
         }
     }
     g_prepareView(renderContext, viewContext);
@@ -694,6 +696,7 @@ void HookedLoopRender(void* renderLoop, void* renderDesc)
         OnTaaLoopRender(renderLoop); // history reset: froxel index, last-frame buffers
         OnSlotMirrorLoopRender(renderLoop, SplitViewActive()); // visor drops, crash grey for the right eye
         OnTemporalDebugLoopRender(renderLoop);
+        CullProbeLoopBegin();
     }
     GpuTimersLoopBegin(renderer);
     g_loopRender(renderLoop, renderDesc);

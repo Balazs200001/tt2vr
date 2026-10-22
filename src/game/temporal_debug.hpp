@@ -38,6 +38,9 @@ void UpdateTemporalViews(ID3D11Device* device, ID3D11DeviceContext* context);
 // Thread: game main thread (overlay, remote commands).
 void SetTemporalViewsShown(bool shown);
 bool TemporalViewsShown();
+// Eye `eye`'s 'Last Frame Depth' (R32_FLOAT; at Present it holds this frame's depth), or nullptr outside two-view
+// renders. Main thread.
+ID3D11Texture2D* EyeDepthTexture(int eye);
 void SetFreezeRightHistory(bool freeze);
 bool FreezeRightHistory();
 // Thumbnail of eye `eye` (0 = left), or nullptr; width / height of the thumbnails.
