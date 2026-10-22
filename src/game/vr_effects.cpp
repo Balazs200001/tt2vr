@@ -5,6 +5,7 @@
 #include "core/log.hpp"
 #include "game/engine_layout.hpp"
 #include "game/signatures.hpp"
+#include "game/split_view.hpp"
 
 #include <spdlog/fmt/fmt.h>
 
@@ -26,21 +27,38 @@ using EnableFn = void (*)(void* ppm, unsigned index, short slot);
 using IsEnabledFn = bool (*)(const void* ppm, unsigned index, unsigned short slot);
 using StringIdFn = std::uint64_t* (*)(std::uint64_t* out, const char* text, int type);
 
+using IsUsingTaaFn = bool (*)();
+
 RenderFxaaFn g_renderFxaa = nullptr;
+IsUsingTaaFn g_isUsingTaa = nullptr;
 bool g_vrActive = false; // the headset session runs (DoUpdate pre-hook), read by the FXAA hook
 bool g_fxaaLogged = false;
+bool g_fxaaKeptLogged = false;
 
 constexpr std::ptrdiff_t kRenderLoopPostProcess = 0x3d0; // PostProcessManager*
+constexpr std::ptrdiff_t kRenderLoopFrameDt = 0x20; // float ms; 0 (pause, menus) = RenderTAA skips the resolve
 
 // Thread: game main thread (DeferredRenderLoop::Render, per view).
 void HookedRenderFxaa(void* renderLoop, void* renderContext, const void* option)
 {
     if (g_vrActive && !core::GetConfig().xr.fxaa) {
-        if (!g_fxaaLogged) {
-            g_fxaaLogged = true;
-            TT2VR_LOG_INFO("vr effects: FXAA off while the headset session runs (TAA stays on)");
+        // RenderFXAA is one step of the post chain's countdown (PostProcessManager+0xd0, set per frame by
+        // ResetFramePostProcessCount): the last step writes the final target (the back buffer). Skipped, the chain
+        // ends one step early in a ping-pong buffer, so a single-view render (menus) never reaches the screen and the
+        // menu draws over stale frames (2026-10-22 headset session). Two-view frames are safe: CopySplitRT copies
+        // each view's current target into its half. And only when TAA runs after it (else no AA at all).
+        if (SplitViewActive() && g_isUsingTaa && g_isUsingTaa() &&
+            Read<float>(renderLoop, kRenderLoopFrameDt) != 0.0f) {
+            if (!g_fxaaLogged) {
+                g_fxaaLogged = true;
+                TT2VR_LOG_INFO("vr effects: FXAA off in the two-view render (TAA follows it)");
+            }
+            return;
         }
-        return;
+        if (!g_fxaaKeptLogged) {
+            g_fxaaKeptLogged = true;
+            TT2VR_LOG_INFO("vr effects: FXAA kept for a single-view render or one without TAA (menus, pause)");
+        }
     }
     g_renderFxaa(renderLoop, renderContext, option);
 }
@@ -92,7 +110,8 @@ void InstallVrEffects()
         return;
     }
     s_done = true;
-    void* fxaa = SignatureAddress(Sig::RenderLoopRenderFXAA);
+    g_isUsingTaa = reinterpret_cast<IsUsingTaaFn>(SignatureAddress(Sig::RenderLoopIsUsingTAA));
+    void* fxaa = g_isUsingTaa ? SignatureAddress(Sig::RenderLoopRenderFXAA) : nullptr; // no skip without the gate
     if (!fxaa || core::hooks::Create("RenderLoop::RenderFXAA", fxaa, &HookedRenderFxaa, &g_renderFxaa) !=
                      core::hooks::Result::Ok) {
         TT2VR_LOG_WARN("vr effects: RenderFXAA not hooked; [xr] fxaa has no effect");

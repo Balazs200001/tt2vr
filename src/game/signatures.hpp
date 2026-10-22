@@ -101,6 +101,7 @@ enum class Sig {
     RenderLoopRenderFXAA,
     PostProcessGetIndex,
     InputIsXInputDevice,
+    RenderLoopIsUsingTAA,
     Count,
 };
 
@@ -428,6 +429,10 @@ inline constexpr Signature kSignatures[] = {
         "4C 8B F1 75 07 32 C0",
         0, "TT2 code, not exported; 0x1409ce2d0 (const GUID* guidProduct) -> bool: WMI 'IG_' match on VID/PID; only "
            "caller InputDriverPC::EnumControllerCallback 0x1409cbffc",
+        kBuild4989319},
+    // PLAN 9c fix, game::VrEffects: FXAA may only be skipped when TAA runs after it (renderer.md 9).
+    {"RenderLoop::IsUsingTAA", "?IsUsingTAA@RenderLoop@Graphics@PlayAll@@SA_NXZ", nullptr, 0,
+        "export; 0x1404fd660 () -> AA mode 2 or 3; RenderTAA also needs RenderLoop+0x20 (float frame dt) != 0",
         kBuild4989319},
 };
 
