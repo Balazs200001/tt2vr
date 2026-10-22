@@ -102,10 +102,11 @@ desktop_view = "left"
 # inside the window (black bars).
 desktop_fill = true
 # Shadow maps are created at this multiple of the size the game's shadow quality setting asks for (1..4, 1 = off).
-# The headset's wide view makes each shadow cascade cover twice the area, so 2 gives the flat game's shadow detail;
-# the distant shadow map is split per eye in VR, so 2 gives each eye the full size. Follows the in-game shadow
-# quality option and never changes your saved settings. Cascades are capped at 4096. Costs VRAM and GPU time.
-shadow_scale = 2
+# The headset's wide view makes each shadow cascade cover twice the area, so 2 gives the flat game's shadow detail
+# and 1.5 most of it for less GPU time; the distant shadow map is split per eye in VR and uses the next power of two
+# (2 for 1.5). Follows the in-game shadow quality option and never changes your saved settings. Cascades are capped
+# at 4096. Costs VRAM and GPU time. Read at game start.
+shadow_scale = 1.5
 # Screen-space ambient occlusion while the headset session runs. It only sees what is on screen, so in the wide eye
 # views it stretches and moves with your head; false = off in VR (your in-game setting is kept for flat play and is
 # never changed).
@@ -113,6 +114,12 @@ ssao = false
 # Motion blur while the headset session runs. At VR frame rates the game's camera motion blur smears the bike and
 # rider heavily; false = off in VR (your in-game setting is kept for flat play and is never changed). TAA stays on.
 motion_blur = false
+# FXAA while the headset session runs. The game's "TAA" option runs FXAA and then TAA; in VR TAA alone is sharper
+# and costs less. false = FXAA off in VR (your in-game setting is kept for flat play and is never changed).
+fxaa = false
+# The game's vignette (darker screen edges, stronger with speed) while the headset session runs. The headset's lenses
+# darken the edges anyway; false = off in VR (your in-game setting is kept for flat play).
+vignette = false
 # Both eyes use one set of cascaded (sun) shadow maps per frame, fitted from the centre of your head to the view of
 # both eyes, instead of rendering them again for the right eye. Saves GPU time and keeps the shadow edges identical
 # in both eyes. false = each eye renders its own (read at game start).

@@ -42,6 +42,7 @@
 #include "game/temporal_debug.hpp"
 #include "game/virtual_pad.hpp"
 #include "game/version.hpp"
+#include "game/vr_effects.hpp"
 #include "ui/input_diag.hpp"
 #include "ui/overlay.hpp"
 #include "xr/session.hpp"
@@ -262,6 +263,12 @@ void RunCommands()
                 });
                 break;
             }
+            case core::CommandKind::VrEffect: {
+                const std::string r = game::VrEffectCommand(cmd.arg);
+                AddResult(origin, r);
+                done(r);
+                break;
+            }
             case core::CommandKind::Drops: {
                 float seconds = 20.0f;
                 try {
@@ -386,6 +393,7 @@ void InstallEngineHooksOnce()
         game::InstallParticleMedium();
         game::InstallHudCapture();
         game::InstallSlotMirror();
+        game::InstallVrEffects();
         game::InstallOptionsTab();
     }
     else {

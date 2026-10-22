@@ -136,6 +136,10 @@ std::vector<Command> ParseCommands(std::string_view text)
             c.kind = CommandKind::GpuProfile;
             c.arg = std::string(arg);
         }
+        else if (word == "vreffect") {
+            c.kind = CommandKind::VrEffect;
+            c.arg = std::string(arg);
+        }
         commands.push_back(std::move(c));
     }
     return commands;

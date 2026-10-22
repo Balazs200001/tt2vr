@@ -98,6 +98,9 @@ enum class Sig {
     RenderLayerDrawCommandBuffer,
     RenderLayerDispatch,
     RenderLayerCopyTextureSlice,
+    RenderLoopRenderFXAA,
+    PostProcessGetIndex,
+    InputIsXInputDevice,
     Count,
 };
 
@@ -408,6 +411,24 @@ inline constexpr Signature kSignatures[] = {
     {"RenderLayer::CopyTextureSlice",
         "?CopyTextureSlice@RenderLayer@Graphics@PlayAll@@QEAAXPEAUCopySubRessourcePass@23@@Z", nullptr, 0,
         "export; 0x1408d5db0 (rl, CopySubRessourcePass*): kind 4, queue 0; unnamed", kBuild4989319},
+    // PLAN 9c, game::VrEffects
+    {"RenderLoop::RenderFXAA",
+        "?RenderFXAA@RenderLoop@Graphics@PlayAll@@IEAAXAEAVRenderContext@23@AEBUCameraRenderDescOption@23@@Z", nullptr, 0,
+        "export; 0x1408dd260 (loop, rc, option): FXAA when RenderLoop+1000 exists and the AA mode is 1 or 2 "
+        "(renderer.md 9)",
+        kBuild4989319},
+    {"PostProcessManager::GetPostProcessIndex",
+        "?GetPostProcessIndex@PostProcessManager@Graphics@PlayAll@@QEBAHAEBVStringId@3@@Z", nullptr, 0,
+        "export; 0x1408be260 (ppm, const StringId&) -> index or -1; Vignette::ApplyParams and the Ansel session use it "
+        "for \"Vignette\"",
+        kBuild4989319},
+    // Test mode only (game::VirtualPad): the game makes an XInput slot only for a DirectInput device this accepts.
+    {"InputDriverPC::IsXInputDevice", nullptr,
+        "40 55 41 56 48 8D 6C 24 A8 48 81 EC 58 01 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 45 30 80 3D ?? ?? ?? ?? 01 "
+        "4C 8B F1 75 07 32 C0",
+        0, "TT2 code, not exported; 0x1409ce2d0 (const GUID* guidProduct) -> bool: WMI 'IG_' match on VID/PID; only "
+           "caller InputDriverPC::EnumControllerCallback 0x1409cbffc",
+        kBuild4989319},
 };
 
 static_assert(std::size(kSignatures) == static_cast<std::size_t>(Sig::Count), "kSignatures must match Sig");

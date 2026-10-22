@@ -70,9 +70,12 @@ struct Config {
         bool stereo = true; // both eyes as the engine's two split-screen views (Phase 4); false = left eye only
         std::string desktop_view = "left"; // window while the session runs: "left" eye, "both" eyes, "game" (raw)
         bool desktop_fill = true; // desktop image covers the window (cropped, no bars); false = fits (letterboxed)
-        int shadow_scale = 2; // shadow maps created at this multiple of the game's shadow quality size (1 = off)
+        float shadow_scale = 1.5f; // cascade shadow maps at this multiple of the game's size (1..4; static map: next
+                                   // power of two)
         bool ssao = false; // keep the game's SSAO while the headset session runs (screen-space AO swims in VR)
         bool motion_blur = false; // keep the game's motion blur while the headset session runs (smears in VR)
+        bool fxaa = false; // PLAN 9c: keep the game's FXAA before TAA in VR (the menu's "TAA" runs both)
+        bool vignette = false; // PLAN 9c: keep the game's screen-edge vignette in VR
         bool shared_shadows = true; // one cascaded shadow render per frame for both eyes (read at startup)
         float world_scale = 1.0f; // PLAN 8e: the world looks this much larger (head motion and IPD / this), 0.5..2
         float ipd_scale = 1.0f; // PLAN 8e: eye separation multiplier on top of world_scale, 0.5..2

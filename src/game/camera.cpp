@@ -686,6 +686,7 @@ void HookedLoopRender(void* renderLoop, void* renderDesc)
     BeginHudLoopRender(renderer, renderer ? renderDesc : nullptr);
     if (renderer) {
         ForceVrResolution(xr::SessionRunning());
+        ApplyVrPostEffects(renderLoop, xr::SessionRunning());
         OnTaaLoopRender(renderLoop); // history reset: froxel index, last-frame buffers
         OnSlotMirrorLoopRender(renderLoop, SplitViewActive()); // visor drops, crash grey for the right eye
         OnTemporalDebugLoopRender(renderLoop);

@@ -276,9 +276,11 @@ void ReadXr(const toml::table& t, Config::Xr& out, Warnings& w)
         else if (key == "screen_width") s.Float(key, node, out.screen_width, 0.25, 10.0);
         else if (key == "force_render_size") s.Bool(key, node, out.force_render_size);
         else if (key == "stereo") s.Bool(key, node, out.stereo);
-        else if (key == "shadow_scale") s.Int(key, node, out.shadow_scale, 1, 4);
+        else if (key == "shadow_scale") s.Float(key, node, out.shadow_scale, 1.0, 4.0);
         else if (key == "ssao") s.Bool(key, node, out.ssao);
         else if (key == "motion_blur") s.Bool(key, node, out.motion_blur);
+        else if (key == "fxaa") s.Bool(key, node, out.fxaa);
+        else if (key == "vignette") s.Bool(key, node, out.vignette);
         else if (key == "shared_shadows") s.Bool(key, node, out.shared_shadows);
         else if (key == "world_scale") s.Float(key, node, out.world_scale, 0.5, 2.0);
         else if (key == "ipd_scale") s.Float(key, node, out.ipd_scale, 0.5, 2.0);

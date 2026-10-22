@@ -1,11 +1,14 @@
 #include "game/vr_effects.hpp"
 
 #include "core/config.hpp"
+#include "core/hooks.hpp"
 #include "core/log.hpp"
 #include "game/engine_layout.hpp"
 #include "game/signatures.hpp"
 
 #include <cstdint>
+
+#include <windows.h>
 
 namespace game {
 namespace {
@@ -13,6 +16,30 @@ namespace {
 using namespace layout;
 
 using UpdateSlotFn = void (*)(void* cvar, unsigned short index, char notify);
+using RenderFxaaFn = void (*)(void* renderLoop, void* renderContext, const void* option);
+using GetIndexFn = int (*)(const void* ppm, const std::uint64_t* stringId);
+using EnableFn = void (*)(void* ppm, unsigned index, short slot);
+using IsEnabledFn = bool (*)(const void* ppm, unsigned index, unsigned short slot);
+using StringIdFn = std::uint64_t* (*)(std::uint64_t* out, const char* text, int type);
+
+RenderFxaaFn g_renderFxaa = nullptr;
+bool g_vrActive = false; // the headset session runs (DoUpdate pre-hook), read by the FXAA hook
+bool g_fxaaLogged = false;
+
+constexpr std::ptrdiff_t kRenderLoopPostProcess = 0x3d0; // PostProcessManager*
+
+// Thread: game main thread (DeferredRenderLoop::Render, per view).
+void HookedRenderFxaa(void* renderLoop, void* renderContext, const void* option)
+{
+    if (g_vrActive && !core::GetConfig().xr.fxaa) {
+        if (!g_fxaaLogged) {
+            g_fxaaLogged = true;
+            TT2VR_LOG_INFO("vr effects: FXAA off while the headset session runs (TAA stays on)");
+        }
+        return;
+    }
+    g_renderFxaa(renderLoop, renderContext, option);
+}
 
 struct Override {
     Sig sig;
@@ -54,8 +81,78 @@ void Apply(Override& o, bool vrActive)
 
 } // namespace
 
+void InstallVrEffects()
+{
+    static bool s_done = false;
+    if (s_done) {
+        return;
+    }
+    s_done = true;
+    void* fxaa = SignatureAddress(Sig::RenderLoopRenderFXAA);
+    if (!fxaa || core::hooks::Create("RenderLoop::RenderFXAA", fxaa, &HookedRenderFxaa, &g_renderFxaa) !=
+                     core::hooks::Result::Ok) {
+        TT2VR_LOG_WARN("vr effects: RenderFXAA not hooked; [xr] fxaa has no effect");
+    }
+}
+
+void ApplyVrPostEffects(void* renderLoop, bool vrActive)
+{
+    static std::uint64_t s_vignette = 0;
+    static bool s_logged = false;
+    if (!vrActive || core::GetConfig().xr.vignette || !renderLoop) {
+        return;
+    }
+    const auto getIndex = reinterpret_cast<GetIndexFn>(SignatureAddress(Sig::PostProcessGetIndex));
+    const auto disable = reinterpret_cast<EnableFn>(SignatureAddress(Sig::PostProcessDisable));
+    const auto isEnabled = reinterpret_cast<IsEnabledFn>(SignatureAddress(Sig::PostProcessIsEnabled));
+    const auto stringId = reinterpret_cast<StringIdFn>(SignatureAddress(Sig::StringIdFromChars));
+    if (!getIndex || !disable || !isEnabled || !stringId) {
+        return;
+    }
+    if (!s_vignette) {
+        stringId(&s_vignette, "Vignette", 1); // as Vignette::ApplyParams builds it
+    }
+    void* ppm = nullptr;
+    __try {
+        ppm = Read<void*>(renderLoop, kRenderLoopPostProcess);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return;
+    }
+    if (!ppm) {
+        return;
+    }
+    const int index = getIndex(ppm, &s_vignette);
+    if (index < 0) {
+        return;
+    }
+    if (isEnabled(ppm, static_cast<unsigned>(index), 0) || isEnabled(ppm, static_cast<unsigned>(index), 1)) {
+        disable(ppm, static_cast<unsigned>(index), -1);
+        if (!s_logged) {
+            s_logged = true;
+            TT2VR_LOG_INFO("vr effects: vignette off while the headset session runs");
+        }
+    }
+}
+
+std::string VrEffectCommand(const std::string& arg)
+{
+    const auto space = arg.find(' ');
+    const std::string name = arg.substr(0, space);
+    const std::string value = space == std::string::npos ? "" : arg.substr(space + 1);
+    if ((name != "fxaa" && name != "vignette") || (value != "on" && value != "off")) {
+        return "vreffect FAILED: use vreffect <fxaa|vignette> <on|off>";
+    }
+    core::Config c = core::GetConfig();
+    (name == "fxaa" ? c.xr.fxaa : c.xr.vignette) = value == "on";
+    core::SetConfig(c);
+    g_fxaaLogged = false;
+    return "vreffect " + name + " " + value + " (this run only; [xr] " + name + " in tt2vr.toml keeps the default)";
+}
+
 void UpdateVrEffects(bool vrActive)
 {
+    g_vrActive = vrActive;
     for (Override& o : g_overrides) {
         Apply(o, vrActive);
     }

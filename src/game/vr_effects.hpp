@@ -17,13 +17,28 @@
 //   pre-hook, which every reader follows (LensFlareInstance::Update in the next DoUpdate reads the forced value too).
 //   The saved setting is never written; when the session stops the controller's values come back the next frame.
 //   A resolution-control choice, not a temporal bypass: TAA, SSR and froxels keep their history (previous scale 1.0).
+// FXAA ([xr] fxaa = false, PLAN 9c): RenderLoop::RenderFXAA (export) runs for AA modes 1 and 2, and the menu's
+//   "TAA" is mode 2 (FXAA_TAA), so the game runs FXAA before TAA. The hook skips it while the headset session runs;
+//   TAA stays on. 0.15 ms per eye at 1770x1892 (gpuprofile).
+// Vignette ([xr] vignette = false, PLAN 9c): Vignette::ApplyParams enables or disables the "Vignette" post process for
+//   both camera indices every frame (environment mixer); the render pre-hook disables it again after that while the
+//   headset session runs, so the game's next ApplyParams restores it once the session stops. The Ansel session
+//   switches it the same way.
 #pragma once
+
+#include <string>
 
 namespace game {
 
+// After ResolveSignatures (main thread, between frames): the FXAA hook. Optional.
+void InstallVrEffects();
 // Thread: game main thread (Renderer::DoUpdate pre-hook). After ResolveSignatures.
 void UpdateVrEffects(bool vrActive);
 // Thread: game main thread (DeferredRenderLoop::Render pre-hook, main render only).
 void ForceVrResolution(bool vrActive);
+// Thread: game main thread (DeferredRenderLoop::Render pre-hook, main render only): post processes off in VR.
+void ApplyVrPostEffects(void* renderLoop, bool vrActive);
+// Remote "vreffect <fxaa|vignette> <on|off>" (main thread): changes [xr] fxaa / vignette for this run. Result line.
+std::string VrEffectCommand(const std::string& arg);
 
 } // namespace game
