@@ -470,7 +470,7 @@ Implementation steps (proposed 2026-10-21, **approved by Balazs 2026-10-21**: al
     - New debug tools: `[debug] flash_detect` (`d3d::flash`: one-frame glitches in the rendered eyes, thumbnails and full-size captures) and `game::CullProbe` (per-eye culling input, spawner and terrain counts). They showed that, about every 3 s, `Terrain::Manage` got no camera 1, so the right eye's terrain node list was empty for that frame and every nearby tree and hedge was skipped.
     - The fix adds camera 1 at camera 0's position while two views run. 8 min of AI riding showed no recurrence.
     - Test mode also gets remote `ai on|off` (`game::TestRider`: the game's own AI rides the local bike via `TTVehicle` "Control", vtable +0x2c0) for rides at speed. Remote `flashtest` checks the detector.
-    - Open: a one-frame own-helmet view seen twice with the AI riding.
+    - The one-frame own-helmet view seen twice with the AI riding: closed (Balazs, 2026-10-22: the small open items are closed; it was never seen in player-ridden play).
 - **9e Resolution and FSR1** (needs Balazs's OK for a new dependency: AMD FidelityFX FSR1 shader headers, MIT): render below the swapchain size and upscale each eye with EASU + RCAS at the eye copy; `[xr] render_scale` next to `resolution_scale`.
   - 2026-10-22: **done, default off** (`render_scale = 1.0`; changing the default waits for Balazs). `third_party/fidelityfx-fsr1` (v1.0.2, unmodified, MIT), embedded at configure time by `cmake/embed_fsr1.cmake` (Balazs chose this over a build-time step) and served to `D3DCompile` by an include handler; the CPU constants come from the same headers (`d3d/fsr1_cpu.cpp`, `A_CPU`). `[xr] render_scale` (0.5..1) shrinks the forced render size (one device reset, also at runtime: remote `vreffect render <scale>`), and `d3d::Blitter::Fsr` does EASU into an eye-sized intermediate, then RCAS (`[xr] fsr_sharpness`, default 0.2 stops) into the eye image; the menu screen keeps the stretch blit. For test mode, the simulated headset now runs the same eye copy into stand-in images (so profiles include it), remote `eyeshot [name]` saves both eye images at full size, and a new perf line times our Present-time GPU work (`d3d::GpuBracket` around `xr::OnFrameEnd`: eye copy + HUD panel). Test mode, start line, eye 1770x1892, game GPU frame + submit: 1.00 raw copy **14.50 + 0.24 ms**; 0.85 (1504x1608 per eye) **11.68 + 0.73**; 0.75 (1328x1418) **10.35 + 0.71** (FSR for both eyes about 0.5 ms). Images line up with the native ones (block match: camera-fixed parts within 1 px, both eyes); 0.75 is slightly softer in the foliage, edges stay clean.
   - 2026-10-22: Balazs tried resolution 1.0 with render 0.75 (now 0.65) and wants it sharper. Both are now in Options > Display > VR: "Render scale (FSR)" 50..100 % in 5 % steps and "FSR sharpening" 0..100 % (100 % = `fsr_sharpness` 0, FSR's strongest; 90 % = the 0.2 default), saved to `user.toml`. A render scale change applies 0.75 s after the last change (one render-target resize; test mode: 65 -> 75 -> 65 %, one device reset each, menu intact). His deployed config: `fsr_sharpness = 0.0`.
@@ -482,10 +482,10 @@ Implementation steps (proposed 2026-10-21, **approved by Balazs 2026-10-21**: al
 
 ## Phase 10 — Robustness & release
 
-- [ ] Signature table per known exe hash; graceful degradation on unknown versions.
-- [ ] Crash handler writing a minidump to `tt2vr/logs/`.
-- [ ] Compatibility notes: Steam overlay, RTSS, ReShade, other overlays.
-- [ ] README: install, uninstall, config, known issues; license; credits.
+- [x] ~~Signature table per known exe hash~~: skipped (Balazs, 2026-10-22: the game gets no more updates; build 4989319 is the only one). Unknown exes already run flat (the exe check refuses engine hooks).
+- [x] Crash handler writing a minidump to `tt2vr/logs/` (2026-10-22, `core::CrashHandler`: installed after the game's CrashRpt filter, which it then calls; test-mode `crashtest` verified dump + `[crash]` log line).
+- [x] Compatibility notes: Steam overlay, RTSS, ReShade, other overlays (README; ReShade and RTSS untested, expectations stated).
+- [x] README: install, uninstall, config, known issues; license; credits (2026-10-22; the license itself is still open).
 - [ ] Decide whether the repo goes public.
 
 ---
@@ -532,6 +532,7 @@ Implementation steps (proposed 2026-10-21, **approved by Balazs 2026-10-21**: al
 | 2026-10-21 | Settings changed at runtime (overlay, the 8i Options tab, the 8d seat hotkeys) are saved by the mod to `tt2vr/user.toml`, loaded after `tt2vr.toml` and overriding it; the VR Options tab (8i) comes after 8c-8h (Balazs) | deploys and updates overwrite `tt2vr.toml` and would lose in-game changes; the hand-edited file stays untouched; building the tab once all its settings exist |
 | 2026-10-21 | The game's tuck camera motion (rider ducking behind the windshield) stays as the game makes it in VR (Balazs) | it is the main remaining source of nausea on a long ride, but part of the riding feel; a scale or slower transition can be added later if wanted (`TuckInOut` offset and quaternion, `camera.md` 10.1) |
 | 2026-10-21 | Phase 9: optimise for SteamVR OpenXR (over Link), not the Meta runtime; FSR1 shader headers (AMD FidelityFX, MIT) approved for 9e if resolution is the main lever (Balazs) | he uses SteamVR; the runtime A/B (9b) is dropped |
+| 2026-10-22 | Remaining small open items and headset checks closed (Phase 7 HUD panel checks, Phase 8 seat hotkeys / chase views / crash grey / visor drops / shake at speed, the AI-mode helmet frame); Phase 10 skips the per-version signature table; Phase 9 continues with the lens visibility mask and depth submission (Balazs) | everything looks good in the headset; the game gets no more updates |
 
 ## Open questions (answer in Phase 0)
 
