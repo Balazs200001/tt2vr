@@ -174,8 +174,8 @@ std::string VrEffectCommand(const std::string& arg)
         float& field = name == "render" ? c.xr.render_scale : c.xr.fsr_sharpness;
         field = name == "render" ? std::clamp(v, 0.5f, 1.0f) : std::clamp(v, 0.0f, 2.0f);
         core::SetConfig(c);
-        return fmt::format("vreffect render scale {:.2f} sharpness {:.2f} (this run only)", c.xr.render_scale,
-            c.xr.fsr_sharpness);
+        return fmt::format("vreffect render scale {:.2f} sharpness {:.2f} (saved to user.toml, as from the VR tab)",
+            c.xr.render_scale, c.xr.fsr_sharpness);
     }
     if ((name != "fxaa" && name != "vignette") || (value != "on" && value != "off")) {
         return "vreffect FAILED: use vreffect <fxaa|vignette> <on|off>, render <scale> or sharpness <stops>";

@@ -137,6 +137,12 @@ struct State {
     Clock::time_point shakeStart{};
     SimEye simEyes[2];
     bool simEyesFailed = false;
+
+    // [xr] render_scale as the render size and the eye copy use it (UpdateRenderScale).
+    bool renderScaleInit = false;
+    float renderScale = 1.0f; // applied
+    float renderScaleSeen = 1.0f; // last config value
+    Clock::time_point renderScaleChanged{};
     std::vector<EyeShot> eyeShots; // pending "eyeshot" requests (simulated headset)
 };
 
@@ -553,7 +559,7 @@ const char* CopyBackBuffer(const Target& target, ID3D11Texture2D* back, const D3
         return "copy";
     }
     const auto& xc = core::GetConfig().xr;
-    if (eye && xc.render_scale < 1.0f && srcW < target.Width() && bd.Height < target.Height() &&
+    if (eye && g.renderScale < 1.0f && srcW < target.Width() && bd.Height < target.Height() &&
         g.blitter.Fsr(context, back, srcX, srcW, target.Rtv(), target.Width(), target.Height(), target.Decode(),
             xc.fsr_sharpness, copySource)) {
         return "fsr";
@@ -758,6 +764,27 @@ bool WriteScreen(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, XrComp
     return true;
 }
 
+// A render scale change (VR Options tab list, remote vreffect) applies once it has held for 0.75 s, so stepping
+// through the list resizes the game's render targets once instead of at every step.
+void UpdateRenderScale()
+{
+    const float wanted = core::GetConfig().xr.render_scale;
+    const auto now = Clock::now();
+    if (!g.renderScaleInit) {
+        g.renderScaleInit = true;
+        g.renderScale = g.renderScaleSeen = wanted;
+        return;
+    }
+    if (wanted != g.renderScaleSeen) {
+        g.renderScaleSeen = wanted;
+        g.renderScaleChanged = now;
+    }
+    else if (wanted != g.renderScale && now - g.renderScaleChanged > std::chrono::milliseconds(750)) {
+        TT2VR_LOG_INFO("xr: render scale {:.2f} -> {:.2f}", g.renderScale, wanted);
+        g.renderScale = wanted;
+    }
+}
+
 // Test mode: a headset that needs no runtime. Eye size = profile recommendation * [xr] resolution_scale, as for a
 // real session; the session counts as running from the start.
 void StartSimulated()
@@ -801,6 +828,7 @@ void Init(ID3D11Device* device)
 
 void OnFrameStart()
 {
+    UpdateRenderScale();
     g.sideBySide = false; // set again by this frame's DoUpdate (a movie frame has none)
     if (!g.configured || !g.status.enabled || !g.device) {
         return;
@@ -1302,7 +1330,7 @@ Status GetStatus()
 
 std::uint32_t RenderEyeSize(std::uint32_t eyeSize)
 {
-    const float scale = core::GetConfig().xr.render_scale;
+    const float scale = g.renderScaleInit ? g.renderScale : core::GetConfig().xr.render_scale;
     if (scale >= 1.0f) {
         return eyeSize;
     }

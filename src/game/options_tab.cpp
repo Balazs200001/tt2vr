@@ -93,7 +93,18 @@ struct alignas(8) BlockC0 {
     unsigned char b[0xc0];
 };
 
-enum class Value { HorizonLock, Shake, WorldScale, IpdScale, SeatForward, SeatUp, HudDistance, HudHeight };
+enum class Value {
+    HorizonLock,
+    Shake,
+    WorldScale,
+    IpdScale,
+    SeatForward,
+    SeatUp,
+    HudDistance,
+    HudHeight,
+    RenderScale,
+    FsrSharpening
+};
 
 // Sliders (type 4): the row shows the setting value x 100 as "N%"; the gauge works in its CVar range with a step of 1
 // and the game hands SetSetting the gauge value / 100 (runtime 2026-10-21). So the range is in percent and the gauge
@@ -119,6 +130,9 @@ constexpr RowDef kRows[] = {
     {"vrSeatUp", L"Seat height", Value::SeatUp, kTypeTextList, -0.10f, 0, 0.01f, 21, L"%+.0f cm", 100.0f},
     {"vrHudDist", L"HUD distance", Value::HudDistance, kTypeTextList, 0.40f, 0, 0.10f, 17, L"%.1f m", 1.0f},
     {"vrHudHeight", L"HUD height", Value::HudHeight, kTypeTextList, -0.30f, 0, 0.05f, 11, L"%+.0f cm", 100.0f},
+    // PLAN 9e: [xr] render_scale, and [xr] fsr_sharpness shown as a strength (100% = 0 stops, FSR's strongest).
+    {"vrRenderScale", L"Render scale (FSR)", Value::RenderScale, kTypeTextList, 0.50f, 0, 0.05f, 11, L"%.0f%%", 100.0f},
+    {"vrFsrSharpen", L"FSR sharpening", Value::FsrSharpening, kTypeTextList, 0.0f, 0, 0.10f, 11, L"%.0f%%", 100.0f},
 };
 constexpr int kRowCount = static_cast<int>(std::size(kRows));
 
@@ -181,6 +195,10 @@ float CurrentValue(Value v)
         return hud.distance;
     case Value::HudHeight:
         return hud.height;
+    case Value::RenderScale:
+        return core::GetConfig().xr.render_scale;
+    case Value::FsrSharpening:
+        return 1.0f - core::GetConfig().xr.fsr_sharpness / 2.0f;
     }
     return 0.0f;
 }
@@ -212,6 +230,18 @@ void ApplyValue(Value v, float x)
         core::Config c = core::GetConfig(); // read every frame by xr's HUD panel
         (v == Value::HudDistance ? c.hud.distance : c.hud.height) =
             v == Value::HudDistance ? std::clamp(x, 0.3f, 5.0f) : std::clamp(x, -1.0f, 1.0f);
+        core::SetConfig(c);
+        break;
+    }
+    case Value::RenderScale:
+    case Value::FsrSharpening: {
+        core::Config c = core::GetConfig(); // xr applies a render scale change once it has held (one resize)
+        if (v == Value::RenderScale) {
+            c.xr.render_scale = std::clamp(x, 0.5f, 1.0f);
+        }
+        else {
+            c.xr.fsr_sharpness = std::clamp(2.0f * (1.0f - x), 0.0f, 2.0f);
+        }
         core::SetConfig(c);
         break;
     }

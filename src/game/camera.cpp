@@ -112,13 +112,14 @@ struct RollWindow {
 RollWindow g_gameRoll, g_shownRoll, g_shake;
 
 // user.toml (PLAN Decisions log 2026-10-21): the runtime settings, saved 1 s after the last change.
-// horizon lock, shake, seat forward / up / right, world scale, ipd scale, then [hud] distance and height (changed in
-// the VR Options tab through core::SetConfig).
-using UserValues = std::array<float, 9>;
+// horizon lock, shake, seat forward / up / right, world scale, ipd scale, then [hud] distance and height and [xr]
+// render_scale and fsr_sharpness (changed in the VR Options tab through core::SetConfig).
+using UserValues = std::array<float, 11>;
 UserValues UserValuesOf(const CameraSettings& s)
 {
-    const auto& hud = core::GetConfig().hud;
-    return {s.horizonLock, s.shake, s.seat[0], s.seat[1], s.seat[2], s.worldScale, s.ipdScale, hud.distance, hud.height};
+    const auto& c = core::GetConfig();
+    return {s.horizonLock, s.shake, s.seat[0], s.seat[1], s.seat[2], s.worldScale, s.ipdScale, c.hud.distance,
+        c.hud.height, c.xr.render_scale, c.xr.fsr_sharpness};
 }
 UserValues g_savedUser{}, g_seenUser{};
 std::chrono::steady_clock::time_point g_userChanged{};
@@ -134,7 +135,8 @@ void SaveUserSettings(const UserValues& v)
     } keys[] = {{"camera", "horizon_lock", f.camera.horizon_lock}, {"camera", "shake", f.camera.shake},
         {"camera", "seat_forward", f.camera.seat_forward}, {"camera", "seat_up", f.camera.seat_up},
         {"camera", "seat_right", f.camera.seat_right}, {"xr", "world_scale", f.xr.world_scale},
-        {"xr", "ipd_scale", f.xr.ipd_scale}, {"hud", "distance", f.hud.distance}, {"hud", "height", f.hud.height}};
+        {"xr", "ipd_scale", f.xr.ipd_scale}, {"hud", "distance", f.hud.distance}, {"hud", "height", f.hud.height},
+        {"xr", "render_scale", f.xr.render_scale}, {"xr", "fsr_sharpness", f.xr.fsr_sharpness}};
     static_assert(std::size(keys) == std::tuple_size_v<UserValues>);
     std::vector<core::UserValue> out;
     for (std::size_t i = 0; i < v.size(); ++i) {
