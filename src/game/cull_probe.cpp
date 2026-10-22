@@ -5,6 +5,7 @@
 #include "core/log.hpp"
 #include "game/engine_layout.hpp"
 #include "game/signatures.hpp"
+#include "game/split_view.hpp"
 
 #include <spdlog/fmt/fmt.h>
 
@@ -13,7 +14,6 @@
 #include <cstdint>
 #include <cstring>
 
-#include <intrin.h>
 #include <windows.h>
 
 namespace game {
@@ -32,16 +32,33 @@ AddCullingDataFn g_addCullingData = nullptr;
 using StartCullingFn = void (*)(void* spawner, void* scene, const void* desc, const void* views, void* waitGroup);
 StartCullingFn g_startCulling = nullptr;
 
-// GenericInstanceSpawner::StartCulling calls since the last summary (one Present): who called and for which views.
+// GenericInstanceSpawner::StartCulling calls since the last summary (one Present; one call per frame, from
+// DeferredRenderLoop::Render, both views): the terrain's per-camera active node counts at entry (its input) and the
+// per-camera billboard counts at return (written only inside it, on the main thread).
 struct CullCall {
-    std::uintptr_t caller = 0; // return address - exe base
     int views = 0;
-    int cameraIndex[4] = {}, viewType[4] = {};
+    int nodes[2] = {-1, -1};
+    int billboards[2] = {-1, -1};
 };
-constexpr int kMaxCalls = 6;
+constexpr int kMaxCalls = 4;
 CullCall g_calls[kMaxCalls];
 int g_callCount = 0;
 void* const* g_spawner = nullptr; // &AbstractGenericInstanceSpawner::s_pInstance
+void* const* g_terrain = nullptr; // &AbstractTerrain::s_pInstance (the Game::Terrain)
+
+// The terrain's per-camera active node lists (Terrain+0x2ec + idx*0x10 count), rebuilt by Terrain::Manage
+// (game::SplitView hooks it; renderer.md 11).
+constexpr std::ptrdiff_t kTerrainNodeCount = 0x2ec; // + camera index * 0x10
+
+int SafeInt(const void* base, std::ptrdiff_t at)
+{
+    __try {
+        return *reinterpret_cast<const int*>(static_cast<const char*>(base) + at);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return -1;
+    }
+}
 
 // GenericInstanceSpawner (static, delegated RE 2026-10-22; trees and bushes): per view slot (camera index x 13 + view
 // type) the merged visible group array {+0x118 + slot*0x10: count +4, data +8}; per camera index the billboard array
@@ -127,26 +144,25 @@ void HookedAddCullingData(void* culler, const void* viewContext, const void* p0,
 // Thread: game main thread (DeferredRenderLoop / ForwardRenderLoop / other scene renders).
 void HookedStartCulling(void* spawner, void* scene, const void* desc, const void* views, void* waitGroup)
 {
-    if (g_callCount < kMaxCalls) {
-        CullCall& c = g_calls[g_callCount];
-        c = {};
-        c.caller = reinterpret_cast<std::uintptr_t>(_ReturnAddress()) -
-                   reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
-        if (views) {
-            const int count = Read<int>(views, 4);
-            const void* const* data = Read<const void* const*>(views, 8);
-            c.views = count;
-            for (int i = 0; data && i < count && i < 4; ++i) {
-                if (data[i]) {
-                    c.cameraIndex[i] = Read<std::uint16_t>(data[i], kViewCameraIndex);
-                    c.viewType[i] = Read<std::uint16_t>(data[i], kViewType);
-                }
-            }
+    CullCall* c = g_callCount < kMaxCalls ? &g_calls[g_callCount] : nullptr;
+    ++g_callCount;
+    if (c) {
+        *c = {};
+        c->views = views ? Read<int>(views, 4) : 0;
+        void* terrain = g_terrain ? *g_terrain : nullptr;
+        for (int k = 0; terrain && k < 2; ++k) {
+            c->nodes[k] = SafeInt(terrain, kTerrainNodeCount + k * 0x10);
         }
     }
-    ++g_callCount;
     g_startCulling(spawner, scene, desc, views, waitGroup);
+    if (c && spawner) {
+        for (int k = 0; k < 2; ++k) {
+            c->billboards[k] = SafeInt(spawner, kSpawnerBillboardCount + k * 0x10);
+        }
+    }
 }
+
+
 
 } // namespace
 
@@ -164,6 +180,7 @@ void InstallCullProbe()
         return;
     }
     g_spawner = static_cast<void* const*>(SignatureAddress(Sig::GenericInstanceSpawnerInstance));
+    g_terrain = static_cast<void* const*>(SignatureAddress(Sig::AbstractTerrainInstance));
     void* start = SignatureAddress(Sig::GenericInstanceSpawnerStartCulling);
     if (!start || core::hooks::Create("GenericInstanceSpawner::StartCulling", start, &HookedStartCulling,
                       &g_startCulling) != core::hooks::Result::Ok) {
@@ -232,14 +249,14 @@ std::string CullProbeSummary()
         s += fmt::format("; spawner culling x{}:", g_callCount);
         for (int i = 0; i < g_callCount && i < kMaxCalls; ++i) {
             const CullCall& c = g_calls[i];
-            s += fmt::format(" [TT2+{:#x}, {} view(s)", c.caller, c.views);
-            for (int v = 0; v < c.views && v < 4; ++v) {
-                s += fmt::format(" c{}/t{}", c.cameraIndex[v], c.viewType[v]);
-            }
-            s += "]";
+            s += fmt::format(" [{} views, terrain nodes {} / {}, billboards {} / {}]", c.views, c.nodes[0], c.nodes[1],
+                c.billboards[0], c.billboards[1]);
         }
         g_callCount = 0; // one summary per Present
     }
+    const TerrainManageSample m = LastTerrainManage();
+    s += fmt::format("; terrain manage: {} camera(s) {} {} {}{}", m.count, m.index[0], m.index[1], m.index[2],
+        m.fixed ? " (camera 1 added)" : "");
     return s;
 }
 

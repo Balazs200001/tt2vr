@@ -1,6 +1,7 @@
 #include "game/split_view.hpp"
 
 #include "core/config.hpp"
+#include "core/hooks.hpp"
 #include "core/log.hpp"
 #include "game/engine_layout.hpp"
 #include "game/signatures.hpp"
@@ -30,6 +31,20 @@ std::uint8_t g_savedStaticInSplit = 0;
 SetCenterWorldPosFn g_setCenterWorldPos = nullptr;
 const void* g_deferredVftable = nullptr;
 bool g_available = false;
+
+// Terrain::Manage(terrain, const CameraPosAndIndex* cameras, int count), called by HeightmapComponent::PostManage in
+// the game update with each Renderer camera k < 2 whose CameraDesc mask bit is set (plus an explicit third position).
+// It rebuilds the per-camera active terrain node lists that the frame's terrain and vegetation culling read
+// (renderer.md 11). About every 3 s, at that point, the desc briefly lacks camera 1, so its list is emptied and the
+// right eye loses every nearby tree, bush and hedge for one frame (2026-10-22: "flashes of distant landscape"). While
+// two views run, camera 1 is added with camera 0's position: both eyes share the game camera, as on normal frames.
+using TerrainManageFn = void (*)(void* terrain, const void* cameras, int count);
+TerrainManageFn g_terrainManage = nullptr;
+constexpr std::size_t kCameraPosAndIndexSize = 0x10;
+constexpr std::ptrdiff_t kCameraPosAndIndexIndex = 0xc; // ushort
+constexpr int kMaxTerrainCameras = 4; // PostManage's array
+TerrainManageSample g_lastManage;
+std::uint64_t g_terrainFixes = 0;
 
 // Renderer CameraDesc fields (the qword halves next to mode and mask are left alone).
 struct Desc {
@@ -267,6 +282,71 @@ bool IsLocalRiderCamera(const void* rider)
     }
 }
 
+namespace {
+
+// Thread: game main thread (game update).
+void HookedTerrainManage(void* terrain, const void* cameras, int count)
+{
+    TerrainManageSample s;
+    s.count = count;
+    int at0 = -1;
+    bool have1 = false;
+    for (int i = 0; cameras && i < count && i < kMaxTerrainCameras; ++i) {
+        const auto index = Read<std::uint16_t>(cameras, i * kCameraPosAndIndexSize + kCameraPosAndIndexIndex);
+        if (i < 3) {
+            s.index[i] = index;
+        }
+        at0 = index == 0 && at0 < 0 ? i : at0;
+        have1 = have1 || index == 1;
+    }
+    if (g_active && at0 >= 0 && !have1 && count < kMaxTerrainCameras) {
+        alignas(16) unsigned char fixed[kMaxTerrainCameras * kCameraPosAndIndexSize] = {};
+        const auto* src = static_cast<const unsigned char*>(cameras);
+        int n = 0;
+        for (int i = 0; i < count; ++i) {
+            std::memcpy(fixed + n++ * kCameraPosAndIndexSize, src + i * kCameraPosAndIndexSize, kCameraPosAndIndexSize);
+            if (i == at0) { // camera 1 right after camera 0, as on normal frames
+                std::memcpy(fixed + n * kCameraPosAndIndexSize, src + i * kCameraPosAndIndexSize, kCameraPosAndIndexSize);
+                Write<std::uint16_t>(fixed, n * kCameraPosAndIndexSize + kCameraPosAndIndexIndex, 1);
+                ++n;
+            }
+        }
+        s.fixed = true;
+        g_lastManage = s;
+        if (g_terrainFixes++ % 100 == 0) {
+            TT2VR_LOG_INFO("split view: terrain update without camera 1 ({} camera(s)); added it with camera 0's "
+                           "position (right eye's trees and hedges kept; {} time(s) so far)",
+                count, g_terrainFixes);
+        }
+        g_terrainManage(terrain, fixed, n);
+        return;
+    }
+    g_lastManage = s;
+    g_terrainManage(terrain, cameras, count);
+}
+
+void InstallTerrainCameraFix()
+{
+    void* manage = SignatureAddress(Sig::TerrainManage);
+    if (!manage || core::hooks::Create("Terrain::Manage", manage, &HookedTerrainManage, &g_terrainManage) !=
+                       core::hooks::Result::Ok) {
+        TT2VR_LOG_WARN("split view: Terrain::Manage not hooked; the right eye may lose nearby vegetation for a frame "
+                       "now and then");
+    }
+}
+
+} // namespace
+
+TerrainManageSample LastTerrainManage()
+{
+    return g_lastManage;
+}
+
+std::uint64_t TerrainCameraFixes()
+{
+    return g_terrainFixes;
+}
+
 void InitSplitView()
 {
     g_rtm = static_cast<void* const*>(SignatureAddress(Sig::RenderTargetManagerInstance));
@@ -281,6 +361,9 @@ void InitSplitView()
         return;
     }
     g_available = core::GetConfig().xr.stereo;
+    if (g_available) {
+        InstallTerrainCameraFix();
+    }
     TT2VR_LOG_INFO("split view: {}", g_available ? "ready (both eyes as split-screen views 0 and 1)"
                                                  : "off ([xr] stereo = false); left eye only");
 }

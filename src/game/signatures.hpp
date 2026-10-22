@@ -106,6 +106,9 @@ enum class Sig {
     VisibilityCullerAddCullingData,
     GenericInstanceSpawnerInstance,
     GenericInstanceSpawnerStartCulling,
+    AbstractTerrainInstance,
+    TerrainManage,
+    GenericStringEnumCopy,
     Count,
 };
 
@@ -455,6 +458,14 @@ inline constexpr Signature kSignatures[] = {
         "?StartCulling@GenericInstanceSpawner@Game@PlayAll@@UEAAXPEAVSceneManager@Graphics@3@PEBUCameraRenderDesc@53@AEBV?$Array@PEAUCameraRenderDesc@Graphics@PlayAll@@$0A@$08@3@PEAUWaitGroup@enki@@@Z",
         nullptr, 0, "export, vtbl +0x20; 0x14062f980 (spawner, scene, desc, const Array<CameraRenderDesc*>& views, WaitGroup*)",
         kBuild4989319},
+    {"AbstractTerrain::s_pInstance", "?s_pInstance@AbstractTerrain@Graphics@PlayAll@@1PEAV123@EA", nullptr, 0,
+        "data export; 0x1413c9f70, the Game::Terrain", kBuild4989319},
+    {"Terrain::Manage", "?Manage@Terrain@Game@PlayAll@@QEAAXQEBUCameraPosAndIndex@123@H@Z", nullptr, 0,
+        "export; 0x140671570 (terrain, const CameraPosAndIndex*, int count), from HeightmapComponent::PostManage",
+        kBuild4989319},
+    // Test mode only, game::TestRider ("ai on|off").
+    {"GenericStringEnum::GenericStringEnum(const GenericStringEnum&)", "??0GenericStringEnum@Core@PlayAll@@QEAA@AEBV012@@Z",
+        nullptr, 0, "export; 0x140404150: shallow copy {vptr, value +8, enumeration +0x10, count +0x18}", kBuild4989319},
 };
 
 static_assert(std::size(kSignatures) == static_cast<std::size_t>(Sig::Count), "kSignatures must match Sig");

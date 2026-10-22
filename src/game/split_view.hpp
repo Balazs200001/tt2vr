@@ -42,6 +42,15 @@ bool SplitViewActive();
 void BeginLoopRender(void* renderer);
 void EndLoopRender(void* renderer);
 
+// The last Terrain::Manage call (game update): camera count and indices, and whether camera 1 had to be added.
+struct TerrainManageSample {
+    int count = 0;
+    int index[3] = {-1, -1, -1};
+    bool fixed = false;
+};
+TerrainManageSample LastTerrainManage();
+std::uint64_t TerrainCameraFixes(); // updates that lacked camera 1 while two views ran (fixed)
+
 // One-line state for the log and overlay.
 std::string SplitViewSummary();
 
