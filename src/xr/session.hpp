@@ -101,6 +101,9 @@ Status GetStatus(); // main thread
 // The game's render size for one eye image dimension: eyeSize * [xr] render_scale (PLAN 9e; FSR1 upscales to the eye
 // image), even. Main thread.
 std::uint32_t RenderEyeSize(std::uint32_t eyeSize);
+// PLAN 9d: the headset submit's CPU parts (waiting for images, copies, HUD panel, xrEndFrame) and the GPU time of our
+// own draws, averaged since the previous call, for the perf log; empty if no frame. Main thread.
+std::string TakeSubmitSummary();
 // Test mode (simulated headset): at the next stereo frame, saves both eye images as the headset would get them
 // (after the eye copy, full size) as <capture dir>\screens\<name>_l.png and _r.png. Main thread.
 void RequestEyeShot(std::string name, std::function<void(const std::string&)> done);

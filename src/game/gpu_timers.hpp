@@ -43,5 +43,8 @@ int GpuTimersOpenView();
 GpuTimes LastGpuTimes();
 // Averages since the previous call, for the periodic perf log line; empty if no frame was measured.
 std::string GpuTimersPerfSummary();
+// CPU (main thread) of the main DeferredRenderLoop::Render before the views and per view, averages since the previous
+// call (PLAN 9d); empty if none.
+std::string CpuLoopPerfSummary();
 
 } // namespace game

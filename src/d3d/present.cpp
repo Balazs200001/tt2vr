@@ -17,7 +17,6 @@
 #include "core/paths.hpp"
 #include "d3d/context_hooks.hpp"
 #include "d3d/frame_trace.hpp"
-#include "d3d/gpu_bracket.hpp"
 #include "d3d/internal.hpp"
 #include "d3d/renderdoc.hpp"
 #include "d3d/screenshot.hpp"
@@ -101,7 +100,12 @@ int g_spikes = 0, g_spikeLines = 0;
 double g_sumTail = 0, g_sumWait = 0, g_sumUpdate = 0, g_sumRender = 0, g_sumPresent = 0;
 int g_sumFrames = 0;
 constexpr double kSpikeMs = 50.0;
-GpuBracket g_submitGpu; // xr::OnFrameEnd: eye copy (FSR1 at [xr] render_scale < 1), HUD panel
+// PLAN 9d: the Present pre-hook and the swap per part (CPU), summed for the perf log: before the submit (screenshot,
+// TAA and HUD capture hand-off), the headset submit (xr::OnFrameEnd), desktop mirror, overlay, DXGI Present.
+struct PresentParts {
+    double pre = 0, submit = 0, mirror = 0, overlay = 0, swap = 0;
+    int frames = 0;
+} g_parts;
 constexpr double kSpikeFactor = 2.5;
 constexpr int kSpikeLines = 5;
 
@@ -429,10 +433,19 @@ void LogPerformance(std::chrono::steady_clock::time_point now, double frameMs)
     if (const std::string gpu = game::GpuTimersPerfSummary(); !gpu.empty()) {
         TT2VR_LOG_INFO("perf: {}", gpu);
     }
-    int submitFrames = 0;
-    if (const double submitMs = g_submitGpu.TakeAverageMs(&submitFrames); submitMs >= 0.0) {
-        TT2VR_LOG_INFO("perf: gpu headset submit (eye copy {}, HUD panel) {:.3f} ms ({} frames)", xs.copyMode,
-            submitMs, submitFrames);
+    if (const std::string cpu = game::CpuLoopPerfSummary(); !cpu.empty()) {
+        TT2VR_LOG_INFO("perf: {}", cpu);
+    }
+    if (g_parts.frames > 0) {
+        const double n = g_parts.frames;
+        TT2VR_LOG_INFO("perf: Present parts avg: before the submit {:.2f} ms, headset submit {:.2f}, desktop mirror "
+                       "{:.2f}, overlay {:.2f}, DXGI Present {:.2f} ({} frames)",
+            g_parts.pre / n, g_parts.submit / n, g_parts.mirror / n, g_parts.overlay / n, g_parts.swap / n,
+            g_parts.frames);
+        g_parts = {};
+    }
+    if (const std::string submit = xr::TakeSubmitSummary(); !submit.empty()) {
+        TT2VR_LOG_INFO("perf: {}", submit);
     }
     if (g_sumFrames > 0) {
         const double n = g_sumFrames;
@@ -538,15 +551,25 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
             game::OnTaaPresent(self, g_device, g_immediate); // reads the engine's frame, before eyes and mirror
             game::OnHudFramePresent(g_immediate); // this frame's captured HUD, for the headset and the mirror
             const game::HudImage hud = game::CurrentHud();
+            const auto t1 = Clock::now();
             // Before the overlay, so the overlay stays on the desktop.
-            g_submitGpu.Begin(g_device, g_immediate);
             xr::OnFrameEnd(self, g_immediate, {hud.black, hud.white, hud.width, hud.height, hud.menu, hud.aspect});
-            g_submitGpu.End(g_immediate);
+            const auto t2 = Clock::now();
             xr::DrawDesktopMirror(self, g_immediate, g_window, hud.resolved, hud.aspect);
             game::EndHudFrame(g_immediate); // capture targets cleared for the next frame
+            const auto t3 = Clock::now();
             if (!renderdoc::Busy()) {
                 ui::Render(self, g_device, g_immediate);
             }
+            const auto t4 = Clock::now();
+            const auto ms = [](Clock::time_point a, Clock::time_point b) {
+                return std::chrono::duration<double, std::milli>(b - a).count();
+            };
+            g_parts.pre += ms(g_preStart, t1);
+            g_parts.submit += ms(t1, t2);
+            g_parts.mirror += ms(t2, t3);
+            g_parts.overlay += ms(t3, t4);
+            ++g_parts.frames;
         }
         catch (...) {
             TT2VR_LOG_ERROR("exception in Present pre-hook (frame {})", g_frame);
@@ -566,8 +589,10 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
         }
         skip = !xc.desktop_mirror;
     }
+    const auto swapStart = Clock::now();
     const HRESULT hr = skip ? S_OK : g_present(self, sync, flags);
     if (ours) {
+        g_parts.swap += std::chrono::duration<double, std::milli>(Clock::now() - swapStart).count();
         try {
             ++g_frame;
             game::OnPresent();

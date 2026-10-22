@@ -4,6 +4,7 @@
 #include "core/log.hpp"
 #include "core/test_mode.hpp"
 #include "d3d/blit.hpp"
+#include "d3d/gpu_bracket.hpp"
 #include "d3d/internal.hpp"
 #include "d3d/screenshot.hpp"
 #include "xr/headset_profile.hpp"
@@ -138,6 +139,18 @@ struct State {
     SimEye simEyes[2];
     bool simEyesFailed = false;
 
+    // PLAN 9d: CPU of the headset submit per part, and GPU of our own draws only (eye copies, HUD panel), summed until
+    // the perf log takes them (TakeSubmitSummary).
+    struct SubmitTimes {
+        double waitMs = 0; // xrAcquire / xrWaitSwapchainImage (eyes, screen, HUD)
+        double copyMs = 0; // our eye / screen copy calls (FSR, blit, raw copy) and releases
+        double hudMs = 0; // HUD matte and release
+        double endMs = 0; // xrEndFrame
+        int frames = 0;
+    } submit;
+    d3d::GpuBracket eyeGpu, hudGpu;
+    bool sourceCopied = false; // this frame's eye copy refreshed the blitter's back-buffer copy (the mirror reuses it)
+
     // [xr] render_scale as the render size and the eye copy use it (UpdateRenderScale).
     bool renderScaleInit = false;
     float renderScale = 1.0f; // applied
@@ -147,6 +160,11 @@ struct State {
 };
 
 State g;
+
+double MsSince(Clock::time_point t)
+{
+    return std::chrono::duration<double, std::milli>(Clock::now() - t).count();
+}
 
 // Logs a failed call; the same call failing with the same result again is only counted.
 bool Ok(XrResult r, const char* what)
@@ -524,7 +542,11 @@ void EndFrame(const XrCompositionLayerBaseHeader* const* layers, std::uint32_t c
     end.environmentBlendMode = g.blendMode;
     end.layerCount = count;
     end.layers = count ? layers : nullptr;
-    if (Ok(xrEndFrame(g.session, &end), "xrEndFrame") && count) {
+    const auto t = Clock::now();
+    const XrResult r = xrEndFrame(g.session, &end);
+    g.submit.endMs += MsSince(t);
+    ++g.submit.frames;
+    if (Ok(r, "xrEndFrame") && count) {
         ++g.status.framesSubmitted;
     }
     g.frameOpen = g.located = g.rendered = false;
@@ -658,17 +680,21 @@ bool WriteEyes(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
     d3d::InternalScope internal; // keep our copies out of frame traces and dumps
     const UINT halfW = bd.Width / 2;
     EyeSwapchain& left = g.eyes[0];
+    EyeSwapchain& right = g.eyes[1];
+    // Both images first, so the copies' GPU bracket holds no runtime wait.
+    auto t = Clock::now();
     if (!left.Acquire(g.instance)) {
         return false;
     }
-    const char* mode = CopyBackBuffer(left, back.Get(), bd, context, 0, g.sideBySide ? halfW : bd.Width, true, true);
-    left.Release(g.instance);
-    g.status.copyMode = mode ? mode : "-";
-
-    EyeSwapchain& right = g.eyes[1];
     if (!right.Acquire(g.instance)) {
+        left.Release(g.instance);
         return false;
     }
+    g.submit.waitMs += MsSince(t);
+    t = Clock::now();
+    g.eyeGpu.Begin(g.device, context);
+    const char* mode = CopyBackBuffer(left, back.Get(), bd, context, 0, g.sideBySide ? halfW : bd.Width, true, true);
+    g.status.copyMode = mode ? mode : "-";
     const char* rightMode = "black";
     if (g.sideBySide) {
         rightMode = CopyBackBuffer(right, back.Get(), bd, context, halfW, halfW, false, true);
@@ -677,12 +703,16 @@ bool WriteEyes(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
         constexpr float kBlack[4] = {0.0f, 0.0f, 0.0f, 1.0f};
         context->ClearRenderTargetView(right.Rtv(), kBlack);
     }
+    g.eyeGpu.End(context);
     if (g_probe) {
-        // The left image is released already; probe the back buffer and the right image (same copy path).
+        // Probe the back buffer and the right image (same copy path).
         FinishProbe(ProbeAlpha(context, back.Get(), bd.Width / 4, bd.Height / 2, "back buffer") + "; " +
                     ProbeAlpha(context, right.Texture(), right.Width() / 2, right.Height() / 2, "right eye image"));
     }
+    left.Release(g.instance);
     right.Release(g.instance);
+    g.submit.copyMs += MsSince(t);
+    g.sourceCopied = mode && std::strcmp(mode, "copy") != 0; // fsr / blit refreshed the blitter's source copy
     return mode != nullptr && rightMode != nullptr;
 }
 
@@ -704,9 +734,14 @@ void WriteSimulatedEyes(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
         }
     }
     const UINT halfW = bd.Width / 2;
+    const auto t = Clock::now();
+    g.eyeGpu.Begin(g.device, context);
     const char* mode = CopyBackBuffer(g.simEyes[0], back.Get(), bd, context, 0, halfW, true, true);
     CopyBackBuffer(g.simEyes[1], back.Get(), bd, context, halfW, halfW, false, true);
+    g.eyeGpu.End(context);
+    g.submit.copyMs += MsSince(t);
     g.status.copyMode = mode ? mode : "-";
+    g.sourceCopied = mode && std::strcmp(mode, "copy") != 0;
     auto shots = std::move(g.eyeShots);
     g.eyeShots.clear();
     for (auto& s : shots) {
@@ -737,10 +772,17 @@ bool WriteScreen(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, XrComp
         }
     }
     d3d::InternalScope internal;
+    auto t = Clock::now();
     if (!g.screen.Acquire(g.instance)) {
         return false;
     }
+    g.submit.waitMs += MsSince(t);
+    t = Clock::now();
+    g.eyeGpu.Begin(g.device, context);
     const char* mode = CopyBackBuffer(g.screen, back.Get(), bd, context, 0, w);
+    g.eyeGpu.End(context);
+    g.submit.copyMs += MsSince(t);
+    g.sourceCopied = mode && std::strcmp(mode, "copy") != 0;
     if (g_probe && mode) {
         FinishProbe(ProbeAlpha(context, back.Get(), bd.Width / 4, bd.Height / 2, "back buffer") + "; " +
                     ProbeAlpha(context, g.screen.Texture(), g.screen.Width() / 2, g.screen.Height() / 2,
@@ -1061,11 +1103,17 @@ bool WriteHud(ID3D11DeviceContext* context, const HudSource& hud, XrCompositionL
         return false;
     }
     d3d::InternalScope internal;
+    auto t = Clock::now();
     if (!g.hud.Acquire(g.instance)) {
         return false;
     }
+    g.submit.waitMs += MsSince(t);
+    t = Clock::now();
+    g.hudGpu.Begin(g.device, context);
     const bool ok = g.blitter.Matte(context, hud.black, hud.white, g.hud.Rtv(), hud.width, hud.height);
+    g.hudGpu.End(context);
     g.hud.Release(g.instance);
+    g.submit.hudMs += MsSince(t);
     if (!ok) {
         return false;
     }
@@ -1098,6 +1146,7 @@ void SetSideBySide(bool sideBySide)
 void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, const HudSource& hud)
 {
     g.status.hudLayer = false;
+    g.sourceCopied = false;
     if (!g.frameOpen) {
         return;
     }
@@ -1105,6 +1154,7 @@ void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, const H
         g.status.presentation = !g.rendered ? "screen" : g.sideBySide ? "stereo" : "head-tracked";
         g.status.hudLayer = g.rendered && g.sideBySide && hud.black && hud.white;
         g.frameOpen = false;
+        ++g.submit.frames;
         if (g.rendered && g.sideBySide && swapChain && context && !g.simEyesFailed) {
             WriteSimulatedEyes(swapChain, context);
         }
@@ -1190,10 +1240,13 @@ void DrawMirrorImage(ID3D11DeviceContext* context, ID3D11Texture2D* back, const 
         return;
     }
     d3d::InternalScope internal;
-    // Copy first (the blitter's source copy, 1x1 draw), then clear and draw the letterboxed image.
+    // Copy first (the blitter's source copy, 1x1 draw), then clear and draw the letterboxed image. An FSR / blit eye
+    // copy this frame already made that copy of the unchanged back buffer (PLAN 9d: one full-size copy less).
     constexpr float kBlack[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-    const D3D11_VIEWPORT corner{0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f};
-    g.blitter.BlitRect(context, back, rtv.Get(), corner, false, 0.0f, 1.0f, true);
+    if (!g.sourceCopied) {
+        const D3D11_VIEWPORT corner{0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f};
+        g.blitter.BlitRect(context, back, rtv.Get(), corner, false, 0.0f, 1.0f, true);
+    }
     context->ClearRenderTargetView(rtv.Get(), kBlack);
     g.blitter.BlitRect(context, back, rtv.Get(), dst, false, 0.0f, uw, false);
 }
@@ -1335,6 +1388,30 @@ std::uint32_t RenderEyeSize(std::uint32_t eyeSize)
         return eyeSize;
     }
     return static_cast<std::uint32_t>(std::lround(static_cast<float>(eyeSize) * scale)) & ~1u;
+}
+
+std::string TakeSubmitSummary()
+{
+    auto& s = g.submit;
+    if (s.frames == 0) {
+        return {};
+    }
+    const double n = s.frames;
+    int eyeFrames = 0, hudFrames = 0;
+    const double eyeGpu = g.eyeGpu.TakeAverageMs(&eyeFrames);
+    const double hudGpu = g.hudGpu.TakeAverageMs(&hudFrames);
+    std::string text = fmt::format("headset submit cpu: wait for images {:.2f} ms, copies {:.2f}, HUD panel {:.2f}, "
+                                   "xrEndFrame {:.2f} ({} frames)",
+        s.waitMs / n, s.copyMs / n, s.hudMs / n, s.endMs / n, s.frames);
+    if (eyeGpu >= 0.0) {
+        text += fmt::format("; gpu copies {:.3f} ms ({} {}, {} frames)", eyeGpu, g.status.copyMode,
+            g.status.presentation, eyeFrames);
+    }
+    if (hudGpu >= 0.0) {
+        text += fmt::format(", HUD panel {:.3f} ms ({} frames)", hudGpu, hudFrames);
+    }
+    s = {};
+    return text;
 }
 
 void RequestEyeShot(std::string name, std::function<void(const std::string&)> done)

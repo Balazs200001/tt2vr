@@ -8,6 +8,7 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 
@@ -58,6 +59,21 @@ double g_sumView[2] = {};
 int g_countView[2] = {}; // frames that measured view k (one-view frames have no view 1)
 double g_sumFrame = 0;
 int g_sumCount = 0;
+
+// CPU side of the same brackets (PLAN 9d): main-thread time of the main DeferredRenderLoop::Render before the views
+// (culling, lights, shadow setup: shared by both eyes) and of each view's recording.
+using CpuClock = std::chrono::steady_clock;
+bool g_cpuActive = false;
+CpuClock::time_point g_cpuStart, g_cpuViewStart[2];
+int g_cpuViews = 0;
+int g_cpuIndex = -1;
+double g_cpuSumShared = 0, g_cpuSumView[2] = {};
+int g_cpuCount = 0, g_cpuCountTwo = 0;
+
+double Ms(CpuClock::time_point a, CpuClock::time_point b)
+{
+    return std::chrono::duration<double, std::milli>(b - a).count();
+}
 
 void Queue(EngineQuery& event, const char* name)
 {
@@ -139,6 +155,10 @@ void InstallGpuTimers()
 
 void GpuTimersLoopBegin(void* renderer)
 {
+    g_cpuActive = true;
+    g_cpuStart = CpuClock::now();
+    g_cpuViews = 0;
+    g_cpuIndex = -1;
     g_recording = nullptr;
     g_openIndex = -1;
     if (!g_ready || !g_addEvent || !renderer) {
@@ -159,10 +179,17 @@ void GpuTimersLoopBegin(void* renderer)
 
 void GpuTimersView(const void* viewContext)
 {
-    if (!g_recording || !viewContext) {
+    if (!viewContext) {
         return;
     }
     const int index = Read<std::uint16_t>(viewContext, kViewCameraIndex);
+    if (g_cpuActive && index != g_cpuIndex && g_cpuViews < 2) {
+        g_cpuViewStart[g_cpuViews++] = CpuClock::now();
+        g_cpuIndex = index;
+    }
+    if (!g_recording) {
+        return;
+    }
     // The main context can be prepared several times for one view; a third camera index does not exist.
     if (index == g_openIndex || g_recording->views >= 2) {
         return;
@@ -176,6 +203,17 @@ void GpuTimersView(const void* viewContext)
 
 void GpuTimersLoopEnd()
 {
+    if (g_cpuActive && g_cpuViews > 0) {
+        const auto end = CpuClock::now();
+        g_cpuSumShared += Ms(g_cpuStart, g_cpuViewStart[0]);
+        g_cpuSumView[0] += Ms(g_cpuViewStart[0], g_cpuViews > 1 ? g_cpuViewStart[1] : end);
+        if (g_cpuViews > 1) {
+            g_cpuSumView[1] += Ms(g_cpuViewStart[1], end);
+            ++g_cpuCountTwo;
+        }
+        ++g_cpuCount;
+    }
+    g_cpuActive = false;
     if (!g_recording) {
         return;
     }
@@ -251,6 +289,22 @@ std::string GpuTimersPerfSummary()
     g_sumView[0] = g_sumView[1] = g_sumFrame = 0;
     g_countView[0] = g_countView[1] = 0;
     g_sumCount = 0;
+    return s;
+}
+
+std::string CpuLoopPerfSummary()
+{
+    if (g_cpuCount == 0) {
+        return {};
+    }
+    std::string s = fmt::format("cpu main render loop: before the views {:.2f} ms, view 0 {:.2f} ms",
+        g_cpuSumShared / g_cpuCount, g_cpuSumView[0] / g_cpuCount);
+    if (g_cpuCountTwo > 0) {
+        s += fmt::format(", view 1 {:.2f} ms ({} two-view frames)", g_cpuSumView[1] / g_cpuCountTwo, g_cpuCountTwo);
+    }
+    s += fmt::format(" ({} frames)", g_cpuCount);
+    g_cpuSumShared = g_cpuSumView[0] = g_cpuSumView[1] = 0;
+    g_cpuCount = g_cpuCountTwo = 0;
     return s;
 }
 
