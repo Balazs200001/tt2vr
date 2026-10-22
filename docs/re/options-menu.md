@@ -55,7 +55,7 @@ Not usable: `MessageBoxManager::PopMessageBox` (0x14054c480 / 0x14054c540 / 0x14
 ## 4b. Runtime (test mode, 2026-10-21, `game::OptionsTab`)
 
 - All six TT2 patterns resolved at the static addresses; the tab is added at the first `Create` (the game builds the Options state once at startup) and on every later open.
-- Options > Display shows "VR" under Post Processing; LB / RB and up / down reach it like the other tabs; its rows show the mod's values (sliders as "N%", lists with literal labels "+2 cm", "1.0 m"); ten rows since 2026-10-22 (render scale and FSR sharpening lists, PLAN 9e), drawn like the ten-row HUD tab.
+- Options > Display shows "VR" under Post Processing; LB / RB and up / down reach it like the other tabs; its rows show the mod's values (sliders as "N%", lists with literal labels "+2 cm", "1.0 m"); ten rows on 2026-10-22 (render scale and FSR sharpening lists, PLAN 9e), drawn like the ten-row HUD tab; since the same day six (seat, HUD, render scale, sharpening: the README's list), all lists.
 - Slider: Camera shake opened at 100 in 0..100, 25 steps left gave 75, the mod received 0.75. List: Seat forward "+2 cm" gave index 12 -> 0.02 m. Both applied at once and reached `user.toml` 1 s later; after a game restart the tab showed the saved values.
 - Leaving Options runs the game's apply and save: `UserSettings.cfg` stayed byte-identical to the backup taken before the test; `Save.dat` kept its size and changed in one float (26421 -> 26840, a counter that grows between sessions: likely play time, written by every autosave).
 
