@@ -37,7 +37,12 @@ CutDetector::Result CutDetector::Update(const Vec3& pos, const Vec3& fwd, const 
     r.limit = kMinDistance + kStepFactor * recent;
     const float cosTurn = std::clamp(fwd.x * m_fwd.x + fwd.y * m_fwd.y + fwd.z * m_fwd.z, -1.0f, 1.0f);
     r.turnDeg = std::acos(cosTurn) * 57.2957795f;
-    r.cut = r.distance > r.limit || r.turnDeg > kMaxTurnDeg;
+    // A step that repeats the previous frame's cut step without turning is the camera's speed: a window starved by a
+    // standstill (pause) otherwise made every step at speed a cut (2026-10-22: 13 resets in a row after a pause).
+    const bool repeat = m_lastCutStep > 0.0f && r.distance >= kRepeatMin * m_lastCutStep &&
+                        r.distance <= kRepeatMax * m_lastCutStep && r.turnDeg <= kMaxTurnDeg;
+    r.cut = !repeat && (r.distance > r.limit || r.turnDeg > kMaxTurnDeg);
+    m_lastCutStep = r.cut ? r.distance : 0.0f;
     if (!r.cut) {
         m_steps[m_next] = std::min(r.distance, kMaxRememberedStep);
         m_next = (m_next + 1) % kWindow;
@@ -52,6 +57,7 @@ void CutDetector::Reset()
     m_have = false;
     std::fill(std::begin(m_steps), std::end(m_steps), 0.0f);
     m_next = 0;
+    m_lastCutStep = 0.0f;
 }
 
 } // namespace stereo

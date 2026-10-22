@@ -104,6 +104,24 @@ TEST_CASE("CutDetector: a cut does not raise the limit")
     CHECK(r.cut);
 }
 
+TEST_CASE("CutDetector: resuming at speed after a pause resets once, not every frame")
+{
+    // 2026-10-22 headset log: 36 fps at speed (2.1-2.8 m per frame), a pause (camera still) emptied the window, and
+    // every frame after the resume was a "2.1 m (limit 2.0), 0 deg" cut until a short step came (13 in a row).
+    CutDetector d;
+    float y = 0.0f;
+    d.Update({0.0f, y, 0.0f}, kForward);
+    CHECK(Cuts(d, y, {0.3f, 0.6f, 0.9f, 1.2f, 1.5f, 1.8f}) == 0); // accelerating
+    CHECK(Cuts(d, y, std::vector<float>(40, 2.1f)) == 0);
+    CHECK(Cuts(d, y, std::vector<float>(40, 0.0f)) == 0); // paused
+    CHECK(Cuts(d, y, {2.1f, 2.7f, 2.1f, 2.8f, 2.1f, 2.1f, 2.7f, 2.1f}) == 1);
+    // A repeat that turns is still a cut.
+    CutDetector t;
+    t.Update({0.0f, 0.0f, 0.0f}, kForward);
+    CHECK(t.Update({0.0f, 3.0f, 0.0f}, kForward).cut);
+    CHECK(t.Update({0.0f, 6.0f, 0.0f}, Turned(15.0f)).cut);
+}
+
 TEST_CASE("CutDetector: World Shift is rebased, not a cut")
 {
     CutDetector d;

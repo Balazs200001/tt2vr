@@ -10,7 +10,9 @@
 //   - The limit follows the recent maximum, not the last step: in the headset the steps alternate between short and
 //     about 2.7 m at speed (frame pacing; 2026-10-21 log, "2.7 m (limit 2.5), 0 deg" about 30 times in 13 s with a
 //     last-step limit). Real in-ride cuts turn by 11-26 deg (crash camera, respawn) or jump from a standstill.
-//   - A cut's step is not remembered (one cut does not raise the limit for the next frames).
+//   - A cut's step is not remembered (one cut does not raise the limit for the next frames), unless the next frame
+//     repeats it (kRepeatMin..kRepeatMax of it, no turn): that is the camera's speed, e.g. resuming at speed after a
+//     pause emptied the window, so it is no cut and is remembered.
 #pragma once
 
 #include "stereo/math/matrix.hpp"
@@ -24,6 +26,7 @@ public:
     static constexpr float kMaxTurnDeg = 10.0f;
     static constexpr int kWindow = 32; // frames
     static constexpr float kMaxRememberedStep = 10.0f; // m; longer non-cut steps are clamped
+    static constexpr float kRepeatMin = 0.5f, kRepeatMax = 2.0f; // x the previous frame's cut step
 
     struct Result {
         bool cut = false;
@@ -46,6 +49,7 @@ private:
     Vec3 m_fwd{};
     float m_steps[kWindow] = {};
     int m_next = 0;
+    float m_lastCutStep = 0.0f; // the previous frame's step if it was a cut, else 0
 };
 
 } // namespace stereo
