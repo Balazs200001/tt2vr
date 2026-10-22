@@ -83,7 +83,7 @@ ctest --preset x64-release
 
 ## License and credits
 
-The mod's license is not decided yet. Third-party code:
+tt2vr is released under the [MIT License](LICENSE). Third-party code:
 
 | Component | License |
 |---|---|
@@ -95,6 +95,7 @@ The mod's license is not decided yet. Third-party code:
 | [xxHash](https://github.com/Cyan4973/xxHash) | BSD 2-Clause |
 | [OpenXR SDK loader](https://github.com/KhronosGroup/OpenXR-SDK) | Apache 2.0 |
 | [AMD FidelityFX FSR 1.0](https://github.com/GPUOpen-Effects/FidelityFX-FSR) (`third_party/fidelityfx-fsr1`) | MIT |
+| [RenderDoc in-application API header](https://github.com/baldurk/renderdoc) (`third_party/renderdoc`) | MIT |
 | [doctest](https://github.com/doctest/doctest) (unit tests only) | MIT |
 
 *TT Isle of Man: Ride on the Edge 2* is a game by Kylotonn / Nacon. This project is not affiliated with them and contains none of the game's code or data.

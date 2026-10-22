@@ -487,8 +487,8 @@ Implementation steps (proposed 2026-10-21, **approved by Balazs 2026-10-21**: al
 - [x] ~~Signature table per known exe hash~~: skipped (Balazs, 2026-10-22: the game gets no more updates; build 4989319 is the only one). Unknown exes already run flat (the exe check refuses engine hooks).
 - [x] Crash handler writing a minidump to `tt2vr/logs/` (2026-10-22, `core::CrashHandler`: installed after the game's CrashRpt filter, which it then calls; test-mode `crashtest` verified dump + `[crash]` log line).
 - [x] Compatibility notes: Steam overlay, RTSS, ReShade, other overlays (README; ReShade and RTSS untested, expectations stated).
-- [x] README: install, uninstall, config, known issues; license; credits (2026-10-22; the license itself is still open).
-- [ ] Decide whether the repo goes public.
+- [x] README: install, uninstall, config, known issues; license; credits (2026-10-22). License: MIT (Balazs, 2026-10-22), `LICENSE`.
+- [x] Repo public (Balazs, 2026-10-22).
 
 ---
 
