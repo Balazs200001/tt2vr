@@ -52,6 +52,7 @@ bool SameConfig(const Config& a, const Config& b)
            a.xr.world_scale == b.xr.world_scale && a.xr.ipd_scale == b.xr.ipd_scale &&
            a.xr.visor_drops_shared == b.xr.visor_drops_shared && a.xr.fxaa == b.xr.fxaa &&
            a.xr.vignette == b.xr.vignette && a.xr.shadow_scale == b.xr.shadow_scale &&
+           a.xr.render_scale == b.xr.render_scale && a.xr.fsr_sharpness == b.xr.fsr_sharpness &&
            SameHotkey(a.hotkeys.seat_forward, b.hotkeys.seat_forward) &&
            SameHotkey(a.hotkeys.seat_back, b.hotkeys.seat_back) && SameHotkey(a.hotkeys.seat_up, b.hotkeys.seat_up) &&
            SameHotkey(a.hotkeys.seat_down, b.hotkeys.seat_down) &&
@@ -435,6 +436,24 @@ TEST_CASE("ParseConfig [xr] resolution_scale")
         CHECK(n.warnings.size() == 1);
         CHECK(n.config.xr.resolution_scale == doctest::Approx(1.0));
     }
+}
+
+TEST_CASE("ParseConfig [xr] render_scale and fsr_sharpness")
+{
+    const auto d = ParseConfig("");
+    CHECK(d.config.xr.render_scale == doctest::Approx(1.0));
+    CHECK(d.config.xr.fsr_sharpness == doctest::Approx(0.2));
+    const auto r = ParseConfig("[xr]\nrender_scale = 0.75\nfsr_sharpness = 0.5\n");
+    CHECK(r.warnings.empty());
+    CHECK(r.config.xr.render_scale == doctest::Approx(0.75));
+    CHECK(r.config.xr.fsr_sharpness == doctest::Approx(0.5));
+    const auto c = ParseConfig("[xr]\nrender_scale = 1.5\nfsr_sharpness = -1\n");
+    CHECK(c.warnings.size() == 2);
+    CHECK(c.config.xr.render_scale == doctest::Approx(1.0));
+    CHECK(c.config.xr.fsr_sharpness == doctest::Approx(0.0));
+    const auto lo = ParseConfig("[xr]\nrender_scale = 0.2\n");
+    CHECK(lo.warnings.size() == 1);
+    CHECK(lo.config.xr.render_scale == doctest::Approx(0.5));
 }
 
 TEST_CASE("ParseConfig [hud]")

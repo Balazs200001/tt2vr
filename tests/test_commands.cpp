@@ -26,8 +26,11 @@ TEST_CASE("ParseCommands: keywords, aliases, comments, blank lines")
 
 TEST_CASE("ParseCommands: screenshot, pad and head arguments")
 {
-    const auto cmds = core::ParseCommands("screenshot main menu\npad a, wait:500 rt=1+lx=-0.5:2000\nhead shake 30 2\n");
-    REQUIRE(cmds.size() == 3);
+    const auto cmds = core::ParseCommands(
+        "screenshot main menu\npad a, wait:500 rt=1+lx=-0.5:2000\nhead shake 30 2\neyeshot fsr 0.75\n");
+    REQUIRE(cmds.size() == 4);
+    CHECK(cmds[3].kind == CommandKind::EyeShot);
+    CHECK(cmds[3].arg == "fsr_0_75");
     CHECK(cmds[0].kind == CommandKind::Screenshot);
     CHECK(cmds[0].arg == "main_menu");
     CHECK(cmds[1].kind == CommandKind::Pad);

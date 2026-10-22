@@ -116,6 +116,10 @@ std::vector<Command> ParseCommands(std::string_view text)
             c.kind = CommandKind::Screenshot;
             c.arg = SafeName(arg);
         }
+        else if (word == "eyeshot") {
+            c.kind = CommandKind::EyeShot;
+            c.arg = SafeName(arg);
+        }
         else if (word == "pad") {
             c.kind = CommandKind::Pad;
             c.arg = std::string(arg);

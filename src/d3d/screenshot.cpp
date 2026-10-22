@@ -28,15 +28,13 @@ unsigned g_counter = 0;
 
 constexpr UINT kMaxWidth = 1920;
 
-std::string Save(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext* context,
-    const std::string& name)
+} // namespace
+
+std::string SaveTexture(ID3D11Texture2D* texture, ID3D11Device* device, ID3D11DeviceContext* context,
+    const std::string& name, UINT maxWidth)
 {
-    ComPtr<ID3D11Texture2D> back;
-    if (FAILED(swapChain->GetBuffer(0, IID_PPV_ARGS(&back)))) {
-        return "FAILED: no back buffer";
-    }
     D3D11_TEXTURE2D_DESC d{};
-    back->GetDesc(&d);
+    texture->GetDesc(&d);
     bool bgra = false;
     switch (d.Format) {
     case DXGI_FORMAT_B8G8R8A8_UNORM:
@@ -50,7 +48,7 @@ std::string Save(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceCo
     case DXGI_FORMAT_R8G8B8A8_TYPELESS:
         break;
     default:
-        return fmt::format("FAILED: back buffer format {} not supported", static_cast<int>(d.Format));
+        return fmt::format("FAILED: format {} not supported", static_cast<int>(d.Format));
     }
     D3D11_TEXTURE2D_DESC s = d;
     s.Usage = D3D11_USAGE_STAGING;
@@ -65,12 +63,12 @@ std::string Save(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceCo
         return "FAILED: staging texture";
     }
     InternalScope internal;
-    context->CopyResource(staging.Get(), back.Get());
+    context->CopyResource(staging.Get(), texture);
     D3D11_MAPPED_SUBRESOURCE m{};
     if (FAILED(context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &m))) {
         return "FAILED: map";
     }
-    const UINT f = (d.Width + kMaxWidth - 1) / kMaxWidth; // integer box filter
+    const UINT f = maxWidth == 0 ? 1 : (d.Width + maxWidth - 1) / maxWidth; // integer box filter
     const UINT w = d.Width / f, h = d.Height / f;
     std::vector<std::uint8_t> bgr(static_cast<std::size_t>(w) * h * 3);
     for (UINT y = 0; y < h; ++y) {
@@ -105,6 +103,18 @@ std::string Save(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceCo
         return fmt::format("FAILED: cannot write {}", path.string());
     }
     return fmt::format("ok {} ({}x{} from {}x{})", path.string(), w, h, d.Width, d.Height);
+}
+
+namespace {
+
+std::string Save(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext* context,
+    const std::string& name)
+{
+    ComPtr<ID3D11Texture2D> back;
+    if (FAILED(swapChain->GetBuffer(0, IID_PPV_ARGS(&back)))) {
+        return "FAILED: no back buffer";
+    }
+    return SaveTexture(back.Get(), device, context, name, kMaxWidth);
 }
 
 } // namespace

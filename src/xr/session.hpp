@@ -90,7 +90,7 @@ struct Status {
     const char* presentation = "-"; // "stereo" / "head-tracked" (projection layer), "screen" (menu quad), "-"
     bool sideBySide = false; // last DoUpdate set up two views
     bool hudLayer = false; // last frame showed the HUD panel (simulated headset: would have)
-    const char* copyMode = "-"; // "copy" (raw CopySubresourceRegion), "blit" (stretch), "-" (nothing submitted)
+    const char* copyMode = "-"; // "copy" (raw CopySubresourceRegion), "blit" (stretch), "fsr" (FSR1 upscale), "-"
     std::uint32_t backBufferW = 0, backBufferH = 0;
     double waitMs = 0; // xrWaitFrame, smoothed
     double lastWaitMs = 0; // xrWaitFrame of the last frame
@@ -98,6 +98,12 @@ struct Status {
     std::uint64_t framesSubmitted = 0; // xrEndFrame calls with a layer (projection or screen)
 };
 Status GetStatus(); // main thread
+// The game's render size for one eye image dimension: eyeSize * [xr] render_scale (PLAN 9e; FSR1 upscales to the eye
+// image), even. Main thread.
+std::uint32_t RenderEyeSize(std::uint32_t eyeSize);
+// Test mode (simulated headset): at the next stereo frame, saves both eye images as the headset would get them
+// (after the eye copy, full size) as <capture dir>\screens\<name>_l.png and _r.png. Main thread.
+void RequestEyeShot(std::string name, std::function<void(const std::string&)> done);
 double LastWaitMs(); // main thread: xrWaitFrame of the last frame (cheap, no copy)
 
 } // namespace xr

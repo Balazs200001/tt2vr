@@ -31,7 +31,9 @@ enum class CommandKind {
     Comfort,          // "comfort [<setting> <value>]": show or change a comfort setting at runtime (PLAN 8)
     Drops,            // "drops [seconds]": [debug] rain on the visor (test mode only, game::ForceVisorRain)
     GpuProfile,       // "gpuprofile [frames]": per-pass GPU time per eye over the next frames (game::PassProfiler)
-    VrEffect,         // "vreffect <fxaa|vignette> <on|off>": switch a VR-only post effect at runtime (A/B, PLAN 9c)
+    VrEffect,         // "vreffect <fxaa|vignette> <on|off>": switch a VR-only post effect at runtime (A/B, PLAN 9c);
+                      // "vreffect render <scale>" / "sharpness <stops>": FSR1 render scale (PLAN 9e)
+    EyeShot,          // "eyeshot [name]": test mode, both simulated eye images after the eye copy, full size
     Unknown,
 };
 

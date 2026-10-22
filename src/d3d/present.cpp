@@ -17,6 +17,7 @@
 #include "core/paths.hpp"
 #include "d3d/context_hooks.hpp"
 #include "d3d/frame_trace.hpp"
+#include "d3d/gpu_bracket.hpp"
 #include "d3d/internal.hpp"
 #include "d3d/renderdoc.hpp"
 #include "d3d/screenshot.hpp"
@@ -100,6 +101,7 @@ int g_spikes = 0, g_spikeLines = 0;
 double g_sumTail = 0, g_sumWait = 0, g_sumUpdate = 0, g_sumRender = 0, g_sumPresent = 0;
 int g_sumFrames = 0;
 constexpr double kSpikeMs = 50.0;
+GpuBracket g_submitGpu; // xr::OnFrameEnd: eye copy (FSR1 at [xr] render_scale < 1), HUD panel
 constexpr double kSpikeFactor = 2.5;
 constexpr int kSpikeLines = 5;
 
@@ -240,6 +242,9 @@ void RunCommands()
                 break;
             case core::CommandKind::Screenshot:
                 screenshot::Request(cmd.arg, [done, origin](const std::string& r) { AddResult(origin, r); done(r); });
+                break;
+            case core::CommandKind::EyeShot:
+                xr::RequestEyeShot(cmd.arg, [done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;
             case core::CommandKind::Pad:
                 game::RunPadScript(cmd.arg, [done, origin](const std::string& r) { AddResult(origin, r); done(r); });
@@ -424,6 +429,11 @@ void LogPerformance(std::chrono::steady_clock::time_point now, double frameMs)
     if (const std::string gpu = game::GpuTimersPerfSummary(); !gpu.empty()) {
         TT2VR_LOG_INFO("perf: {}", gpu);
     }
+    int submitFrames = 0;
+    if (const double submitMs = g_submitGpu.TakeAverageMs(&submitFrames); submitMs >= 0.0) {
+        TT2VR_LOG_INFO("perf: gpu headset submit (eye copy {}, HUD panel) {:.3f} ms ({} frames)", xs.copyMode,
+            submitMs, submitFrames);
+    }
     if (g_sumFrames > 0) {
         const double n = g_sumFrames;
         TT2VR_LOG_INFO("perf: frame split avg: Present tail {:.2f} ms (xrWaitFrame {:.2f}), game update {:.2f}, render "
@@ -529,7 +539,9 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
             game::OnHudFramePresent(g_immediate); // this frame's captured HUD, for the headset and the mirror
             const game::HudImage hud = game::CurrentHud();
             // Before the overlay, so the overlay stays on the desktop.
+            g_submitGpu.Begin(g_device, g_immediate);
             xr::OnFrameEnd(self, g_immediate, {hud.black, hud.white, hud.width, hud.height, hud.menu, hud.aspect});
+            g_submitGpu.End(g_immediate);
             xr::DrawDesktopMirror(self, g_immediate, g_window, hud.resolved, hud.aspect);
             game::EndHudFrame(g_immediate); // capture targets cleared for the next frame
             if (!renderdoc::Busy()) {
@@ -578,9 +590,10 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
             if (core::GetConfig().xr.force_render_size) {
                 // One device reset when the eye size is known. Two split views side by side need twice the eye
                 // width (each split view is half the window); the width stays doubled in menus so riding <-> menu
-                // switches never resize the swap chain.
+                // switches never resize the swap chain. [xr] render_scale < 1 renders smaller (FSR1 upscales).
                 const xr::Status xs = xr::GetStatus();
-                game::RequestRenderSize(g_window, xs.eyeW * (game::SplitViewAvailable() ? 2u : 1u), xs.eyeH);
+                game::RequestRenderSize(g_window,
+                    xr::RenderEyeSize(xs.eyeW) * (game::SplitViewAvailable() ? 2u : 1u), xr::RenderEyeSize(xs.eyeH));
             }
         }
         catch (...) {

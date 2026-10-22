@@ -6,7 +6,11 @@
 #include "game/engine_layout.hpp"
 #include "game/signatures.hpp"
 
+#include <spdlog/fmt/fmt.h>
+
+#include <algorithm>
 #include <cstdint>
+#include <sstream>
 
 #include <windows.h>
 
@@ -140,10 +144,23 @@ std::string VrEffectCommand(const std::string& arg)
     const auto space = arg.find(' ');
     const std::string name = arg.substr(0, space);
     const std::string value = space == std::string::npos ? "" : arg.substr(space + 1);
-    if ((name != "fxaa" && name != "vignette") || (value != "on" && value != "off")) {
-        return "vreffect FAILED: use vreffect <fxaa|vignette> <on|off>";
-    }
     core::Config c = core::GetConfig();
+    if (name == "render" || name == "sharpness") {
+        // PLAN 9e A/B: [xr] render_scale (the next frame requests the new render size) and fsr_sharpness.
+        float v = 0.0f;
+        std::istringstream in(value);
+        if (!(in >> v)) {
+            return "vreffect FAILED: use vreffect render <0.5..1> or vreffect sharpness <0..2>";
+        }
+        float& field = name == "render" ? c.xr.render_scale : c.xr.fsr_sharpness;
+        field = name == "render" ? std::clamp(v, 0.5f, 1.0f) : std::clamp(v, 0.0f, 2.0f);
+        core::SetConfig(c);
+        return fmt::format("vreffect render scale {:.2f} sharpness {:.2f} (this run only)", c.xr.render_scale,
+            c.xr.fsr_sharpness);
+    }
+    if ((name != "fxaa" && name != "vignette") || (value != "on" && value != "off")) {
+        return "vreffect FAILED: use vreffect <fxaa|vignette> <on|off>, render <scale> or sharpness <stops>";
+    }
     (name == "fxaa" ? c.xr.fxaa : c.xr.vignette) = value == "on";
     core::SetConfig(c);
     g_fxaaLogged = false;

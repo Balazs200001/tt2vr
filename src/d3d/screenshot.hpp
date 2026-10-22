@@ -15,5 +15,9 @@ namespace d3d::screenshot {
 void Request(std::string name, std::function<void(const std::string&)> done);
 // Present pre-hook, before anything draws over the engine's frame.
 void OnPresent(IDXGISwapChain* swapChain, ID3D11Device* device, ID3D11DeviceContext* context);
+// Saves an 8-bit RGBA / BGRA texture as <capture dir>\screens\<name>.png, box-downscaled to at most maxWidth px
+// (0 = full size). Returns "ok <path> (...)" or "FAILED: ...". Thread: present thread.
+std::string SaveTexture(ID3D11Texture2D* texture, ID3D11Device* device, ID3D11DeviceContext* context,
+    const std::string& name, UINT maxWidth);
 
 } // namespace d3d::screenshot

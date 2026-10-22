@@ -5,6 +5,7 @@
 #include "core/test_mode.hpp"
 #include "d3d/blit.hpp"
 #include "d3d/internal.hpp"
+#include "d3d/screenshot.hpp"
 #include "xr/headset_profile.hpp"
 #include "xr/openxr.hpp"
 #include "xr/swapchain.hpp"
@@ -37,6 +38,53 @@ using Microsoft::WRL::ComPtr;
 constexpr auto kInstanceRetry = std::chrono::seconds(10);
 constexpr auto kSystemRetry = std::chrono::seconds(2);
 constexpr auto kSessionLostRetry = std::chrono::seconds(3);
+
+// Test mode: stand-in for an eye swapchain image (typeless R8G8B8A8, raw view, as SteamVR's), so the simulated
+// headset runs the same eye copy (GPU profiles include it) and "eyeshot" can save what the headset would get.
+struct SimEye {
+    bool Create(ID3D11Device* device, UINT w, UINT h)
+    {
+        rtv.Reset();
+        texture.Reset();
+        D3D11_TEXTURE2D_DESC d{};
+        d.Width = w;
+        d.Height = h;
+        d.MipLevels = 1;
+        d.ArraySize = 1;
+        d.Format = DXGI_FORMAT_R8G8B8A8_TYPELESS;
+        d.SampleDesc.Count = 1;
+        d.Usage = D3D11_USAGE_DEFAULT;
+        d.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+        D3D11_RENDER_TARGET_VIEW_DESC rd{};
+        rd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        rd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+        if (FAILED(device->CreateTexture2D(&d, nullptr, &texture)) ||
+            FAILED(device->CreateRenderTargetView(texture.Get(), &rd, &rtv))) {
+            rtv.Reset();
+            texture.Reset();
+            return false;
+        }
+        width = w;
+        height = h;
+        return true;
+    }
+    std::uint32_t Width() const { return width; }
+    std::uint32_t Height() const { return height; }
+    DXGI_FORMAT Format() const { return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB; }
+    DXGI_FORMAT TextureFormat() const { return DXGI_FORMAT_R8G8B8A8_TYPELESS; }
+    ID3D11Texture2D* Texture() const { return texture.Get(); }
+    ID3D11RenderTargetView* Rtv() const { return rtv.Get(); }
+    bool Decode() const { return false; }
+
+    ComPtr<ID3D11Texture2D> texture;
+    ComPtr<ID3D11RenderTargetView> rtv;
+    std::uint32_t width = 0, height = 0;
+};
+
+struct EyeShot {
+    std::string name;
+    std::function<void(const std::string&)> done;
+};
 
 // All state lives on the game main thread (every entry point is called from it).
 struct State {
@@ -87,6 +135,9 @@ struct State {
     float simYaw = 0, simPitch = 0, simRoll = 0; // degrees; yaw left +, pitch up +
     float shakeAmp = 0, shakePeriod = 1, shakeSeconds = 0; // yaw oscillation (degrees, s, s; 0 s = off)
     Clock::time_point shakeStart{};
+    SimEye simEyes[2];
+    bool simEyesFailed = false;
+    std::vector<EyeShot> eyeShots; // pending "eyeshot" requests (simulated headset)
 };
 
 State g;
@@ -479,12 +530,14 @@ void EndFrame(const XrCompositionLayerBaseHeader* layer)
     EndFrame(&layer, layer ? 1 : 0);
 }
 
-// Back buffer -> the target's current image: raw copy when size and family match, else a stretch blit.
-// Returns "copy", "blit" or nullptr on failure. The caller has acquired the image.
-// Columns [srcX, srcX + srcW) of the back buffer -> the whole target. copySource = false reuses the blitter's
-// source copy from the previous call this frame (the second eye half).
-const char* CopyBackBuffer(EyeSwapchain& target, ID3D11Texture2D* back, const D3D11_TEXTURE2D_DESC& bd,
-    ID3D11DeviceContext* context, UINT srcX, UINT srcW, bool copySource = true)
+// Back buffer -> the target's current image: raw copy when size and family match, else a stretch blit (or FSR1 for
+// an eye image rendered at [xr] render_scale < 1). Returns "copy", "blit", "fsr" or nullptr on failure. The caller
+// has acquired the image. Columns [srcX, srcX + srcW) of the back buffer -> the whole target. copySource = false
+// reuses the blitter's source copy from the previous call this frame (the second eye half). Target: EyeSwapchain or
+// SimEye.
+template <typename Target>
+const char* CopyBackBuffer(const Target& target, ID3D11Texture2D* back, const D3D11_TEXTURE2D_DESC& bd,
+    ID3D11DeviceContext* context, UINT srcX, UINT srcW, bool copySource = true, bool eye = false)
 {
     const bool copy = srcW == target.Width() && bd.Height == target.Height() && bd.SampleDesc.Count == 1 &&
                       d3d::IsSrgb(target.Format()) && d3d::SameFamily(bd.Format, target.TextureFormat());
@@ -498,6 +551,12 @@ const char* CopyBackBuffer(EyeSwapchain& target, ID3D11Texture2D* back, const D3
         context->CopySubresourceRegion(target.Texture(), 0, 0, 0, 0, back, 0, &box);
         g.blitter.FillAlpha(context, target.Rtv(), target.Width(), target.Height());
         return "copy";
+    }
+    const auto& xc = core::GetConfig().xr;
+    if (eye && xc.render_scale < 1.0f && srcW < target.Width() && bd.Height < target.Height() &&
+        g.blitter.Fsr(context, back, srcX, srcW, target.Rtv(), target.Width(), target.Height(), target.Decode(),
+            xc.fsr_sharpness, copySource)) {
+        return "fsr";
     }
     const float u0 = static_cast<float>(srcX) / static_cast<float>(bd.Width);
     const float uw = static_cast<float>(srcW) / static_cast<float>(bd.Width);
@@ -596,7 +655,7 @@ bool WriteEyes(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
     if (!left.Acquire(g.instance)) {
         return false;
     }
-    const char* mode = CopyBackBuffer(left, back.Get(), bd, context, 0, g.sideBySide ? halfW : bd.Width);
+    const char* mode = CopyBackBuffer(left, back.Get(), bd, context, 0, g.sideBySide ? halfW : bd.Width, true, true);
     left.Release(g.instance);
     g.status.copyMode = mode ? mode : "-";
 
@@ -606,7 +665,7 @@ bool WriteEyes(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
     }
     const char* rightMode = "black";
     if (g.sideBySide) {
-        rightMode = CopyBackBuffer(right, back.Get(), bd, context, halfW, halfW, false);
+        rightMode = CopyBackBuffer(right, back.Get(), bd, context, halfW, halfW, false, true);
     }
     else {
         constexpr float kBlack[4] = {0.0f, 0.0f, 0.0f, 1.0f};
@@ -619,6 +678,41 @@ bool WriteEyes(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
     }
     right.Release(g.instance);
     return mode != nullptr && rightMode != nullptr;
+}
+
+// Test mode: WriteEyes into the SimEye stand-ins, then the pending "eyeshot" requests (left eye).
+void WriteSimulatedEyes(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
+{
+    D3D11_TEXTURE2D_DESC bd{};
+    const ComPtr<ID3D11Texture2D> back = BackBuffer(swapChain, bd);
+    if (!back) {
+        return;
+    }
+    d3d::InternalScope internal;
+    for (SimEye& e : g.simEyes) {
+        if ((e.Width() != g.status.eyeW || e.Height() != g.status.eyeH) &&
+            !e.Create(g.device, g.status.eyeW, g.status.eyeH)) {
+            TT2VR_LOG_ERROR("xr: cannot create the {}x{} simulated eye images", g.status.eyeW, g.status.eyeH);
+            g.simEyesFailed = true; // no retry every frame
+            return;
+        }
+    }
+    const UINT halfW = bd.Width / 2;
+    const char* mode = CopyBackBuffer(g.simEyes[0], back.Get(), bd, context, 0, halfW, true, true);
+    CopyBackBuffer(g.simEyes[1], back.Get(), bd, context, halfW, halfW, false, true);
+    g.status.copyMode = mode ? mode : "-";
+    auto shots = std::move(g.eyeShots);
+    g.eyeShots.clear();
+    for (auto& s : shots) {
+        const std::string r = fmt::format("eyeshot {}; {}; copy {}",
+            d3d::screenshot::SaveTexture(g.simEyes[0].Texture(), g.device, context, s.name + "_l", 0),
+            d3d::screenshot::SaveTexture(g.simEyes[1].Texture(), g.device, context, s.name + "_r", 0),
+            g.status.copyMode);
+        TT2VR_LOG_INFO("{}", r);
+        if (s.done) {
+            s.done(r);
+        }
+    }
 }
 
 // Menu screen (Phase 3 interim): the whole flat frame on a quad fixed in LOCAL space in front of the recentered head.
@@ -983,6 +1077,12 @@ void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, const H
         g.status.presentation = !g.rendered ? "screen" : g.sideBySide ? "stereo" : "head-tracked";
         g.status.hudLayer = g.rendered && g.sideBySide && hud.black && hud.white;
         g.frameOpen = false;
+        if (g.rendered && g.sideBySide && swapChain && context && !g.simEyesFailed) {
+            WriteSimulatedEyes(swapChain, context);
+        }
+        else {
+            g.status.copyMode = "-";
+        }
         return;
     }
     try {
@@ -1198,6 +1298,29 @@ Status GetStatus()
     Status s = g.status;
     s.running = g.running;
     return s;
+}
+
+std::uint32_t RenderEyeSize(std::uint32_t eyeSize)
+{
+    const float scale = core::GetConfig().xr.render_scale;
+    if (scale >= 1.0f) {
+        return eyeSize;
+    }
+    return static_cast<std::uint32_t>(std::lround(static_cast<float>(eyeSize) * scale)) & ~1u;
+}
+
+void RequestEyeShot(std::string name, std::function<void(const std::string&)> done)
+{
+    if (!g.simulated) {
+        if (done) {
+            done("eyeshot FAILED: simulated headset only (test mode)");
+        }
+        return;
+    }
+    if (name.empty()) {
+        name = "eye";
+    }
+    g.eyeShots.push_back({std::move(name), std::move(done)});
 }
 
 } // namespace xr

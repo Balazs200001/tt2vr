@@ -74,6 +74,12 @@ enabled = true
 # Eye image size = the runtime's recommended size times this (0.25..2.0). The game renders at this size too
 # (force_render_size below), so lowering it is the main performance knob.
 resolution_scale = 1.0
+# The game renders each eye at this fraction of the eye image size (0.5..1.0) and AMD FidelityFX Super Resolution 1
+# (FSR1) upscales and sharpens it to the full size: costs less GPU time than a lower resolution_scale for a sharper
+# image. 1.0 = off (no upscaling). Changing it while the game runs resizes the game's render targets once.
+render_scale = 1.0
+# FSR1 sharpening (0..2): 0 = strongest, 2 = mild. Only used while render_scale is below 1.
+fsr_sharpness = 0.2
 # While the headset session runs, present the desktop window without VSync; the headset paces the frames instead.
 desktop_vsync_off = true
 # Show the game on the desktop window while the headset session runs. The game renders each frame once either way

@@ -61,6 +61,8 @@ struct Config {
     struct Xr {
         bool enabled = true; // start OpenXR when a runtime and headset are available (Phase 3)
         float resolution_scale = 1.0f; // eye swapchain size = runtime recommendation * this, clamp 0.25..2.0
+        float render_scale = 1.0f; // PLAN 9e: game renders each eye at this fraction of it, FSR1 upscales, 0.5..1
+        float fsr_sharpness = 0.2f; // PLAN 9e: FSR1 RCAS sharpening in stops (0 = strongest, 2 = mild), 0..2
         bool desktop_vsync_off = true; // Present with sync interval 0 while the XR session runs (xrWaitFrame paces)
         bool desktop_mirror = true; // false: skip the desktop Present while the XR session runs (window freezes)
         bool menu_screen = true; // menus / pause: show the flat game on a world-fixed screen instead of head tracking

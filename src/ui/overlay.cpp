@@ -302,8 +302,9 @@ void XrSection()
         ImGui::Text("eye %ux%u (recommended %ux%u)  format %d", st.eyeW, st.eyeH, st.recommendedW, st.recommendedH,
             st.format);
         ImGui::Text("back buffer %ux%u -> %s", st.backBufferW, st.backBufferH, st.copyMode);
-        const std::uint32_t expectedW = st.eyeW * (game::SplitViewAvailable() ? 2u : 1u); // eyes side by side
-        if (st.backBufferW != 0 && (st.backBufferW != expectedW || st.backBufferH != st.eyeH)) {
+        // Eyes side by side, at [xr] render_scale.
+        const std::uint32_t expectedW = xr::RenderEyeSize(st.eyeW) * (game::SplitViewAvailable() ? 2u : 1u);
+        if (st.backBufferW != 0 && (st.backBufferW != expectedW || st.backBufferH != xr::RenderEyeSize(st.eyeH))) {
             ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "image is stretched (render size forcing %s)",
                 !core::GetConfig().xr.force_render_size ? "off in config"
                 : game::RenderSizeHookActive()          ? "pending or not applied, see log"
