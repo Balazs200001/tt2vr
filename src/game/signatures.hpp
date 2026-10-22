@@ -109,6 +109,7 @@ enum class Sig {
     AbstractTerrainInstance,
     TerrainManage,
     GenericStringEnumCopy,
+    RenderLayerExecuteDrawPass,
     Count,
 };
 
@@ -466,6 +467,12 @@ inline constexpr Signature kSignatures[] = {
     // Test mode only, game::TestRider ("ai on|off").
     {"GenericStringEnum::GenericStringEnum(const GenericStringEnum&)", "??0GenericStringEnum@Core@PlayAll@@QEAA@AEBV012@@Z",
         nullptr, 0, "export; 0x140404150: shallow copy {vptr, value +8, enumeration +0x10, count +0x18}", kBuild4989319},
+    // PLAN 9 lens visibility mask, game::LensMask (renderer.md 13).
+    {"RenderLayerDX11 DrawPass executor", nullptr,
+        "48 89 4C 24 08 53 55 56 57 41 54 41 55 41 57 48 83 EC 70 4D 8B E8 4C 8B FA 48 8B E9 E8", 0,
+        "TT2 code, not exported; 0x14094aab0 (RenderLayerDX11*, ContextWrapper*, DrawPass*): RenderLayerDX11 vtable "
+        "+0x80 -> FUN_14094ad70 -> here; pass setup (FUN_1409480f0: viewport, clear, OM) then the pass's draw commands",
+        kBuild4989319},
 };
 
 static_assert(std::size(kSignatures) == static_cast<std::size_t>(Sig::Count), "kSignatures must match Sig");

@@ -6,6 +6,7 @@
 #include "core/test_mode.hpp"
 #include "game/engine_layout.hpp"
 #include "game/gpu_timers.hpp"
+#include "game/lens_mask.hpp"
 #include "game/signatures.hpp"
 
 #include <spdlog/fmt/fmt.h>
@@ -128,6 +129,7 @@ void HookedDraw(void* layer, void* pass)
             return;
         }
     }
+    LensMaskOnRecord(pass, GpuTimersOpenView()); // before the pass can run (immediate branch)
     Timed<Kind::Draw>(g_draw, layer, pass, kDrawPassName);
 }
 void HookedDispatch(void* layer, void* pass)

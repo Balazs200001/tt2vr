@@ -202,10 +202,16 @@ std::string VrEffectCommand(const std::string& arg)
         return fmt::format("vreffect render scale {:.2f} sharpness {:.2f} (saved to user.toml, as from the VR tab)",
             c.xr.render_scale, c.xr.fsr_sharpness);
     }
-    if ((name != "fxaa" && name != "vignette" && name != "occlusion") || (value != "on" && value != "off")) {
-        return "vreffect FAILED: use vreffect <fxaa|vignette|occlusion> <on|off>, render <scale> or sharpness <stops>";
+    if ((name != "fxaa" && name != "vignette" && name != "occlusion" && name != "mask" && name != "depth") ||
+        (value != "on" && value != "off")) {
+        return "vreffect FAILED: use vreffect <fxaa|vignette|occlusion|mask|depth> <on|off>, render <scale> or "
+               "sharpness <stops>";
     }
-    (name == "fxaa" ? c.xr.fxaa : name == "vignette" ? c.xr.vignette : c.xr.occlusion) = value == "on";
+    (name == "fxaa"       ? c.xr.fxaa
+        : name == "vignette" ? c.xr.vignette
+        : name == "mask"     ? c.xr.visibility_mask
+        : name == "depth"    ? c.xr.depth_submit
+                             : c.xr.occlusion) = value == "on";
     core::SetConfig(c);
     g_fxaaLogged = false;
     if (name == "occlusion") {
