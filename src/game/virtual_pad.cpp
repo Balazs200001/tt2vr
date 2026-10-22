@@ -3,6 +3,7 @@
 #include "core/hooks.hpp"
 #include "core/log.hpp"
 #include "core/test_mode.hpp"
+#include "game/signatures.hpp"
 
 #include <spdlog/fmt/fmt.h>
 
@@ -235,6 +236,35 @@ void* Export(HMODULE module, const char* name)
     return module ? reinterpret_cast<void*>(GetProcAddress(module, name)) : nullptr;
 }
 
+// The game makes an XInput pad slot only for a DirectInput game controller that passes InputDriverPC::IsXInputDevice
+// (a WMI 'IG_' check), then reads XInput for the first user whose GetCapabilities succeeds. With only a wheel and
+// pedals connected (no physical XInput device), no slot exists and the virtual pad is never read. Test mode: the
+// first non-XInput device enumerated is reported as XInput, so it becomes the slot of user 0 (the virtual pad); a
+// real XInput device, if any, keeps the normal path. Thread: game main thread (input enumeration).
+using IsXInputDeviceFn = bool (*)(const GUID* product);
+IsXInputDeviceFn g_isXInputDevice = nullptr;
+bool g_realXInput = false;
+unsigned long g_promoted = 0; // guidProduct.Data1 (PID << 16 | VID) of the device taken for the virtual pad
+
+bool HookedIsXInputDevice(const GUID* product)
+{
+    const bool real = g_isXInputDevice(product);
+    if (real) {
+        g_realXInput = true;
+        return true;
+    }
+    if (!product || g_realXInput || (g_promoted != 0 && g_promoted != product->Data1)) {
+        return false;
+    }
+    if (g_promoted == 0) {
+        g_promoted = product->Data1;
+        TT2VR_LOG_INFO("virtual pad: no XInput device connected; DirectInput device {:08x} becomes the virtual pad's "
+                       "slot (test mode)",
+            product->Data1);
+    }
+    return true;
+}
+
 } // namespace
 
 void InstallVirtualPad()
@@ -259,6 +289,13 @@ void InstallVirtualPad()
         TT2VR_LOG_ERROR("virtual pad: XInput hooks failed (xinput1_3.dll {}); pad scripts will not reach the game",
             xinput ? "found" : "missing");
         return;
+    }
+    ResolveSignatures();
+    if (void* isXInput = SignatureAddress(Sig::InputIsXInputDevice)) {
+        if (core::hooks::Create("InputDriverPC::IsXInputDevice", isXInput, &HookedIsXInputDevice, &g_isXInputDevice) !=
+            Result::Ok) {
+            TT2VR_LOG_WARN("virtual pad: IsXInputDevice not hooked; with only a wheel connected the pad is ignored");
+        }
     }
     TT2VR_LOG_INFO("virtual pad: TEST MODE, XInput user {} is the scripted pad", kPadUser);
 }
