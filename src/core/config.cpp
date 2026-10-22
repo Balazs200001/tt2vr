@@ -368,6 +368,8 @@ void ReadDebug(const toml::table& t, Config::Debug& out, Warnings& w)
             }
         } else if (key == "input_log") {
             s.Bool(key, node, out.input_log);
+        } else if (key == "flash_detect") {
+            s.Bool(key, node, out.flash_detect);
         } else {
             s.Warn(key, "unknown key, ignored", node);
         }

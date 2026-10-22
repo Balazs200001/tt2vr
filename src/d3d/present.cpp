@@ -16,6 +16,7 @@
 #include "core/log.hpp"
 #include "core/paths.hpp"
 #include "d3d/context_hooks.hpp"
+#include "d3d/flash_detector.hpp"
 #include "d3d/frame_trace.hpp"
 #include "d3d/internal.hpp"
 #include "d3d/renderdoc.hpp"
@@ -246,6 +247,9 @@ void RunCommands()
                 break;
             case core::CommandKind::Screenshot:
                 screenshot::Request(cmd.arg, [done, origin](const std::string& r) { AddResult(origin, r); done(r); });
+                break;
+            case core::CommandKind::FlashTest:
+                game::RequestFlashTest([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;
             case core::CommandKind::EyeShot:
                 xr::RequestEyeShot(cmd.arg, [done, origin](const std::string& r) { AddResult(origin, r); done(r); });
@@ -548,6 +552,7 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
             trace::End(g_frame);
             dump::End(g_frame, self);
             screenshot::OnPresent(self, g_device, g_immediate); // the engine's frame, before eyes and mirror
+            flash::OnPresent(self, g_device, g_immediate, game::SplitViewActive(), game::TaaResetCount());
             game::OnTaaPresent(self, g_device, g_immediate); // reads the engine's frame, before eyes and mirror
             game::OnHudFramePresent(g_immediate); // this frame's captured HUD, for the headset and the mirror
             const game::HudImage hud = game::CurrentHud();

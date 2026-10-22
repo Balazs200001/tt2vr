@@ -3,6 +3,7 @@
 #include "core/hooks.hpp"
 #include "core/log.hpp"
 #include "core/paths.hpp"
+#include "core/test_mode.hpp"
 #include "game/engine_layout.hpp"
 #include "game/gpu_timers.hpp"
 #include "game/signatures.hpp"
@@ -12,6 +13,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <map>
 #include <memory>
@@ -110,8 +112,22 @@ void Timed(PassFn original, void* layer, void* pass, std::ptrdiff_t nameAt)
     g_addEvent(layer, &slot->events[2 * i + 1], nullptr);
 }
 
+// Test mode "flashtest": the 'Opaque' and 'Alpha test' passes of one frame's views are not queued (a one-frame
+// scenery dropout, to check that d3d::flash catches one). Armed by the request, active for the next whole frame.
+enum class FlashTest { Idle, Armed, Dropping };
+FlashTest g_flashTest = FlashTest::Idle;
+int g_flashDropped = 0;
+std::function<void(const std::string&)> g_flashDone;
+
 void HookedDraw(void* layer, void* pass)
 {
+    if (g_flashTest == FlashTest::Dropping && pass && GpuTimersOpenView() >= 0) {
+        const char* name = Read<const char*>(pass, kDrawPassName);
+        if (name && (std::strcmp(name, "Opaque") == 0 || std::strcmp(name, "Alpha test") == 0)) {
+            ++g_flashDropped;
+            return;
+        }
+    }
     Timed<Kind::Draw>(g_draw, layer, pass, kDrawPassName);
 }
 void HookedDispatch(void* layer, void* pass)
@@ -255,6 +271,20 @@ void InstallPassProfiler()
     }
 }
 
+void RequestFlashTest(std::function<void(const std::string&)> done)
+{
+    if (!core::TestMode()) {
+        done("flashtest FAILED: test mode only (-tt2vr-test)");
+        return;
+    }
+    if (!g_installed || g_flashTest != FlashTest::Idle) {
+        done(g_installed ? "flashtest FAILED: one is already running" : "flashtest FAILED: pass hooks not installed");
+        return;
+    }
+    g_flashDone = std::move(done);
+    g_flashTest = FlashTest::Armed;
+}
+
 void RequestPassProfile(int frames, std::function<void(const std::string&)> done)
 {
     if (!g_installed) {
@@ -275,6 +305,20 @@ void PassProfilerPresent(ID3D11Device* device, ID3D11DeviceContext* immediate)
 {
     if (!g_installed || !device || !immediate) {
         return;
+    }
+    if (g_flashTest == FlashTest::Dropping) {
+        g_flashTest = FlashTest::Idle;
+        const std::string r = fmt::format("flashtest ok: {} 'Opaque' / 'Alpha test' passes dropped in frame {}",
+            g_flashDropped, g_frame);
+        TT2VR_LOG_INFO("{}", r);
+        if (auto done = std::move(g_flashDone)) {
+            g_flashDone = nullptr;
+            done(r);
+        }
+    }
+    else if (g_flashTest == FlashTest::Armed) {
+        g_flashTest = FlashTest::Dropping; // the frame that starts now
+        g_flashDropped = 0;
     }
     ++g_frame;
     // The frame that ends here: close its disjoint bracket.

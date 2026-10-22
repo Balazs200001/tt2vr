@@ -26,5 +26,8 @@ void InstallPassProfiler();
 void RequestPassProfile(int frames, std::function<void(const std::string&)> done);
 // Thread: game main thread, Present post-hook (inside the engine's immediate-context lock).
 void PassProfilerPresent(ID3D11Device* device, ID3D11DeviceContext* immediate);
+// Test mode "flashtest": the next frame is recorded without its 'Opaque' and 'Alpha test' passes (a one-frame
+// scenery dropout for checking d3d::flash). Main thread.
+void RequestFlashTest(std::function<void(const std::string&)> done);
 
 } // namespace game

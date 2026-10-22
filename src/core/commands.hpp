@@ -34,6 +34,7 @@ enum class CommandKind {
     VrEffect,         // "vreffect <fxaa|vignette> <on|off>": switch a VR-only post effect at runtime (A/B, PLAN 9c);
                       // "vreffect render <scale>" / "sharpness <stops>": FSR1 render scale (PLAN 9e)
     EyeShot,          // "eyeshot [name]": test mode, both simulated eye images after the eye copy, full size
+    FlashTest,        // "flashtest": test mode, one frame without its opaque passes (game::RequestFlashTest)
     Unknown,
 };
 

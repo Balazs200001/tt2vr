@@ -63,6 +63,7 @@ bool SameConfig(const Config& a, const Config& b)
            a.capture.include_depth == b.capture.include_depth && a.capture.cb_floats == b.capture.cb_floats &&
            a.commands.enabled == b.commands.enabled && a.commands.poll_frames == b.commands.poll_frames &&
            a.debug.fake_exe_sha256 == b.debug.fake_exe_sha256 && a.debug.input_log == b.debug.input_log &&
+           a.debug.flash_detect == b.debug.flash_detect &&
            a.hud.enabled == b.hud.enabled && a.hud.pixels == b.hud.pixels && a.hud.aspect == b.hud.aspect && a.hud.spread == b.hud.spread &&
            a.hud.distance == b.hud.distance && a.hud.width == b.hud.width && a.hud.height == b.hud.height &&
            a.hud.tilt == b.hud.tilt && a.hud.follow == b.hud.follow && a.hud.desktop == b.hud.desktop;

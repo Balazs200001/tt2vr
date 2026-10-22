@@ -56,6 +56,7 @@ bool g_resetPending = false; // this frame: reset both eyes' TAA history
 bool g_fullReset = false; // ... and the other histories (froxel, previous camera, SSR); not for the convergence
                           // reference, which measures TAA alone
 bool g_resetNext = false;
+std::uint64_t g_resetCount = 0; // ResetNow calls (cuts, recenter, requests), for d3d::flash
 unsigned g_recenterSeen = 0;
 bool g_recenterInit = false;
 
@@ -615,6 +616,7 @@ void ResetNow(const std::string& why)
     if (!g_active) {
         return;
     }
+    ++g_resetCount;
     g_resetPending = true;
     g_fullReset = true;
     g_resetNext = true;
@@ -698,12 +700,18 @@ void OnTaaFrame(void* renderer, unsigned recenterCount)
     g_resetNext = false;
 }
 
+std::uint64_t TaaResetCount()
+{
+    return g_resetCount;
+}
+
 void RequestTaaReset(const char* reason)
 {
     if (!g_active) {
         return;
     }
     g_resetNext = true;
+    ++g_resetCount;
     TT2VR_LOG_INFO("taa: history reset for both eyes ({})", reason);
 }
 

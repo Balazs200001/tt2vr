@@ -195,3 +195,7 @@ fake_exe_sha256 = ""
 # [debug] Log every foreground-window change and, once per second, each XInput pad's sticks/triggers/buttons and
 # whether the game window has focus (to diagnose lost steering input). Read-only; off by default.
 input_log = false
+# [debug] Watch the rendered eye images for single-frame glitches (a frame unlike both its neighbours while those
+# agree, e.g. scenery missing for one frame) while riding in the headset: each one is logged and saved as a strip of
+# small images (before, glitch, after) in captures\flashes. About 0.1 ms GPU and 0.3 ms CPU per frame. Off by default.
+flash_detect = false

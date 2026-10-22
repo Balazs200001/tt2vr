@@ -57,6 +57,8 @@ void OnTaaLoopRender(void* renderLoop);
 void OnTaaViewPrepared(void* renderLoop, void* renderContext);
 // Thread: game main thread.
 void RequestTaaReset(const char* reason);
+// History resets so far (camera cuts, recenter, requests). Main thread.
+std::uint64_t TaaResetCount();
 // Remote "leaktest [taa|ssr|froxel]" (default taa): eye 0's history of that row is tinted red once; pass = eye 1 does
 // not change (invariant T2).
 void RequestLeakTest(const std::string& row, std::function<void(const std::string&)> done);

@@ -110,6 +110,7 @@ struct Config {
     struct Debug {
         std::string fake_exe_sha256; // non-empty: pretend TT2.exe has this hash (tests the unknown-version path)
         bool input_log = false; // log focus changes and XInput pad state once per second (diagnostics, read-only)
+        bool flash_detect = false; // log (and save thumbnails of) single-frame glitches in the rendered eyes
     } debug;
 };
 
