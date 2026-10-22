@@ -56,6 +56,11 @@ public:
     enum class View { Raw, Motion, Depth };
     bool Visualize(ID3D11DeviceContext* context, ID3D11ShaderResourceView* source, ID3D11RenderTargetView* target,
         UINT width, UINT height, View view);
+    // FSR1 (PLAN 9e, AMD FidelityFX FSR 1.0): upscales the source columns [srcX, srcX + srcW) x full height to the
+    // whole target (dstW x dstH) with EASU, then sharpens with RCAS (sharpness in stops, 0 = strongest). Decode and
+    // copySource as in Blit; output alpha 1. False when the FSR shaders are unavailable (the caller falls back to Blit).
+    bool Fsr(ID3D11DeviceContext* context, ID3D11Texture2D* source, UINT srcX, UINT srcW,
+        ID3D11RenderTargetView* target, UINT dstW, UINT dstH, bool decode, float sharpness, bool copySource = true);
     void Release();
 
 private:
@@ -74,6 +79,14 @@ private:
     ComPtr<ID3D11PixelShader> m_psMotion;
     ComPtr<ID3D11PixelShader> m_psDepth;
     ComPtr<ID3D11PixelShader> m_psMatte;
+    ComPtr<ID3D11PixelShader> m_psEasu;
+    ComPtr<ID3D11PixelShader> m_psRcas;
+    ComPtr<ID3D11Buffer> m_fsrCb; // four uint4 FSR constants, then uint4 {decode, 0, 0, 0}
+    // EASU output = RCAS input (dstW x dstH, gamma-encoded values like the back buffer).
+    ComPtr<ID3D11Texture2D> m_fsrMid;
+    ComPtr<ID3D11ShaderResourceView> m_fsrMidSrv;
+    ComPtr<ID3D11RenderTargetView> m_fsrMidRtv;
+    UINT m_fsrMidW = 0, m_fsrMidH = 0;
     ComPtr<ID3D11BlendState> m_blendAlpha;
     ComPtr<ID3D11BlendState> m_blendOver;
     ComPtr<ID3D11SamplerState> m_sampler;
