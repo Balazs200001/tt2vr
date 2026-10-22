@@ -88,6 +88,9 @@ void EndHeadCenterView(void* viewContext);
 // sets the horizon lock, "shake <0..100>" the shake and speed noise share. Returns the result line.
 std::string ComfortCommand(const std::string& arg);
 
+// The local player's TT2 camera controller (TTCamera, last seen in its physics step), or nullptr. Main thread.
+const void* LocalRiderCamera();
+
 // Multi-line description of LastCameraInfo for the log, and a one-line summary for remote requests.
 std::string DescribeCamera();
 std::string CameraSummary();

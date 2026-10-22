@@ -35,6 +35,7 @@ enum class CommandKind {
                       // "vreffect render <scale>" / "sharpness <stops>": FSR1 render scale (PLAN 9e)
     EyeShot,          // "eyeshot [name]": test mode, both simulated eye images after the eye copy, full size
     FlashTest,        // "flashtest": test mode, one frame without its opaque passes (game::RequestFlashTest)
+    AiRider,          // "ai on|off": test mode, the local rider ridden by the game's AI (game::AiRiderCommand)
     Unknown,
 };
 

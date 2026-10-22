@@ -116,6 +116,10 @@ std::vector<Command> ParseCommands(std::string_view text)
             c.kind = CommandKind::Screenshot;
             c.arg = SafeName(arg);
         }
+        else if (word == "ai") {
+            c.kind = CommandKind::AiRider;
+            c.arg = Lower(arg);
+        }
         else if (word == "flashtest") {
             c.kind = CommandKind::FlashTest;
         }

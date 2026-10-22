@@ -42,6 +42,7 @@
 #include "game/ssao_fix.hpp"
 #include "game/taa_control.hpp"
 #include "game/temporal_debug.hpp"
+#include "game/test_rider.hpp"
 #include "game/virtual_pad.hpp"
 #include "game/version.hpp"
 #include "game/vr_effects.hpp"
@@ -249,6 +250,12 @@ void RunCommands()
             case core::CommandKind::Screenshot:
                 screenshot::Request(cmd.arg, [done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;
+            case core::CommandKind::AiRider: {
+                const std::string r = game::AiRiderCommand(cmd.arg);
+                AddResult(origin, r);
+                done(r);
+                break;
+            }
             case core::CommandKind::FlashTest:
                 game::RequestFlashTest([done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;

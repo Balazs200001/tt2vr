@@ -868,6 +868,11 @@ void OnPresent()
     g_head = false;
 }
 
+const void* LocalRiderCamera()
+{
+    return g_riderCamera.load(std::memory_order_relaxed);
+}
+
 std::string ComfortCommand(const std::string& arg)
 {
     std::istringstream in(arg);
