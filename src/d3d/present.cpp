@@ -12,6 +12,8 @@
 
 #include "core/commands.hpp"
 #include "core/config.hpp"
+#include "core/crash_handler.hpp"
+#include "core/test_mode.hpp"
 #include "core/hooks.hpp"
 #include "core/log.hpp"
 #include "core/paths.hpp"
@@ -250,6 +252,15 @@ void RunCommands()
             case core::CommandKind::Screenshot:
                 screenshot::Request(cmd.arg, [done, origin](const std::string& r) { AddResult(origin, r); done(r); });
                 break;
+            case core::CommandKind::CrashTest:
+                if (!core::TestMode()) {
+                    const std::string r = "crashtest FAILED: test mode only (-tt2vr-test)";
+                    AddResult(origin, r);
+                    done(r);
+                    break;
+                }
+                core::CrashForTest();
+                break;
             case core::CommandKind::AiRider: {
                 const std::string r = game::AiRiderCommand(cmd.arg);
                 AddResult(origin, r);
@@ -398,6 +409,7 @@ void InstallEngineHooksOnce()
         return;
     }
     s_done = true;
+    core::InstallCrashHandler(); // after the game's CrashRpt filter, which it then calls
     if (game::EngineHooksAllowed()) {
         game::InstallCameraHooks(); // resolves the signature table
         game::InitMenuState();

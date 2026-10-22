@@ -36,6 +36,7 @@ enum class CommandKind {
     EyeShot,          // "eyeshot [name]": test mode, both simulated eye images after the eye copy, full size
     FlashTest,        // "flashtest": test mode, one frame without its opaque passes (game::RequestFlashTest)
     AiRider,          // "ai on|off": test mode, the local rider ridden by the game's AI (game::AiRiderCommand)
+    CrashTest,        // "crashtest": test mode, crash the process to check the crash handler (core::CrashForTest)
     Unknown,
 };
 
