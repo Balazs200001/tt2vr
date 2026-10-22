@@ -461,6 +461,11 @@ bool TemporalViewsShown()
     return g_shown;
 }
 
+ID3D11ShaderResourceView* EyeDepthView(int eye)
+{
+    return ViewOf(EyeDepthTexture(eye));
+}
+
 ID3D11Texture2D* EyeDepthTexture(int eye)
 {
     return g_renderLoop && (eye == 0 || eye == 1)

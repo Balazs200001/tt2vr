@@ -41,6 +41,8 @@ bool TemporalViewsShown();
 // Eye `eye`'s 'Last Frame Depth' (R32_FLOAT; at Present it holds this frame's depth), or nullptr outside two-view
 // renders. Main thread.
 ID3D11Texture2D* EyeDepthTexture(int eye);
+// The same as a shader resource view (R32_FLOAT), or nullptr. Main thread.
+ID3D11ShaderResourceView* EyeDepthView(int eye);
 void SetFreezeRightHistory(bool freeze);
 bool FreezeRightHistory();
 // Thumbnail of eye `eye` (0 = left), or nullptr; width / height of the thumbnails.

@@ -80,6 +80,26 @@ float4 PSDepth(V i) : SV_Target
 {
     return float4(saturate(1.0 + log10(max(src.Sample(smp, i.uv).r, 1e-7)) / 6.0).xxx, 1);
 }
+// Depth submission: dp0 = (s, split, near, far), dp1 = (front near, front far, out near, out far), dp2.x = world scale.
+cbuffer DepthCb : register(b0) { float4 dp0; float4 dp1; float4 dp2; };
+float PSEyeDepth(V i) : SV_Depth
+{
+    float stored = src.SampleLevel(smp, i.uv, 0).r; // point sampler bound for this pass
+    if (stored <= 0.0) {
+        return 0.0; // nothing drawn: far
+    }
+    float s = dp0.x;
+    float z;
+    if (dp0.y > 0.5 && stored >= 1.0 - s) {
+        float d = (stored - (1.0 - s)) / s; // front pass
+        z = dp1.x * dp1.y / (dp1.x + d * (dp1.y - dp1.x));
+    } else {
+        float d = dp0.y > 0.5 ? stored / (1.0 - s) : stored;
+        z = dp0.z * dp0.w / (dp0.z + d * (dp0.w - dp0.z));
+    }
+    z = max(z / dp2.x, 1e-4); // real metres
+    return saturate(dp1.z * (dp1.w - z) / (z * (dp1.w - dp1.z)));
+}
 float4 PSMatte(V i) : SV_Target
 {
     // The same image over black (t0) = C and over white (t1) = C + (1 - a), linear and premultiplied: a = 1 - (W - B).
@@ -366,6 +386,32 @@ bool Blitter::Init(ID3D11Device* device)
         Release();
         return false;
     }
+    // Depth submission is optional too (PLAN 9f).
+    const auto psEyeDepth = Compile("PSEyeDepth", "ps_5_0");
+    D3D11_BUFFER_DESC dcb{};
+    dcb.ByteWidth = 3 * 16;
+    dcb.Usage = D3D11_USAGE_DEFAULT;
+    dcb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    D3D11_DEPTH_STENCIL_DESC dw{};
+    dw.DepthEnable = TRUE;
+    dw.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+    dw.DepthFunc = D3D11_COMPARISON_ALWAYS;
+    D3D11_SAMPLER_DESC ps{};
+    ps.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+    ps.AddressU = ps.AddressV = ps.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+    ps.MaxLOD = D3D11_FLOAT32_MAX;
+    if (!psEyeDepth ||
+        FAILED(device->CreatePixelShader(psEyeDepth->GetBufferPointer(), psEyeDepth->GetBufferSize(), nullptr,
+            &m_psEyeDepth)) ||
+        FAILED(device->CreateBuffer(&dcb, nullptr, &m_depthCb)) ||
+        FAILED(device->CreateDepthStencilState(&dw, &m_depthWrite)) ||
+        FAILED(device->CreateSamplerState(&ps, &m_pointSampler))) {
+        TT2VR_LOG_WARN("blit: eye depth shader unavailable; no depth submission");
+        m_psEyeDepth.Reset();
+        m_depthCb.Reset();
+        m_depthWrite.Reset();
+        m_pointSampler.Reset();
+    }
     // FSR1 is optional: without it Fsr() returns false and render_scale < 1 falls back to a bilinear stretch.
     const auto psEasu = CompileFsr("PSEasu");
     const auto psRcas = CompileFsr("PSRcas");
@@ -563,6 +609,47 @@ bool Blitter::Fsr(ID3D11DeviceContext* context, ID3D11Texture2D* source, UINT sr
     return true;
 }
 
+bool Blitter::EyeDepth(ID3D11DeviceContext* context, ID3D11ShaderResourceView* source, ID3D11DepthStencilView* target,
+    UINT width, UINT height, const DepthDecode& decode)
+{
+    if (!m_ready || !m_psEyeDepth || !context || !source || !target || width == 0 || height == 0) {
+        return false;
+    }
+    InternalScope internal;
+    const float cb[12] = {decode.frontShare, decode.split ? 1.0f : 0.0f, decode.nearZ, decode.farZ, decode.frontNearZ,
+        decode.frontFarZ, decode.outNearZ, decode.outFarZ, decode.worldScale > 0.0f ? decode.worldScale : 1.0f, 0, 0, 0};
+    StateBackup backup(context);
+    ID3D11Buffer* savedCb = nullptr; // StateBackup does not cover constant buffers
+    context->PSGetConstantBuffers(0, 1, &savedCb);
+    context->UpdateSubresource(m_depthCb.Get(), 0, nullptr, cb, 0, 0);
+    const D3D11_VIEWPORT vp{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f};
+    const D3D11_RECT scissor{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+    context->IASetInputLayout(nullptr);
+    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    context->VSSetShader(m_vs.Get(), nullptr, 0);
+    context->PSSetShader(m_psEyeDepth.Get(), nullptr, 0);
+    context->GSSetShader(nullptr, nullptr, 0);
+    context->HSSetShader(nullptr, nullptr, 0);
+    context->DSSetShader(nullptr, nullptr, 0);
+    context->RSSetState(m_raster.Get());
+    context->RSSetViewports(1, &vp);
+    context->RSSetScissorRects(1, &scissor);
+    context->OMSetRenderTargets(0, nullptr, target);
+    context->OMSetBlendState(m_blend.Get(), nullptr, 0xffffffff);
+    context->OMSetDepthStencilState(m_depthWrite.Get(), 0);
+    context->PSSetShaderResources(0, 1, &source);
+    context->PSSetSamplers(0, 1, m_pointSampler.GetAddressOf());
+    context->PSSetConstantBuffers(0, 1, m_depthCb.GetAddressOf());
+    context->Draw(3, 0);
+    ID3D11ShaderResourceView* none = nullptr;
+    context->PSSetShaderResources(0, 1, &none);
+    context->PSSetConstantBuffers(0, 1, &savedCb);
+    if (savedCb) {
+        savedCb->Release();
+    }
+    return true;
+}
+
 bool Blitter::Composite(ID3D11DeviceContext* context, ID3D11ShaderResourceView* source, ID3D11RenderTargetView* target,
     const D3D11_VIEWPORT& dst)
 {
@@ -690,6 +777,10 @@ bool Blitter::FillAlpha(ID3D11DeviceContext* context, ID3D11RenderTargetView* ta
 void Blitter::Release()
 {
     m_ready = false;
+    m_pointSampler.Reset();
+    m_depthWrite.Reset();
+    m_depthCb.Reset();
+    m_psEyeDepth.Reset();
     m_fsrMidRtv.Reset();
     m_fsrMidSrv.Reset();
     m_fsrMid.Reset();

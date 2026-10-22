@@ -7,6 +7,7 @@
 #include "d3d/present.hpp"
 #include "game/camera_noise.hpp"
 #include "game/cull_probe.hpp"
+#include "game/lens_mask.hpp"
 #include "game/engine_layout.hpp"
 #include "game/gpu_timers.hpp"
 #include "game/hud_capture.hpp"
@@ -697,6 +698,7 @@ void HookedLoopRender(void* renderLoop, void* renderDesc)
         OnSlotMirrorLoopRender(renderLoop, SplitViewActive()); // visor drops, crash grey for the right eye
         OnTemporalDebugLoopRender(renderLoop);
         CullProbeLoopBegin();
+        LensMaskLoopBegin(renderLoop);
     }
     GpuTimersLoopBegin(renderer);
     g_loopRender(renderLoop, renderDesc);
@@ -866,6 +868,44 @@ void OnPresent()
     g_helmetApply = g_helmetActive && (g_settings.viewEnabled || g_head) && g_settings.helmetFollows;
     g_helmetLocal = stereo::Mul(g_helmetFix, ViewLocal(-1)); // this frame's head, applied at the next physics step
     g_head = false;
+}
+
+bool EyeTangents(int eye, stereo::FovTangents& out)
+{
+    if (!g_head || eye < 0 || eye > 1) {
+        return false;
+    }
+    out = g_tan[eye].Load();
+    return out.right > out.left && out.up > out.down;
+}
+
+bool CurrentDepthDecode(d3d::DepthDecode& out)
+{
+    // ZFrontPass (renderer.md 12): RenderLoop+0x1118 = s (Lua Engine.Renderer.ZFrontPass.ZRange), +0x111c = enabled;
+    // the split applies while the camera's front pass is on (Camera+0x98).
+    constexpr std::ptrdiff_t kRenderLoopZRange = 0x1118, kRenderLoopZFrontEnable = 0x111c;
+    if (!g_head || !g_mainCamera || !g_renderer) {
+        return false;
+    }
+    void* loop = Read<void*>(g_renderer, kRendererRenderLoop);
+    if (!loop) {
+        return false;
+    }
+    const float s = Read<float>(loop, kRenderLoopZRange);
+    out.split = Read<std::uint8_t>(loop, kRenderLoopZFrontEnable) != 0 &&
+                Read<std::uint8_t>(g_mainCamera, kCameraFrontPass) != 0 && s > 0.0f && s < 1.0f;
+    out.frontShare = s;
+    out.nearZ = Read<float>(g_mainCamera, kCameraNear);
+    out.farZ = Read<float>(g_mainCamera, kCameraFar);
+    out.frontNearZ = Read<float>(g_mainCamera, kCameraFrontNear);
+    out.frontFarZ = Read<float>(g_mainCamera, kCameraFrontFar);
+    out.worldScale = g_settings.worldScale > 0.0f ? g_settings.worldScale : 1.0f;
+    if (!(out.nearZ > 0.0f) || !(out.farZ > out.nearZ) || (out.split && !(out.frontFarZ > out.frontNearZ && out.frontNearZ > 0.0f))) {
+        return false;
+    }
+    out.outNearZ = 0.05f;
+    out.outFarZ = std::max(out.farZ / out.worldScale, 100.0f);
+    return true;
 }
 
 const void* LocalRiderCamera()

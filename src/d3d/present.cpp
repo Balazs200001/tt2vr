@@ -30,6 +30,7 @@
 #include "game/cull_probe.hpp"
 #include "game/gpu_timers.hpp"
 #include "game/hud_capture.hpp"
+#include "game/lens_mask.hpp"
 #include "game/menu_state.hpp"
 #include "game/options_tab.hpp"
 #include "game/particle_medium.hpp"
@@ -422,6 +423,7 @@ void InstallEngineHooksOnce()
         game::InstallSkinMotion();
         game::InstallGpuTimers();
         game::InstallPassProfiler();
+        game::InstallLensMask(); // records through the pass profiler's draw hook
         game::InstallSharedShadows();
         game::InstallParticleMedium();
         game::InstallHudCapture();
@@ -580,7 +582,12 @@ HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* self, UINT sync, UINT fl
             const game::HudImage hud = game::CurrentHud();
             const auto t1 = Clock::now();
             // Before the overlay, so the overlay stays on the desktop.
-            xr::OnFrameEnd(self, g_immediate, {hud.black, hud.white, hud.width, hud.height, hud.menu, hud.aspect});
+            xr::DepthSource depth;
+            if (core::GetConfig().xr.depth_submit && game::SplitViewActive() && game::CurrentDepthDecode(depth.decode)) {
+                depth.eye[0] = game::EyeDepthView(0);
+                depth.eye[1] = game::EyeDepthView(1);
+            }
+            xr::OnFrameEnd(self, g_immediate, {hud.black, hud.white, hud.width, hud.height, hud.menu, hud.aspect}, depth);
             const auto t2 = Clock::now();
             xr::DrawDesktopMirror(self, g_immediate, g_window, hud.resolved, hud.aspect);
             game::EndHudFrame(g_immediate); // capture targets cleared for the next frame

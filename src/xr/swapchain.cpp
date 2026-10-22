@@ -19,6 +19,75 @@ DXGI_FORMAT ChooseSwapchainFormat(const std::vector<std::int64_t>& offered)
     return offered.empty() ? DXGI_FORMAT_UNKNOWN : static_cast<DXGI_FORMAT>(offered.front());
 }
 
+DXGI_FORMAT ChooseDepthFormat(const std::vector<std::int64_t>& offered)
+{
+    constexpr DXGI_FORMAT kPreferred[] = {DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_D16_UNORM, DXGI_FORMAT_D24_UNORM_S8_UINT,
+        DXGI_FORMAT_D32_FLOAT_S8X24_UINT};
+    for (const DXGI_FORMAT f : kPreferred) {
+        if (std::find(offered.begin(), offered.end(), static_cast<std::int64_t>(f)) != offered.end()) {
+            return f;
+        }
+    }
+    return DXGI_FORMAT_UNKNOWN;
+}
+
+bool EyeSwapchain::CreateDepth(XrInstance instance, XrSession session, ID3D11Device* device, DXGI_FORMAT format,
+    std::uint32_t width, std::uint32_t height, const char* name)
+{
+    Destroy();
+    XrSwapchainCreateInfo info{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+    info.usageFlags = XR_SWAPCHAIN_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    info.format = format;
+    info.sampleCount = 1;
+    info.width = width;
+    info.height = height;
+    info.faceCount = 1;
+    info.arraySize = 1;
+    info.mipCount = 1;
+    XrResult r = xrCreateSwapchain(session, &info, &m_swapchain);
+    if (XR_FAILED(r)) {
+        TT2VR_LOG_ERROR("xr: {} depth swapchain {}x{} format {} failed: {}", name, width, height,
+            static_cast<int>(format), ResultString(instance, r));
+        m_swapchain = XR_NULL_HANDLE;
+        return false;
+    }
+    std::uint32_t count = 0;
+    r = xrEnumerateSwapchainImages(m_swapchain, 0, &count, nullptr);
+    std::vector<XrSwapchainImageD3D11KHR> images(count, {XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR});
+    if (XR_SUCCEEDED(r) && count > 0) {
+        r = xrEnumerateSwapchainImages(m_swapchain, count, &count,
+            reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data()));
+    }
+    if (XR_FAILED(r) || count == 0 || !images[0].texture) {
+        TT2VR_LOG_ERROR("xr: {} depth swapchain has no images: {}", name, ResultString(instance, r));
+        Destroy();
+        return false;
+    }
+    D3D11_TEXTURE2D_DESC desc{};
+    images[0].texture->GetDesc(&desc);
+    m_width = width;
+    m_height = height;
+    m_format = format;
+    m_textureFormat = desc.Format;
+    for (const auto& image : images) {
+        D3D11_DEPTH_STENCIL_VIEW_DESC dd{};
+        dd.Format = format; // typeless images get the depth format the swapchain was created with
+        dd.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+        Microsoft::WRL::ComPtr<ID3D11DepthStencilView> dsv;
+        if (FAILED(device->CreateDepthStencilView(image.texture, &dd, &dsv))) {
+            TT2VR_LOG_ERROR("xr: {} depth swapchain: cannot create a depth-stencil view (format {})", name,
+                static_cast<int>(format));
+            Destroy();
+            return false;
+        }
+        m_textures.push_back(image.texture);
+        m_dsvs.push_back(dsv);
+    }
+    TT2VR_LOG_INFO("xr: {} depth swapchain {}x{} format {}, {} images, texture format {}", name, width, height,
+        static_cast<int>(format), count, static_cast<int>(desc.Format));
+    return true;
+}
+
 bool EyeSwapchain::Create(XrInstance instance, XrSession session, ID3D11Device* device, DXGI_FORMAT format,
     std::uint32_t width, std::uint32_t height, const char* name, bool srgbView)
 {
@@ -84,6 +153,7 @@ bool EyeSwapchain::Create(XrInstance instance, XrSession session, ID3D11Device* 
 
 void EyeSwapchain::Destroy()
 {
+    m_dsvs.clear();
     m_rtvs.clear();
     m_textures.clear();
     if (m_swapchain != XR_NULL_HANDLE) {

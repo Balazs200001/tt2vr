@@ -53,7 +53,8 @@ bool SameConfig(const Config& a, const Config& b)
            a.xr.visor_drops_shared == b.xr.visor_drops_shared && a.xr.fxaa == b.xr.fxaa &&
            a.xr.vignette == b.xr.vignette && a.xr.shadow_scale == b.xr.shadow_scale &&
            a.xr.render_scale == b.xr.render_scale && a.xr.fsr_sharpness == b.xr.fsr_sharpness &&
-           a.xr.occlusion == b.xr.occlusion &&
+           a.xr.occlusion == b.xr.occlusion && a.xr.visibility_mask == b.xr.visibility_mask &&
+           a.xr.depth_submit == b.xr.depth_submit &&
            SameHotkey(a.hotkeys.seat_forward, b.hotkeys.seat_forward) &&
            SameHotkey(a.hotkeys.seat_back, b.hotkeys.seat_back) && SameHotkey(a.hotkeys.seat_up, b.hotkeys.seat_up) &&
            SameHotkey(a.hotkeys.seat_down, b.hotkeys.seat_down) &&

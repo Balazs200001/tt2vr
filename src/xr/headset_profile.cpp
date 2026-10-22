@@ -47,6 +47,16 @@ HeadsetProfile LoadHeadsetProfile()
         else if (key == "ipd" && value >> read.ipd) {
             ++fields;
         }
+        else if (key == "left_mask" || key == "right_mask") {
+            std::vector<float>& m = read.mask[key == "left_mask" ? 0 : 1];
+            float v = 0.0f;
+            while (value >> v) {
+                m.push_back(v);
+            }
+            if (m.size() % 6 != 0) {
+                m.clear(); // whole triangles only
+            }
+        }
         else if ((key == "left_fov" || key == "right_fov")) {
             float* f = read.fov[key == "left_fov" ? 0 : 1];
             if (value >> f[0] >> f[1] >> f[2] >> f[3]) {
@@ -76,6 +86,16 @@ void SaveHeadsetProfile(const HeadsetProfile& p)
     for (int i = 0; i < 2; ++i) {
         out << fmt::format("{}_fov = {:.5f} {:.5f} {:.5f} {:.5f}\n", i == 0 ? "left" : "right", p.fov[i][0],
             p.fov[i][1], p.fov[i][2], p.fov[i][3]);
+    }
+    for (int i = 0; i < 2; ++i) {
+        if (p.mask[i].empty()) {
+            continue;
+        }
+        out << (i == 0 ? "left_mask =" : "right_mask =");
+        for (const float v : p.mask[i]) {
+            out << fmt::format(" {:.5f}", v);
+        }
+        out << "\n";
     }
     TT2VR_LOG_INFO("xr: headset profile saved ({}, {}x{}, ipd {:.4f} m)", p.system, p.recommendedW, p.recommendedH,
         p.ipd);

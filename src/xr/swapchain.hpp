@@ -18,6 +18,9 @@ namespace xr {
 // Picks the swapchain format from the runtime's list, in order: R8G8B8A8_UNORM_SRGB, B8G8R8A8_UNORM_SRGB,
 // R8G8B8A8_UNORM, B8G8R8A8_UNORM; else the runtime's first. Returns DXGI_FORMAT_UNKNOWN for an empty list.
 DXGI_FORMAT ChooseSwapchainFormat(const std::vector<std::int64_t>& offered);
+// Depth swapchain format (PLAN 9f): D32_FLOAT, D16_UNORM, D24_UNORM_S8_UINT, D32_FLOAT_S8X24_UINT in that order, or
+// DXGI_FORMAT_UNKNOWN if the runtime offers none of them.
+DXGI_FORMAT ChooseDepthFormat(const std::vector<std::int64_t>& offered);
 
 // Thread: game main thread.
 class EyeSwapchain {
@@ -26,6 +29,9 @@ public:
     // the hardware encodes, e.g. the HUD matte) instead of raw ones; Decode() is then true for every format.
     bool Create(XrInstance instance, XrSession session, ID3D11Device* device, DXGI_FORMAT format, std::uint32_t width,
         std::uint32_t height, const char* name, bool srgbView = false);
+    // A depth swapchain (PLAN 9f): a depth-stencil view per image instead of render target views.
+    bool CreateDepth(XrInstance instance, XrSession session, ID3D11Device* device, DXGI_FORMAT format,
+        std::uint32_t width, std::uint32_t height, const char* name);
     void Destroy();
     bool Valid() const { return m_swapchain != XR_NULL_HANDLE; }
 
@@ -33,7 +39,8 @@ public:
     bool Acquire(XrInstance instance);
     void Release(XrInstance instance);
     ID3D11Texture2D* Texture() const { return m_textures[m_index]; }
-    ID3D11RenderTargetView* Rtv() const { return m_rtvs[m_index].Get(); }
+    ID3D11RenderTargetView* Rtv() const { return m_rtvs.empty() ? nullptr : m_rtvs[m_index].Get(); }
+    ID3D11DepthStencilView* Dsv() const { return m_dsvs.empty() ? nullptr : m_dsvs[m_index].Get(); }
 
     XrSwapchain Handle() const { return m_swapchain; }
     std::uint32_t Width() const { return m_width; }
@@ -50,6 +57,7 @@ private:
     bool m_decode = false;
     std::vector<ID3D11Texture2D*> m_textures; // owned by the runtime
     std::vector<Microsoft::WRL::ComPtr<ID3D11RenderTargetView>> m_rtvs;
+    std::vector<Microsoft::WRL::ComPtr<ID3D11DepthStencilView>> m_dsvs;
     std::uint32_t m_index = 0;
 };
 

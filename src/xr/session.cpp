@@ -7,6 +7,8 @@
 #include "d3d/gpu_bracket.hpp"
 #include "d3d/internal.hpp"
 #include "d3d/screenshot.hpp"
+#include "stereo/math/lens_mask.hpp"
+#include "stereo/math/projection.hpp"
 #include "xr/headset_profile.hpp"
 #include "xr/openxr.hpp"
 #include "xr/swapchain.hpp"
@@ -82,6 +84,48 @@ struct SimEye {
     std::uint32_t width = 0, height = 0;
 };
 
+// Test mode: stand-in for an eye's depth swapchain image (D32, also readable), PLAN 9f.
+struct SimDepth {
+    bool Create(ID3D11Device* device, UINT w, UINT h)
+    {
+        dsv.Reset();
+        srv.Reset();
+        texture.Reset();
+        D3D11_TEXTURE2D_DESC d{};
+        d.Width = w;
+        d.Height = h;
+        d.MipLevels = 1;
+        d.ArraySize = 1;
+        d.Format = DXGI_FORMAT_R32_TYPELESS;
+        d.SampleDesc.Count = 1;
+        d.Usage = D3D11_USAGE_DEFAULT;
+        d.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+        D3D11_DEPTH_STENCIL_VIEW_DESC dd{};
+        dd.Format = DXGI_FORMAT_D32_FLOAT;
+        dd.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+        D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
+        sd.Format = DXGI_FORMAT_R32_FLOAT;
+        sd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        sd.Texture2D.MipLevels = 1;
+        if (FAILED(device->CreateTexture2D(&d, nullptr, &texture)) ||
+            FAILED(device->CreateDepthStencilView(texture.Get(), &dd, &dsv)) ||
+            FAILED(device->CreateShaderResourceView(texture.Get(), &sd, &srv))) {
+            dsv.Reset();
+            srv.Reset();
+            texture.Reset();
+            return false;
+        }
+        width = w;
+        height = h;
+        return true;
+    }
+    ComPtr<ID3D11Texture2D> texture;
+    ComPtr<ID3D11DepthStencilView> dsv;
+    ComPtr<ID3D11ShaderResourceView> srv;
+    UINT width = 0, height = 0;
+    bool written = false; // this frame
+};
+
 struct EyeShot {
     std::string name;
     std::function<void(const std::string&)> done;
@@ -138,6 +182,17 @@ struct State {
     Clock::time_point shakeStart{};
     SimEye simEyes[2];
     bool simEyesFailed = false;
+    SimDepth simDepth[2];
+    d3d::DepthDecode simDecode; // the last frame's, for the eyeshot depth probe
+
+    // Optional runtime extensions (enabled at instance creation when listed and wanted).
+    bool extDepth = false; // XR_KHR_composition_layer_depth
+    bool extMask = false; // XR_KHR_visibility_mask
+    PFN_xrGetVisibilityMaskKHR getVisibilityMask = nullptr;
+    std::vector<float> hiddenMesh[2]; // per eye, tangent space triangles
+    unsigned hiddenMeshVersion = 0;
+    EyeSwapchain depthEyes[2];
+    std::uint64_t depthFrames = 0;
 
     // PLAN 9d: CPU of the headset submit per part, and GPU of our own draws only (eye copies, HUD panel), summed until
     // the perf log takes them (TakeSubmitSummary).
@@ -248,6 +303,9 @@ void DestroySession()
     for (auto& eye : g.eyes) {
         eye.Destroy();
     }
+    for (auto& eye : g.depthEyes) {
+        eye.Destroy();
+    }
     g.screen.Destroy();
     g.hud.Destroy();
     if (g.view != XR_NULL_HANDLE) {
@@ -308,13 +366,27 @@ bool CreateInstance()
         StopFlat("the OpenXR runtime has no " XR_KHR_D3D11_ENABLE_EXTENSION_NAME);
         return false;
     }
-    const char* enabled[] = {XR_KHR_D3D11_ENABLE_EXTENSION_NAME};
+    const auto has = [&exts](const char* name) {
+        return std::any_of(exts.begin(), exts.end(),
+            [name](const XrExtensionProperties& e) { return std::strcmp(e.extensionName, name) == 0; });
+    };
+    const auto& xc = core::GetConfig().xr;
+    g.extDepth = xc.depth_submit && has(XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME);
+    g.extMask = xc.visibility_mask && has(XR_KHR_VISIBILITY_MASK_EXTENSION_NAME);
+    const char* enabled[3] = {XR_KHR_D3D11_ENABLE_EXTENSION_NAME};
+    std::uint32_t enabledCount = 1;
+    if (g.extDepth) {
+        enabled[enabledCount++] = XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME;
+    }
+    if (g.extMask) {
+        enabled[enabledCount++] = XR_KHR_VISIBILITY_MASK_EXTENSION_NAME;
+    }
     XrInstanceCreateInfo info{XR_TYPE_INSTANCE_CREATE_INFO};
     strcpy_s(info.applicationInfo.applicationName, "tt2vr");
     info.applicationInfo.applicationVersion = 1;
     strcpy_s(info.applicationInfo.engineName, "KT Engine");
     info.applicationInfo.apiVersion = XR_API_VERSION_1_0;
-    info.enabledExtensionCount = 1;
+    info.enabledExtensionCount = enabledCount;
     info.enabledExtensionNames = enabled;
     if (!Ok(xrCreateInstance(&info, &g.instance), "xrCreateInstance")) {
         g.instance = XR_NULL_HANDLE;
@@ -325,7 +397,12 @@ bool CreateInstance()
         g.status.runtime = fmt::format("{} {}.{}.{}", props.runtimeName, XR_VERSION_MAJOR(props.runtimeVersion),
             XR_VERSION_MINOR(props.runtimeVersion), XR_VERSION_PATCH(props.runtimeVersion));
     }
-    TT2VR_LOG_INFO("xr: instance created, runtime {}", g.status.runtime);
+    TT2VR_LOG_INFO("xr: instance created, runtime {}; depth layers {}, visibility mask {}", g.status.runtime,
+        g.extDepth ? "on" : "off", g.extMask ? "on" : "off");
+    if (g.extMask) {
+        xrGetInstanceProcAddr(g.instance, "xrGetVisibilityMaskKHR",
+            reinterpret_cast<PFN_xrVoidFunction*>(&g.getVisibilityMask));
+    }
     // PLAN Phase 9 (depth submission, refresh rate, space warp): what this runtime offers.
     std::string names;
     for (const XrExtensionProperties& e : exts) {
@@ -355,6 +432,48 @@ bool AdapterMatches(const LUID& required)
         static_cast<unsigned>(desc.AdapterLuid.HighPart), desc.AdapterLuid.LowPart,
         static_cast<unsigned>(required.HighPart), required.LowPart, same ? "match" : "MISMATCH");
     return same;
+}
+
+// XR_KHR_visibility_mask: each eye's hidden triangle mesh, expanded to a triangle list (tangent space).
+void FetchHiddenMeshes()
+{
+    if (!g.getVisibilityMask || g.session == XR_NULL_HANDLE) {
+        return;
+    }
+    for (std::uint32_t eye = 0; eye < 2; ++eye) {
+        XrVisibilityMaskKHR mask{XR_TYPE_VISIBILITY_MASK_KHR};
+        XrResult r = g.getVisibilityMask(g.session, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, eye,
+            XR_VISIBILITY_MASK_TYPE_HIDDEN_TRIANGLE_MESH_KHR, &mask);
+        std::vector<XrVector2f> vertices(mask.vertexCountOutput);
+        std::vector<std::uint32_t> indices(mask.indexCountOutput);
+        if (XR_SUCCEEDED(r) && !vertices.empty() && !indices.empty()) {
+            mask.vertexCapacityInput = static_cast<std::uint32_t>(vertices.size());
+            mask.vertices = vertices.data();
+            mask.indexCapacityInput = static_cast<std::uint32_t>(indices.size());
+            mask.indices = indices.data();
+            r = g.getVisibilityMask(g.session, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, eye,
+                XR_VISIBILITY_MASK_TYPE_HIDDEN_TRIANGLE_MESH_KHR, &mask);
+        }
+        std::vector<float> tris;
+        if (XR_SUCCEEDED(r)) {
+            for (std::uint32_t i = 0; i + 2 < mask.indexCountOutput; i += 3) {
+                for (std::uint32_t k = 0; k < 3; ++k) {
+                    const std::uint32_t v = indices[i + k];
+                    if (v < mask.vertexCountOutput) {
+                        tris.push_back(vertices[v].x);
+                        tris.push_back(vertices[v].y);
+                    }
+                }
+            }
+        }
+        if (tris.size() % 6 != 0) {
+            tris.clear();
+        }
+        TT2VR_LOG_INFO("xr: {} eye hidden-area mesh: {} triangles{}", eye == 0 ? "left" : "right", tris.size() / 6,
+            XR_SUCCEEDED(r) ? "" : fmt::format(" ({})", ResultString(g.instance, r)));
+        g.hiddenMesh[eye] = std::move(tris);
+    }
+    ++g.hiddenMeshVersion;
 }
 
 // xrGetSystem, graphics requirements, view configuration, session, LOCAL space, swapchains.
@@ -477,6 +596,21 @@ bool CreateSession()
     g.status.eyeH = h;
     g.status.format = static_cast<int>(format);
     g.format = format;
+    if (g.extDepth) {
+        const DXGI_FORMAT depthFormat = ChooseDepthFormat(formats);
+        bool ok = depthFormat != DXGI_FORMAT_UNKNOWN;
+        for (int eye = 0; ok && eye < 2; ++eye) {
+            ok = g.depthEyes[eye].CreateDepth(g.instance, g.session, g.device, depthFormat, w, h,
+                eye == 0 ? "left eye" : "right eye");
+        }
+        if (!ok) {
+            TT2VR_LOG_WARN("xr: no depth swapchain (format {}); images are submitted without depth",
+                static_cast<int>(depthFormat));
+            g.depthEyes[0].Destroy();
+            g.depthEyes[1].Destroy();
+        }
+    }
+    FetchHiddenMeshes();
     TT2VR_LOG_INFO("xr: session created; recommended eye size {}x{} (max {}x{}), scale {} -> swapchains {}x{} format {}",
         configViews[0].recommendedImageRectWidth, configViews[0].recommendedImageRectHeight,
         configViews[0].maxImageRectWidth, configViews[0].maxImageRectHeight, scale, w, h, static_cast<int>(format));
@@ -556,6 +690,10 @@ void PumpEvents()
             }
             break;
         }
+        case XR_TYPE_EVENT_DATA_VISIBILITY_MASK_CHANGED_KHR:
+            TT2VR_LOG_INFO("xr: the runtime changed its visibility mask");
+            FetchHiddenMeshes();
+            break;
         case XR_TYPE_EVENT_DATA_EVENTS_LOST:
             TT2VR_LOG_WARN("xr: runtime event queue overflowed");
             break;
@@ -749,7 +887,42 @@ bool WriteEyes(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
 }
 
 // Test mode: WriteEyes into the SimEye stand-ins, then the pending "eyeshot" requests (left eye).
-void WriteSimulatedEyes(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
+// Test mode eyeshot: distances (real metres) at a few points of the converted depth, decoded back from the output
+// encoding (checks the whole depth path without a runtime).
+std::string ProbeSimDepth(ID3D11DeviceContext* context, const SimDepth& sd, const d3d::DepthDecode& decode)
+{
+    if (!sd.texture || !sd.written) {
+        return "no depth";
+    }
+    D3D11_TEXTURE2D_DESC d{};
+    sd.texture->GetDesc(&d);
+    d.BindFlags = 0;
+    d.Usage = D3D11_USAGE_STAGING;
+    d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ComPtr<ID3D11Texture2D> staging;
+    if (FAILED(g.device->CreateTexture2D(&d, nullptr, &staging))) {
+        return "depth probe failed";
+    }
+    context->CopyResource(staging.Get(), sd.texture.Get());
+    D3D11_MAPPED_SUBRESOURCE m{};
+    if (FAILED(context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &m))) {
+        return "depth probe failed";
+    }
+    const auto metres = [&](float fx, float fy) {
+        const UINT x = std::min(d.Width - 1, static_cast<UINT>(fx * static_cast<float>(d.Width)));
+        const UINT y = std::min(d.Height - 1, static_cast<UINT>(fy * static_cast<float>(d.Height)));
+        const float v = reinterpret_cast<const float*>(static_cast<const char*>(m.pData) + y * m.RowPitch)[x];
+        const float n = decode.outNearZ, f = decode.outFarZ;
+        return v <= 0.0f ? f : n * f / (n + v * (f - n));
+    };
+    const std::string r = fmt::format("depth m: centre {:.1f}, low centre {:.2f}, bottom centre {:.2f}, upper left {:.1f}, "
+                                      "corner {:.0f}",
+        metres(0.5f, 0.5f), metres(0.5f, 0.75f), metres(0.5f, 0.95f), metres(0.25f, 0.25f), metres(0.02f, 0.02f));
+    context->Unmap(staging.Get(), 0);
+    return r;
+}
+
+void WriteSimulatedEyes(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, const DepthSource& depth)
 {
     D3D11_TEXTURE2D_DESC bd{};
     const ComPtr<ID3D11Texture2D> back = BackBuffer(swapChain, bd);
@@ -774,13 +947,49 @@ void WriteSimulatedEyes(IDXGISwapChain* swapChain, ID3D11DeviceContext* context)
     g.submit.copyMs += MsSince(t);
     g.status.copyMode = mode ? mode : "-";
     g.sourceCopied = mode && std::strcmp(mode, "copy") != 0;
+    for (int i = 0; i < 2; ++i) {
+        SimDepth& sd = g.simDepth[i];
+        sd.written = false;
+        if (!core::GetConfig().xr.depth_submit || !depth.eye[i] || !g.blitter.Ready()) {
+            continue;
+        }
+        if ((sd.width != g.status.eyeW || sd.height != g.status.eyeH) && !sd.Create(g.device, g.status.eyeW, g.status.eyeH)) {
+            continue;
+        }
+        sd.written = g.blitter.EyeDepth(context, depth.eye[i], sd.dsv.Get(), sd.width, sd.height, depth.decode);
+    }
+    g.simDecode = depth.decode;
     auto shots = std::move(g.eyeShots);
     g.eyeShots.clear();
     for (auto& s : shots) {
-        const std::string r = fmt::format("eyeshot {}; {}; copy {}",
+        // The left eye's submitted depth as an image too (log scale, near white), to check it lines up with colour.
+        std::string depthImage = "no depth image";
+        if (g.simDepth[0].written) {
+            D3D11_TEXTURE2D_DESC vd{};
+            vd.Width = g.simDepth[0].width;
+            vd.Height = g.simDepth[0].height;
+            vd.MipLevels = 1;
+            vd.ArraySize = 1;
+            vd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            vd.SampleDesc.Count = 1;
+            vd.BindFlags = D3D11_BIND_RENDER_TARGET;
+            ComPtr<ID3D11Texture2D> vis;
+            ComPtr<ID3D11RenderTargetView> visRtv;
+            if (SUCCEEDED(g.device->CreateTexture2D(&vd, nullptr, &vis)) &&
+                SUCCEEDED(g.device->CreateRenderTargetView(vis.Get(), nullptr, &visRtv)) &&
+                g.blitter.Visualize(context, g.simDepth[0].srv.Get(), visRtv.Get(), vd.Width, vd.Height,
+                    d3d::Blitter::View::Depth)) {
+                depthImage = d3d::screenshot::SaveTexture(vis.Get(), g.device, context, s.name + "_depth_l", 0);
+            }
+        }
+        const d3d::DepthDecode& dd = g.simDecode;
+        const std::string r = fmt::format("eyeshot {}; {}; copy {}; left {}; right {}; {}; decode split {} s {:.3f} "
+                                          "near {} far {} front {} {} world scale {}",
             d3d::screenshot::SaveTexture(g.simEyes[0].Texture(), g.device, context, s.name + "_l", 0),
             d3d::screenshot::SaveTexture(g.simEyes[1].Texture(), g.device, context, s.name + "_r", 0),
-            g.status.copyMode);
+            g.status.copyMode, ProbeSimDepth(context, g.simDepth[0], g.simDecode),
+            ProbeSimDepth(context, g.simDepth[1], g.simDecode), depthImage, dd.split, dd.frontShare, dd.nearZ, dd.farZ,
+            dd.frontNearZ, dd.frontFarZ, dd.worldScale);
         TT2VR_LOG_INFO("{}", r);
         if (s.done) {
             s.done(r);
@@ -865,6 +1074,18 @@ void StartSimulated()
 {
     g.simulated = true;
     g.profile = LoadHeadsetProfile();
+    if (core::GetConfig().xr.visibility_mask) {
+        for (int i = 0; i < 2; ++i) {
+            g.hiddenMesh[i] = g.profile.mask[i];
+            if (g.hiddenMesh[i].empty()) {
+                const float* f = g.profile.fov[i];
+                g.hiddenMesh[i] = stereo::SyntheticHiddenMesh(stereo::TangentsFromXrFov(f[0], f[1], f[2], f[3]), 0.92f, 48);
+            }
+        }
+        ++g.hiddenMeshVersion;
+        TT2VR_LOG_INFO("xr: simulated hidden-area mesh: {} / {} triangles ({})", g.hiddenMesh[0].size() / 6,
+            g.hiddenMesh[1].size() / 6, g.profile.mask[0].empty() ? "synthetic, no real mask saved yet" : "saved");
+    }
     const float scale = core::GetConfig().xr.resolution_scale;
     const auto scaled = [scale](std::uint32_t recommended) {
         const auto v = static_cast<std::uint32_t>(std::lround(static_cast<double>(recommended) * scale));
@@ -1030,6 +1251,7 @@ void SaveProfileFrom(const XrView (&views)[2])
         p.fov[i][1] = f.angleRight;
         p.fov[i][2] = f.angleUp;
         p.fov[i][3] = f.angleDown;
+        p.mask[i] = g.hiddenMesh[i];
     }
     SaveHeadsetProfile(p);
 }
@@ -1176,7 +1398,44 @@ void SetSideBySide(bool sideBySide)
     g.status.sideBySide = sideBySide;
 }
 
-void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, const HudSource& hud)
+// Each eye's depth into its depth swapchain image, and the layer info that goes with the projection view (PLAN 9f).
+// The runtime's convention for reversed depth: nearZ is the distance of minDepth (0 = far here), so nearZ > farZ.
+bool WriteDepth(ID3D11DeviceContext* context, const DepthSource& depth, XrCompositionLayerDepthInfoKHR (&info)[2])
+{
+    if (!g.depthEyes[0].Valid() || !g.depthEyes[1].Valid() || !depth.eye[0] || !depth.eye[1] || !g.blitter.Ready()) {
+        return false;
+    }
+    d3d::InternalScope internal;
+    for (int i = 0; i < 2; ++i) {
+        EyeSwapchain& sc = g.depthEyes[i];
+        auto t = Clock::now();
+        if (!sc.Acquire(g.instance)) {
+            return false;
+        }
+        g.submit.waitMs += MsSince(t);
+        const bool ok = g.blitter.EyeDepth(context, depth.eye[g.viewEye[i]], sc.Dsv(), sc.Width(), sc.Height(),
+            depth.decode);
+        sc.Release(g.instance);
+        if (!ok) {
+            return false;
+        }
+        info[i] = {XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR};
+        info[i].subImage.swapchain = sc.Handle();
+        info[i].subImage.imageRect.extent = {static_cast<std::int32_t>(sc.Width()), static_cast<std::int32_t>(sc.Height())};
+        info[i].minDepth = 0.0f;
+        info[i].maxDepth = 1.0f;
+        info[i].nearZ = depth.decode.outFarZ;
+        info[i].farZ = depth.decode.outNearZ;
+    }
+    if (g.depthFrames++ == 0) {
+        TT2VR_LOG_INFO("xr: depth submitted with the eye images (reversed-Z, {:.2f} .. {:.0f} m; front pass split {})",
+            depth.decode.outNearZ, depth.decode.outFarZ, depth.decode.split ? "on" : "off");
+    }
+    return true;
+}
+
+void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, const HudSource& hud,
+    const DepthSource& depth)
 {
     g.status.hudLayer = false;
     g.sourceCopied = false;
@@ -1189,7 +1448,7 @@ void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, const H
         g.frameOpen = false;
         ++g.submit.frames;
         if (g.rendered && g.sideBySide && swapChain && context && !g.simEyesFailed) {
-            WriteSimulatedEyes(swapChain, context);
+            WriteSimulatedEyes(swapChain, context, depth);
         }
         else {
             g.status.copyMode = "-";
@@ -1231,6 +1490,11 @@ void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, const H
             projViews[i].subImage.swapchain = g.eyes[i].Handle();
             projViews[i].subImage.imageRect.extent = {static_cast<std::int32_t>(g.eyes[i].Width()),
                 static_cast<std::int32_t>(g.eyes[i].Height())};
+        }
+        XrCompositionLayerDepthInfoKHR depthInfo[2] = {};
+        if (g.sideBySide && WriteDepth(context, depth, depthInfo)) {
+            projViews[0].next = &depthInfo[0];
+            projViews[1].next = &depthInfo[1];
         }
         XrCompositionLayerProjection layer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
         layer.space = g.local;
@@ -1421,6 +1685,17 @@ std::uint32_t RenderEyeSize(std::uint32_t eyeSize)
         return eyeSize;
     }
     return static_cast<std::uint32_t>(std::lround(static_cast<float>(eyeSize) * scale)) & ~1u;
+}
+
+const std::vector<float>& HiddenMesh(int eye)
+{
+    static const std::vector<float> kNone;
+    return eye == 0 || eye == 1 ? g.hiddenMesh[eye] : kNone;
+}
+
+unsigned HiddenMeshVersion()
+{
+    return g.hiddenMeshVersion;
 }
 
 std::string TakeSubmitSummary()

@@ -23,6 +23,18 @@ DXGI_FORMAT SrgbViewOf(DXGI_FORMAT format); // R8G8B8A8_UNORM / _TYPELESS -> R8G
 bool IsSrgb(DXGI_FORMAT format);
 bool SameFamily(DXGI_FORMAT a, DXGI_FORMAT b); // CopyResource-compatible
 
+// How an eye's stored depth maps to distance (PLAN 9f; renderer.md 12). The engine's depth is reversed-Z with a
+// finite far plane (d = n (f - z) / (z (f - n))). With the front pass split, world pixels are stored in [0, 1 - s] and
+// the front pass (bike, rider: own near / far) in [1 - s, 1].
+struct DepthDecode {
+    float frontShare = 0.0f; // s
+    bool split = false; // the stored range is split as above
+    float nearZ = 0.5f, farZ = 10000.0f; // world pass, game metres
+    float frontNearZ = 0.1f, frontFarZ = 10.0f; // front pass
+    float worldScale = 1.0f; // game metres per real metre ([xr] world_scale)
+    float outNearZ = 0.05f, outFarZ = 10000.0f; // the output's reversed-Z encoding, real metres
+};
+
 // Thread: game main thread (Present hook). Not thread-safe.
 class Blitter {
 public:
@@ -61,6 +73,11 @@ public:
     // copySource as in Blit; output alpha 1. False when the FSR shaders are unavailable (the caller falls back to Blit).
     bool Fsr(ID3D11DeviceContext* context, ID3D11Texture2D* source, UINT srcX, UINT srcW,
         ID3D11RenderTargetView* target, UINT dstW, UINT dstH, bool decode, float sharpness, bool copySource = true);
+    // Depth submission (PLAN 9f): re-encodes the engine's stored depth `source` (R32_FLOAT, any size; point-sampled)
+    // as reversed-Z distance with decode.outNearZ / outFarZ into the whole depth target (width x height). Pixels
+    // nothing was drawn into (0) stay at the far plane (0).
+    bool EyeDepth(ID3D11DeviceContext* context, ID3D11ShaderResourceView* source, ID3D11DepthStencilView* target,
+        UINT width, UINT height, const DepthDecode& decode);
     void Release();
 
 private:
@@ -87,6 +104,10 @@ private:
     ComPtr<ID3D11ShaderResourceView> m_fsrMidSrv;
     ComPtr<ID3D11RenderTargetView> m_fsrMidRtv;
     UINT m_fsrMidW = 0, m_fsrMidH = 0;
+    ComPtr<ID3D11PixelShader> m_psEyeDepth;
+    ComPtr<ID3D11Buffer> m_depthCb; // three float4, see PSEyeDepth
+    ComPtr<ID3D11DepthStencilState> m_depthWrite; // test always, write all
+    ComPtr<ID3D11SamplerState> m_pointSampler;
     ComPtr<ID3D11BlendState> m_blendAlpha;
     ComPtr<ID3D11BlendState> m_blendOver;
     ComPtr<ID3D11SamplerState> m_sampler;

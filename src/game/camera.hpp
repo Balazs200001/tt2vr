@@ -20,6 +20,9 @@
 // etc., which run before DoUpdate) are never affected.
 #pragma once
 
+#include "d3d/blit.hpp"
+#include "stereo/math/projection.hpp"
+
 #include <cstdint>
 #include <string>
 
@@ -87,6 +90,12 @@ void EndHeadCenterView(void* viewContext);
 // Remote "comfort [<setting> <value>]" (main thread): with no argument, the current comfort settings; "lock <0..100>"
 // sets the horizon lock, "shake <0..100>" the shake and speed noise share. Returns the result line.
 std::string ComfortCommand(const std::string& arg);
+
+// How this frame's stored depth maps to distance (PLAN 9f, renderer.md 12), from the main camera and the main
+// RenderLoop: false outside a head-tracked frame. Main thread (Present).
+bool CurrentDepthDecode(d3d::DepthDecode& out);
+// Eye `eye`'s frustum tangents as rendered this frame (head-tracked frames only). Main thread.
+bool EyeTangents(int eye, stereo::FovTangents& out);
 
 // The local player's TT2 camera controller (TTCamera, last seen in its physics step), or nullptr. Main thread.
 const void* LocalRiderCamera();

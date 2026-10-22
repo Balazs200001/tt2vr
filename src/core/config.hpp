@@ -83,6 +83,8 @@ struct Config {
         float ipd_scale = 1.0f; // PLAN 8e: eye separation multiplier on top of world_scale, 0.5..2
         bool visor_drops_shared = true; // PLAN 8f: the right eye shows the left eye's visor drops
         bool occlusion = true; // false: no occlusion culling while the headset session runs (A/B, see-through flashes)
+        bool visibility_mask = true; // PLAN 9: skip the pixels the lenses never show (XR_KHR_visibility_mask)
+        bool depth_submit = true; // PLAN 9f: submit each eye's depth with its image (XR_KHR_composition_layer_depth)
     } xr;
     struct Hud {
         bool enabled = true; // the game's 2D HUD on its own panel while riding in the headset (Phase 7)

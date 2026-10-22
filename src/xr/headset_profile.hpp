@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace xr {
 
@@ -14,6 +15,8 @@ struct HeadsetProfile {
     float ipd = 0.063f; // m, distance between the eye positions
     // XrFovf per eye in radians: left, right, up, down (left/down negative).
     float fov[2][4] = {{-0.9076f, 0.7505f, 0.7679f, -0.8727f}, {-0.7505f, 0.9076f, 0.7679f, -0.8727f}};
+    // XR_KHR_visibility_mask hidden-area triangles per eye (x, y on the view's z = -1 plane), empty if unknown.
+    std::vector<float> mask[2];
 };
 
 // Thread: game main thread. Defaults when the file is missing or unreadable.

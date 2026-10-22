@@ -21,8 +21,11 @@
 #include <dxgi.h>
 
 #include <cstdint>
+#include "d3d/blit.hpp"
+
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace xr {
 
@@ -51,8 +54,16 @@ struct HudSource {
     bool menu = false; // the pause menu's UI: placed like the menu screen ([xr] screen_distance / screen_width)
     float aspect = 0.0f; // panel width / height (0 = the image's pixel shape)
 };
-// Present pre-hook. A two-view frame with a HUD adds the HUD panel ([hud]) as a quad layer over the projection layer.
-void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, const HudSource& hud = {});
+// Each eye's stored depth at Present (R32_FLOAT, the engine's 'Last Frame Depth' of camera index k) and how to
+// read it (PLAN 9f).
+struct DepthSource {
+    ID3D11ShaderResourceView* eye[2] = {};
+    d3d::DepthDecode decode;
+};
+// Present pre-hook. A two-view frame with a HUD adds the HUD panel ([hud]) as a quad layer over the projection layer;
+// with `depth` (and the runtime's XR_KHR_composition_layer_depth) each eye's depth goes with its image.
+void OnFrameEnd(IDXGISwapChain* swapChain, ID3D11DeviceContext* context, const HudSource& hud = {},
+    const DepthSource& depth = {});
 // Present pre-hook, after OnFrameEnd and before the overlay: while the session runs, redraws the back buffer for the
 // desktop window ([xr] desktop_view), letterboxed so the window's stretch gives the right shape, and draws the
 // captured HUD (`hud`: premultiplied, sRGB; width / height `hudAspect`) over it ([hud] desktop).
@@ -104,6 +115,11 @@ std::uint32_t RenderEyeSize(std::uint32_t eyeSize);
 // PLAN 9d: the headset submit's CPU parts (waiting for images, copies, HUD panel, xrEndFrame) and the GPU time of our
 // own draws, averaged since the previous call, for the perf log; empty if no frame. Main thread.
 std::string TakeSubmitSummary();
+// The headset's hidden-area triangles for eye `eye` (x, y pairs on the view's z = -1 plane, PLAN 9 visibility mask),
+// or an empty list ([xr] visibility_mask off, runtime without XR_KHR_visibility_mask). Changes are counted by
+// HiddenMeshVersion. Main thread.
+const std::vector<float>& HiddenMesh(int eye);
+unsigned HiddenMeshVersion();
 // Test mode (simulated headset): at the next stereo frame, saves both eye images as the headset would get them
 // (after the eye copy, full size) as <capture dir>\screens\<name>_l.png and _r.png. Main thread.
 void RequestEyeShot(std::string name, std::function<void(const std::string&)> done);
